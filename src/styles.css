@@ -359,7 +359,7 @@ button.badge:hover:not(:disabled) { transform: translateX(-50%) translateY(-1px)
 .comp .big { width: 100%; max-width: calc((100dvh - 320px) * 0.716); aspect-ratio: 178.6 / 249.4; justify-self: center; border-radius: 7%/5%; filter: drop-shadow(0 10px 0 rgba(0, 0, 0, 0.3)); animation: rise 0.35s cubic-bezier(0.2, 0.9, 0.3, 1); }
 .card-main .kinfo { background: #f1eef6; border-radius: 0; padding: 14px 16px; font-size: 14px; }
 .card-main .k-head b { font-size: 21px; }
-.comp-hand { --ch: clamp(56px, 5.5vw, 104px); flex: none; height: calc(var(--ch) * 1.52); margin-top: calc(var(--ch) * -0.4); padding: calc(var(--ch) * 0.4) 24px 0; display: flex; justify-content: safe center; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; pointer-events: none; }
+.comp-hand { flex: none; height: calc(var(--ch) * 1.52); margin-top: calc(var(--ch) * -0.4); padding: calc(var(--ch) * 0.4) 24px 0; display: flex; justify-content: safe center; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; pointer-events: none; }
 .comp-hand::-webkit-scrollbar { display: none; }
 .comp-hand button { pointer-events: auto; }
 .comp-hand button:last-child { margin-right: 24px; }
@@ -831,3 +831,9 @@ input[type='checkbox']:focus-visible { outline: 2px solid var(--gold); outline-o
 /* Listado de un Atributo: cada carta con su imagen al lado, como en la ficha del hover. */
 .dock-card { grid-template-columns: 58px 1fr; }
 .dock-card .dc-art { width: 58px; display: block; border-radius: 7%/5%; border: 1px solid #0a0e10; grid-row: span 2; align-self: start; }
+
+/* Compendio: la fila de cartas va por encima de todo (en absoluto, abajo del todo) con mucho sitio libre arriba,
+   para que la carta elegida o bajo el ratón suba y crezca sin cortarse. Un hueco en el flujo le guarda su sitio. */
+.cards-tab { position: relative; }
+.comp-hand-space { flex: none; height: calc(var(--ch) * 1.12); }
+.comp-hand { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; height: calc(var(--ch) * 2.2); margin: 0; padding-top: calc(var(--ch) * 1.08); }

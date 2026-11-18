@@ -591,7 +591,8 @@ function CardsTab({ kind, setKind }: { kind: Kind; setKind: (k: Kind) => void })
     <button key={key} className={same(filter, f) ? 'on' : ''} onClick={() => pickFilter(f)}>{label}</button>
   );
   return (
-    <div className="cards-tab">
+    // --ch (alto de referencia de las cartas de abajo) lo usan la fila y el hueco que le guarda sitio.
+    <div className="cards-tab" style={{ '--ch': `clamp(${62 * zoom}px, ${6.4 * zoom}vw, ${118 * zoom}px)` } as React.CSSProperties}>
       <nav className="attr-nav" aria-label="Filtrar cartas">
         {F({ t: 'all' }, 'Todas', 'all')}
         <i className="sep" />
@@ -606,9 +607,10 @@ function CardsTab({ kind, setKind }: { kind: Kind; setKind: (k: Kind) => void })
         <KindInfo kind={kind} full />
         <Demo kind={kind} />
       </main>
+      {/* Hueco que ocupa la fila de cartas; la fila va encima, en absoluto, con sitio de sobra para que la carta elegida suba sin cortarse */}
+      <div className="comp-hand-space" aria-hidden="true" />
       {/* Con pocas cartas en el filtro, se ven más grandes y menos solapadas */}
-      <div className="comp-hand" aria-label="Cartas" ref={handRef}
-        style={{ '--ch': `clamp(${62 * zoom}px, ${6.4 * zoom}vw, ${118 * zoom}px)`, '--ov': ov } as React.CSSProperties}>
+      <div className="comp-hand" aria-label="Cartas" ref={handRef} style={{ '--ov': ov } as React.CSSProperties}>
         {list.map((k, i) => {
           const first = i > 0 && KINDS[k].attr !== KINDS[list[i - 1]].attr;
           return (
