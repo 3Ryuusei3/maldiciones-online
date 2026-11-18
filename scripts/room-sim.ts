@@ -3,10 +3,10 @@
 // que la vista de cada jugador no contiene cartas ajenas ocultas ni la semilla.
 //   npx tsx scripts/room-sim.ts 200
 
-import { hello, newRoom, nextWake, ready, roomView, setOpts, start, tick } from '../src/game/room';
+import { decideDrop, hello, newRoom, nextWake, ready, roomView, setOpts, start, tick } from '../src/game/room';
 
 const N = Number(process.argv[2] ?? 100);
-let ended = 0, leaks = 0, stuck = 0, steps = 0;
+let ended = 0, leaks = 0, stuck = 0, steps = 0, paused = 0, kicked = 0, resumed = 0;
 const t0 = Date.now();
 
 for (let g = 0; g < N; g++) {
@@ -16,15 +16,21 @@ for (let g = 0; g < N; g++) {
   const online = new Set(tokens.slice(0, 2 + (g % 2)));
   for (const [i, tk] of tokens.entries()) hello(r, tk, `Humano ${i}`);
   setOpts(r, tokens[0], { size: 3 + (g % 4), level: (g % 3) as 0 | 1 | 2, beta: g % 2 === 0, extraCurses: g % 5 === 0 });
-  start(r, tokens[0], now);
+  start(r, tokens[0], now, online);
   for (const tk of online) ready(r, tk, online, now);
   let guard = 0;
   while (r.game!.phase.t !== 'over' && guard++ < 20000) {
     tick(r, online, now);
     steps++;
-    // A mitad de partida se desconecta uno y vuelve más tarde.
-    if (guard === 300) online.delete(tokens[1]);
-    if (guard === 900) online.add(tokens[1]);
+    // A mitad de partida se cae uno: la partida se detiene. Según la partida, el anfitrión lo quita,
+    // vuelve durante la espera o se acaba la espera (juega una máquina) y vuelve más tarde.
+    const seat1 = r.seats.findIndex((x) => x.token === tokens[1]);
+    if (guard === 30) online.delete(tokens[1]);
+    if (guard === 31 && r.pausedAt) paused++;
+    // (justo al detenerse: el siguiente despertar ya sería al acabarse la espera)
+    if (guard === 31 && g % 3 === 0 && r.pausedAt) decideDrop(r, tokens[0], seat1, 'kick', online, now);
+    if (guard === 31 && g % 3 === 2) online.add(tokens[1]);
+    if (guard === 400) online.add(tokens[1]);
     for (const tk of online) {
       const v = roomView(r, tk, online, now);
       const me = v.you;
@@ -43,6 +49,9 @@ for (let g = 0; g < N; g++) {
     if (w === null) break;
     now = w;
   }
+  const s1 = r.seats.findIndex((x) => x.token === tokens[1]);
+  if (s1 >= 0 && r.game!.players[s1].out) kicked++;
+  else if (guard > 31 && !r.pausedAt) resumed++;
   if (r.game!.phase.t === 'over') ended++;
   else {
     stuck++;
@@ -59,4 +68,5 @@ function isShown(full: import('../src/game/engine').GameState, id: string, me: n
 }
 
 console.log(`${N} partidas: ${ended} terminadas, ${stuck} atascadas, ${leaks} fugas de información, ${steps} pasos, ${Date.now() - t0} ms`);
+console.log(`Caídas: ${paused} detuvieron la partida, ${kicked} acabaron con el jugador fuera, ${resumed} siguieron (volvió o jugó la máquina).`);
 if (stuck || leaks) process.exit(1);

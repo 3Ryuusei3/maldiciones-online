@@ -133,7 +133,8 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
         </>
       ) : (
         <>
-          <SetupFields opts={o} set={() => {}} readOnly />
+          <p className="lobby-note">Solo el anfitrión puede cambiar las opciones de la partida.</p>
+          <div className="readonly"><SetupFields opts={o} set={() => {}} readOnly /></div>
           <p className="lobby-wait">Esperando a que el anfitrión empiece la partida…</p>
         </>
       )}

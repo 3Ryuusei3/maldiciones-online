@@ -9,7 +9,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   ABANDON_MS, ClientMsg, Result, RoomData, ServerMsg,
-  act, hello, leave, newRoom, nextWake, ready, roomView, setOpts, start, tick, toLobby,
+  act, decideDrop, hello, leave, newRoom, nextWake, ready, roomView, setOpts, start, tick, toLobby,
 } from '../../src/game/room';
 
 interface Env {
@@ -120,7 +120,7 @@ export class Sala extends DurableObject<Env> {
     let token = (ws.deserializeAttachment() as Att | null)?.token ?? null;
     let res: Result;
     if (m.t === 'hello') {
-      res = hello(r, m.token, m.name);
+      res = hello(r, m.token, m.name, this.online(ws));
       if (res.ok) {
         token = m.token;
         ws.serializeAttachment({ token } satisfies Att);
@@ -130,8 +130,9 @@ export class Sala extends DurableObject<Env> {
     } else {
       const online = this.online();
       switch (m.t) {
-        case 'opts': res = setOpts(r, token, m.opts ?? {}); break;
-        case 'start': case 'rematch': res = start(r, token, now); break;
+        case 'opts': res = setOpts(r, token, m.opts ?? {}, online); break;
+        case 'start': case 'rematch': res = start(r, token, now, online); break;
+        case 'drop': res = decideDrop(r, token, Number(m.p), m.how, online, now); break;
         case 'lobby': res = toLobby(r, token); break;
         case 'ready': ready(r, token, online, now); res = { ok: true }; break;
         case 'act': res = act(r, token, m.a, online, now); break;

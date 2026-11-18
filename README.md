@@ -54,9 +54,15 @@ Si la web se aloja en otro sitio, compílala con `VITE_API=https://maldiciones.<
 | `src/net/client.ts` | Conexión del navegador (reconexión, token por pestaña) |
 | `src/ui/Online.tsx` | Crear/unirse y sala de espera |
 
-Reglas online: los huecos se rellenan con máquinas; quien se desconecta o se va lo juega una máquina hasta que vuelve
-(mismo token = misma pestaña, aunque recargue); un humano conectado tiene 60 s en su turno y 40 s en otras decisiones
-antes del piloto automático; solo el anfitrión cambia opciones, empieza, señala faltas (+3) y pide revancha.
+Reglas online:
+- Los huecos se rellenan con máquinas; quien entra con la partida empezada ocupa el sitio de una máquina.
+- Cualquier decisión tiene 15 s; si se agotan, juega la máquina por ese jugador.
+- Si alguien se cae, todos reciben un aviso y la partida se detiene hasta 90 s esperando a que vuelva. El anfitrión puede
+  esperar más, seguir con una máquina jugando por él o quitarlo de la partida (sus cartas van al fondo de la Pila).
+  Al acabarse la espera, juega una máquina por él. Quien se va con «Salir» lo juega una máquina sin detener la partida.
+- Para volver: recargar la misma pestaña, o entrar con el mismo código y el mismo nombre (recupera su asiento).
+- Si se cae el anfitrión, hace de anfitrión el primer jugador conectado; cuando vuelve, recupera el papel.
+- Solo el anfitrión cambia opciones, empieza la partida y señala faltas (+3). Al terminar, cualquiera puede volver a la sala.
 Las salas sin nadie conectado durante 6 h se borran.
 
 ## Adaptaciones y supuestos de reglas

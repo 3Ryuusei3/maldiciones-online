@@ -15,6 +15,8 @@ export interface Player {
   egida: Card | null;
   /** Un Imán le dejó sin cartas: están retenidas y no gana por ello. */
   held: boolean;
+  /** Fuera de la partida (online: se cayó y se le quitó). No juega, no se le puede elegir y no gana. */
+  out?: boolean;
 }
 
 export type Effect =
@@ -134,6 +136,8 @@ export type Action =
   | { type: 'search'; player: number; where: 'deck' | 'pile' | number }
   | { type: 'absolve'; player: number; to: number | null }
   | { type: 'penalize'; target: number }
+  /** Solo el servidor: quita a un jugador de la partida (sus cartas van al fondo de la Pila). */
+  | { type: 'kick'; target: number }
   | { type: 'timeout' };
 
 export interface GameOptions {
@@ -171,7 +175,18 @@ function log(s: GameState, text: string) {
 
 const nm = (s: GameState, p: number) => s.players[p].name;
 export const topCard = (s: GameState): Card => s.pile[s.pile.length - 1];
-export const nextPlayer = (s: GameState, p: number): number => (p + s.dir + s.players.length) % s.players.length;
+/** Siguiente jugador en el sentido de juego (los que están fuera de la partida se saltan). */
+export function nextPlayer(s: GameState, p: number): number {
+  const n = s.players.length;
+  let q = p;
+  for (let i = 0; i < n; i++) {
+    q = (q + s.dir + n) % n;
+    if (!s.players[q].out) return q;
+  }
+  return q;
+}
+/** Jugadores que siguen en la partida. */
+const inGame = (s: GameState) => s.players.filter((p) => !p.out);
 export const envCount = (s: GameState) => (s.env.mutis ? 1 : 0) + (s.env.inutilizar ? 1 : 0) + (s.env.tinieblas ? 1 : 0);
 export const isCursedEnv = (s: GameState) => envCount(s) >= 2;
 export const isBlind = (s: GameState) => !!s.env.tinieblas;
@@ -445,7 +460,7 @@ function finish(s: GameState) {
   for (const pl of s.players) if (pl.held && pl.hand.length > 0) pl.held = false;
   for (let i = 0; i < s.players.length; i++) {
     const p = (s.turn + i) % s.players.length;
-    if (s.players[p].hand.length === 0 && !s.players[p].held && tryWin(s, p)) return;
+    if (s.players[p].hand.length === 0 && !s.players[p].held && !s.players[p].out && tryWin(s, p)) return;
   }
   // Dentro de una Ráfaga, tras cada carta se vuelve a elegir la siguiente.
   if (s.rafaga && resumeRafaga(s)) return;
@@ -493,7 +508,7 @@ function startPlay(s: GameState, p: number, card: Card) {
 }
 
 export function predTargets(s: GameState, L: number, e: Card): number[] {
-  const all = s.players.map((p) => p.id);
+  const all = inGame(s).map((p) => p.id);
   const others = all.filter((p) => p !== L);
   const attr = KINDS[e.kind].attr;
   if (attr === 'maldita' || attr === 'ataque' || e.kind === 'codicia' || e.kind === 'iman' || e.kind === 'escarcha') return others;
@@ -514,8 +529,8 @@ function continuePlay(s: GameState, pp: PendingPlay) {
   if (pp.target === null && !pp.noTarget) {
     let opts: number[] | null = null;
     if (pred) opts = predTargets(s, L, e);
-    else if (e.kind === 'codicia' && !inutil) opts = s.players.filter((p) => p.id !== L && p.hand.length > 0).map((p) => p.id);
-    else if (e.kind === 'purga') opts = s.players.map((p) => p.id);
+    else if (e.kind === 'codicia' && !inutil) opts = inGame(s).filter((p) => p.id !== L && p.hand.length > 0).map((p) => p.id);
+    else if (e.kind === 'purga') opts = inGame(s).map((p) => p.id);
     if (opts && opts.length > 0) return ask('target', opts);
     pp.noTarget = true;
   }
@@ -555,7 +570,7 @@ function runEffect(s: GameState, pp: PendingPlay) {
   s.after = { turnTo: predestined ? T : null };
   if (predestined && T !== null) log(s, `${nm(s, L)} predestina ${cardName(e)} a ${nm(s, T)}, que recibe el turno.`);
   const inutil = s.env.inutilizar && e.color !== null;
-  const others = s.players.filter((p) => p.id !== L).map((p) => p.id);
+  const others = inGame(s).filter((p) => p.id !== L).map((p) => p.id);
 
   if (isCursed(e)) {
     // Solo llega aquí como acompañante de Predestinar.
@@ -880,7 +895,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
     log(s, `${nm(s, p)} acierta a ciegas con ${cardName(c)}.`);
     // A ciegas el Reflejo vuelve contra quien lanzó el efecto (o contra otro al azar si fue uno mismo).
     const src = eff.k === 'trav' ? eff.launchers[eff.launchers.length - 1] : eff.source;
-    const others = s.players.filter((x) => x.id !== p).map((x) => x.id);
+    const others = inGame(s).filter((x) => x.id !== p).map((x) => x.id);
     const target = a.target ?? (src !== p ? src : others[Math.floor(rnd(s) * others.length)]);
     if (as === 'egida' && !pl.egida) {
       // Se usa exactamente la carta elegida.
@@ -996,14 +1011,14 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
     }
     case 'reflejo': {
       const needsTarget = eff.k === 'draw' || eff.k === 'trav';
-      if (needsTarget && (a.target === undefined || a.target === p || !s.players[a.target])) return false;
+      if (needsTarget && (a.target === undefined || a.target === p || !s.players[a.target] || s.players[a.target].out)) return false;
       const c = pl.hand.find((x) => x.kind === 'reflejo')!;
       takeFromHand(s, p, c.id);
       putOnPile(s, p, c);
       s.undo?.spent.push({ p, card: c, from: 'pile' });
       s.dir = s.dir === 1 ? -1 : 1;
       announce(s, p, '¡Reflejo!');
-      const everyone = s.players.filter((x) => x.id !== p).map((x) => x.id);
+      const everyone = inGame(s).filter((x) => x.id !== p).map((x) => x.id);
       let ne: Effect;
       if (eff.k === 'draw') ne = { k: 'draw', source: p, targets: [a.target!], amount: eff.amount, aplastar: false };
       else if (eff.k === 'trav') {
@@ -1224,7 +1239,7 @@ function step(s: GameState, a: Action): boolean {
       for (const c of ph.pool) {
         const d = a.assign[c.id] ?? 'discard';
         if (d !== 'discard') {
-          if (typeof d === 'number' && (d === a.player || !s.players[d])) return false;
+          if (typeof d === 'number' && (d === a.player || !s.players[d] || s.players[d].out)) return false;
           count[d] = (count[d] ?? 0) + 1;
           if (count[d] > 3) return false;
         }
@@ -1331,7 +1346,7 @@ function step(s: GameState, a: Action): boolean {
       return true;
     }
     case 'recuperar': {
-      if (ph.t !== 'recuperar' || ph.player !== a.player || !ph.options.includes(a.cardId) || !s.players[a.to]) return false;
+      if (ph.t !== 'recuperar' || ph.player !== a.player || !ph.options.includes(a.cardId) || !s.players[a.to] || s.players[a.to].out) return false;
       const i = s.pile.findIndex((c) => c.id === a.cardId);
       const [c] = s.pile.splice(i, 1);
       if (a.to === a.player) {
@@ -1384,7 +1399,7 @@ function step(s: GameState, a: Action): boolean {
       const c = s.players[a.player].hand.find((x) => x.kind === 'condena')!;
       takeFromHand(s, a.player, c.id);
       s.after = { turnTo: a.player };
-      if (a.to === null || a.to === a.player || !s.players[a.to]) {
+      if (a.to === null || a.to === a.player || !s.players[a.to] || s.players[a.to].out) {
         s.pile.unshift(c);
         log(s, `${nm(s, a.player)} queda absuelto y descarta Condena.`);
         finish(s);
@@ -1394,8 +1409,42 @@ function step(s: GameState, a: Action): boolean {
       }
       return true;
     }
+    case 'kick': {
+      const p = a.target;
+      const pl = s.players[p];
+      // Solo entre jugadas, para no dejar a medias ninguna acción en la que participe.
+      if (!pl || pl.out || ph.t !== 'turn') return false;
+      pl.out = true;
+      const n = pl.hand.length;
+      if (n) {
+        s.pile.unshift(...pl.hand);
+        fx(s, p, 'pile', n);
+        pl.hand = [];
+      }
+      if (pl.egida) {
+        s.pile.unshift(pl.egida);
+        fx(s, p, 'pile', 1, pl.egida);
+        pl.egida = null;
+      }
+      pl.held = false;
+      log(s, `${nm(s, p)} queda fuera de la partida: ${n ? `sus ${n} cartas van al fondo de la Pila` : 'no tenía cartas'}.`);
+      if (s.env.tinieblas?.owner === p) {
+        s.env.tinieblas = null;
+        log(s, 'Se disipan las Tinieblas.');
+      }
+      const left = inGame(s);
+      if (left.length === 1) {
+        s.winner = left[0].id;
+        s.phase = { t: 'over' };
+        s.after = null;
+        log(s, `🏆 ${nm(s, left[0].id)} es el único que queda y gana la partida.`);
+        return true;
+      }
+      if (s.turn === p) beginTurn(s, nextPlayer(s, p));
+      return true;
+    }
     case 'penalize': {
-      if (!s.players[a.target]) return false;
+      if (!s.players[a.target] || s.players[a.target].out) return false;
       drawCards(s, a.target, 3);
       log(s, `El anfitrión señala una falta: ${nm(s, a.target)} roba 3.`);
       return true;

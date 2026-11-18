@@ -21,7 +21,7 @@ function bestColor(s: GameState, p: number, r: Rnd): Color {
  * para que las máquinas también se peleen entre ellas y no vayan siempre a por el mismo.
  */
 function leader(s: GameState, p: number, among?: number[], r: Rnd = Math.random): number {
-  const pool = (among ?? s.players.map((x) => x.id)).filter((x) => x !== p);
+  const pool = (among ?? s.players.map((x) => x.id)).filter((x) => x !== p && !s.players[x].out);
   // Si alguien está a punto de ganar (1-2 cartas), casi siempre va a por él.
   const len = (x: number) => s.players[x].hand.length;
   const min = Math.min(...pool.map(len));
@@ -60,7 +60,7 @@ function pickTied(hand: Card[], options: string[], n: number, lvl: Level, r: Rnd
 }
 
 /** Menor nº de cartas entre los oponentes (para saber si alguien está a punto de ganar). */
-const rivalMin = (s: GameState, p: number) => Math.min(...s.players.filter((x) => x.id !== p).map((x) => x.hand.length));
+const rivalMin = (s: GameState, p: number) => Math.min(...s.players.filter((x) => x.id !== p && !x.out).map((x) => x.hand.length));
 
 /** ¿Quedaría el Entorno maldito (2 o más) si esta carta de Entorno cambia su estado? */
 function envAfter(s: GameState, c: Card): number {
@@ -306,7 +306,7 @@ export function botDecide(s: GameState, p: number, lvl: Level, r: Rnd = Math.ran
       const assign: Record<string, 'keep' | 'discard' | number> = {};
       const load: Record<number, number> = {};
       let kept = 0;
-      const rivals = s.players.filter((x) => x.id !== p).map((x) => ({ id: x.id, k: x.hand.length + (x.hand.length <= 2 ? 0 : r() * 2) })).sort((a, b) => a.k - b.k).map((x) => x.id);
+      const rivals = s.players.filter((x) => x.id !== p && !x.out).map((x) => ({ id: x.id, k: x.hand.length + (x.hand.length <= 2 ? 0 : r() * 2) })).sort((a, b) => a.k - b.k).map((x) => x.id);
       for (const c of ph.pool) {
         if (isCursed(c) && lvl > 0) {
           // Una a cada rival antes de repetir: no se las lleva todas el mismo.

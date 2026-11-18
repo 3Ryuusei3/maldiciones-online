@@ -6,6 +6,7 @@ import { Level } from '../game/bot';
 import { CompTab, Compendium, HelpDock } from './Compendium';
 import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
 import { NetClient, useNet } from '../net/client';
+import type { RoomView } from '../game/room';
 import { Lobby, OnlineEntry, Shell } from './Online';
 import { SetupFields } from './Setup';
 import type { RoomOpts } from '../game/room';
@@ -449,7 +450,15 @@ const SEATS: Record<number, [string, number][]> = {
 /** Fases de la entrada: reparto boca abajo, giro de las cartas (ocultar / mostrar) y primera carta de la Pila. */
 type Intro = 'deal' | 'out' | 'in' | 'pile' | null;
 
-function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, away, egidaAir }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; away?: boolean; egidaAir: string[] }) {
+/** Estado de un asiento online: caído y esperándole, caído con una máquina jugando por él, o fuera de la partida. */
+type SeatState = 'wait' | 'auto' | 'out' | undefined;
+const STATE_TAG: Record<'wait' | 'auto' | 'out', [string, string]> = {
+  wait: ['desconectado', 'Se ha caído: la partida espera a que vuelva'],
+  auto: ['ausente', 'Desconectado: juega una máquina por él'],
+  out: ['fuera', 'Ha quedado fuera de la partida'],
+};
+
+function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, state, onKick, egidaAir }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; state?: SeatState; onKick?: () => void; egidaAir: string[] }) {
   const pl = s.players[p];
   // Durante el reparto su Maldición está aparte, boca arriba, así que no cuenta en el abanico.
   const have = Math.min(shown - (intro === 'deal' || intro === 'out' ? 1 : 0), 14);
@@ -458,7 +467,7 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
   const mid = (n - 1) / 2;
   const spread = Math.min(11, 70 / Math.max(n, 1));
   return (
-    <div className={`seat ${side} ${s.turn === p && !intro ? 'turn' : ''} ${selectable ? 'selectable' : ''} ${away ? 'away' : ''}`} style={side === 'top' ? { left: `${x}%` } : undefined} onClick={selectable ? onPick : undefined}>
+    <div className={`seat ${side} ${s.turn === p && !intro ? 'turn' : ''} ${selectable ? 'selectable' : ''} ${state ? `away ${state}` : ''}`} style={side === 'top' ? { left: `${x}%` } : undefined} onClick={selectable ? onPick : undefined}>
       <div className="fanbox" data-anchor={`p${p}`}>
         {Array.from({ length: n }, (_, i) => (
           <img key={i} src={asset('cards/back.webp')} alt="" draggable={false} style={{ transform: `translateX(-50%) rotate(${(i - mid) * spread}deg)`, opacity: i < have ? 1 : 0 }} />
@@ -474,7 +483,8 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
         {(intro === 'deal' || intro === 'out') && <img className={`curse0 ${intro === 'out' ? 'flip-out' : ''}`} src={asset('cards/maldicion.webp')} alt="Su Maldición, boca arriba" />}
         {pl.egida && <img className={`egida ${egidaAir.includes(pl.egida.id) ? 'air' : ''}`} data-egida={p} src={asset('cards/egida.webp')} alt="Égida boca arriba" title="Égida boca arriba: le queda 1 uso" />}
         {slapped && <span className="slapped">✋</span>}
-        {away && <span className="away-tag" title="Desconectado: juega una máquina por él">ausente</span>}
+        {state && <span className={`away-tag ${state}`} title={STATE_TAG[state][1]}>{STATE_TAG[state][0]}</span>}
+        {onKick && <button className="foul" title="Anfitrión: quitarle de la partida (sus cartas van al fondo de la Pila)" onClick={(e) => { e.stopPropagation(); onKick(); }}>Quitar</button>}
         {onFoul && <button className="foul" title="Anfitrión: señalar falta (roba 3)" onClick={(e) => { e.stopPropagation(); onFoul(); }}>+3</button>}
         {selectable && <span className="pickme">Elegir</span>}
         {say && s.announce?.player === p && <span key={s.announce.n} className="say">{s.announce.text}</span>}
@@ -510,7 +520,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     return { until: t.until - rv!.now + remote.recvAt, total: t.total };
   }, [net, local.timer, rv, remote.recvAt]);
   const isHost = !net || !!rv?.host;
-  const away = (p: number) => !!net && !!rv && !rv.seats[p]?.bot && !rv.seats[p]?.online;
+  const seatState = (p: number): SeatState => (net && rv ? rv.seats[p]?.state : s.players[p].out ? 'out' : undefined);
   // Online: se avisa al servidor cuando ya se ha visto el reparto, para que empiece a correr el juego.
   useEffect(() => { if (net && intro === null) net.send({ t: 'ready' }); }, [net, intro]);
   const startedAt = useRef(Date.now());
@@ -529,6 +539,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const top = topCard(s);
   // Los rivales, en orden de juego a partir de mí (en local yo soy siempre el 0).
   const rivals = s.players.map((_, i) => s.players[(ME + 1 + i) % s.players.length]).slice(0, -1);
+  /** Rivales a los que se puede elegir (los que están fuera de la partida, no). */
+  const rivalIds = rivals.filter((p) => !p.out).map((p) => p.id);
   const name = (p: number) => s.players[p].name;
   const { layer: flights, flying, adj, hidden, room, turning, tucks, egidaAir } = useFlights(s, origins);
 
@@ -769,10 +781,10 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     pickPlayers = (choosing.options as number[]).filter((p) => p !== ME);
     onPlayer = (p) => send({ type: 'choose', player: ME, value: p });
   } else if (reacting && reflecting) {
-    pickPlayers = rivals.map((p) => p.id);
+    pickPlayers = rivalIds;
     onPlayer = (p) => react({ r: 'reflejo', target: p });
   } else if (condena) {
-    pickPlayers = rivals.map((p) => p.id);
+    pickPlayers = rivalIds;
     if (condena.absolved) onPlayer = (p) => send({ type: 'absolve', player: ME, to: p });
     else {
       onPlayer = (p) => send({ type: 'search', player: ME, where: p });
@@ -782,12 +794,12 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   } else if (iman && trayPick) {
     const id = trayPick;
     const put = (d: 'keep' | 'discard' | number) => { setAssign((a) => ({ ...a, [id]: d })); setTrayPick(null); };
-    pickPlayers = rivals.filter((p) => assign[id] === p.id || count(p.id) < 3).map((p) => p.id);
+    pickPlayers = rivalIds.filter((p) => assign[id] === p || count(p) < 3);
     onPlayer = (p) => put(p);
     onPile = () => put('discard');
   } else if (recuperar && trayPick) {
     const id = trayPick;
-    pickPlayers = rivals.map((p) => p.id);
+    pickPlayers = rivalIds;
     onPlayer = (p) => send({ type: 'recuperar', player: ME, cardId: id, to: p });
   } else if (escarcha && escGive) {
     pickPlayers = escarcha.targets;
@@ -1039,7 +1051,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             selectable={pickPlayers.includes(p.id)}
             onPick={() => onPlayer(p.id)}
             onFoul={isHost ? () => send({ type: 'penalize', target: p.id }) : undefined}
-            away={away(p.id)}
+            state={seatState(p.id)}
+            onKick={net && isHost && seatState(p.id) === 'auto' ? () => net.send({ t: 'drop', p: p.id, how: 'kick' }) : undefined}
             egidaAir={egidaAir}
             slapped={ph.t === 'aplastar' && ph.slapped.includes(p.id)}
             shown={shown(p.id)}
@@ -1180,6 +1193,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       <div className="edge"><Countdown timer={timer} /></div>
 
       {net && remote.status !== 'open' && <div className="net-banner" role="status">Reconectando…</div>}
+      {net && rv && rv.waiting.length > 0 && ph.t !== 'over' && <WaitBox rv={rv} recvAt={remote.recvAt} isHost={isHost} decide={(p, how) => net.send({ t: 'drop', p, how })} />}
+      {net && rv && rv.you >= 0 && rv.seats[rv.you]?.state === 'out' && ph.t !== 'over' && <div className="net-banner" role="status">Has quedado fuera de la partida: puedes seguir mirando.</div>}
       {ph.t === 'over' && <GameOver s={s} startedAt={startedAt.current} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
       {pause && ph.t !== 'over' && (
         <div className="pause" role="dialog" aria-label="Partida en pausa">
@@ -1291,6 +1306,83 @@ function EnvFx({ steps, before, onDone }: { steps: EnvStep[]; before: EnvState; 
   );
 }
 
+// ───────────────────────── online: jugadores caídos ─────────────────────────
+
+/** Partida detenida esperando a uno o varios jugadores que se han caído. El anfitrión decide qué hacer. */
+function WaitBox({ rv, recvAt, isHost, decide }: { rv: RoomView; recvAt: number; isHost: boolean; decide: (p: number, how: 'wait' | 'auto' | 'kick') => void }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const i = window.setInterval(() => tick((n) => n + 1), 500);
+    return () => clearInterval(i);
+  }, []);
+  const left = (until: number) => {
+    const ms = Math.max(0, until - rv.now + recvAt - Date.now());
+    const sec = Math.ceil(ms / 1000);
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  };
+  return (
+    <div className="pause wait" role="dialog" aria-label="Partida detenida">
+      <div className="pause-box">
+        <h2>Partida detenida</h2>
+        {rv.waiting.map((w) => {
+          const who = rv.seats[w.p]?.name ?? 'Un jugador';
+          return (
+            <div key={w.p} className="wait-row">
+              <p><b>{who}</b> se ha desconectado. Le esperamos <b>{left(w.until)}</b>; si no vuelve, jugará una máquina por él.</p>
+              {isHost ? (
+                <>
+                  <button className="primary" onClick={() => decide(w.p, 'wait')}>Esperar más</button>
+                  <button onClick={() => decide(w.p, 'auto')}>Seguir: que juegue una máquina</button>
+                  <button className="danger" onClick={() => decide(w.p, 'kick')}>Seguir sin {who} (sus cartas al fondo de la Pila)</button>
+                </>
+              ) : (
+                <small>El anfitrión decide si se le sigue esperando.</small>
+              )}
+            </div>
+          );
+        })}
+        <small>Si se ha cerrado la pestaña, puede volver con el mismo código y el mismo nombre.</small>
+      </div>
+    </div>
+  );
+}
+
+/** Avisos breves cuando alguien se cae, vuelve, entra o se va de la sala. */
+function NetToasts({ client }: { client: NetClient }) {
+  const { view: v } = useNet(client);
+  const prev = useRef<{ name: string; online: boolean; bot: boolean }[] | null>(null);
+  const [toasts, setToasts] = useState<{ key: number; text: string; bad: boolean }[]>([]);
+  const seq = useRef(0);
+  useEffect(() => {
+    if (!v) return;
+    const now = v.seats.map((x) => ({ name: x.name, online: x.online, bot: x.bot }));
+    const old = prev.current;
+    prev.current = now;
+    if (!old) return;
+    const add = (text: string, bad: boolean) => {
+      const key = ++seq.current;
+      setToasts((t) => [...t, { key, text, bad }]);
+      window.setTimeout(() => setToasts((t) => t.filter((x) => x.key !== key)), 4500);
+    };
+    now.forEach((x, i) => {
+      if (i === v.you) return;
+      const o = old.find((y) => y.name === x.name);
+      if (!o) { if (!x.bot) add(`${x.name} ha entrado en la sala`, false); return; }
+      if (x.bot && !o.bot) add(`${x.name} se ha ido`, true);
+      else if (!x.bot && o.online && !x.online) add(`${x.name} se ha desconectado`, true);
+      else if (!x.bot && !o.online && x.online) add(`${x.name} ha vuelto`, false);
+    });
+    old.forEach((o) => { if (!o.bot && !now.some((x) => x.name === o.name)) add(`${o.name} ha salido de la sala`, true); });
+  }, [v]);
+  if (!toasts.length) return null;
+  return createPortal(
+    <div className="toasts" role="status">
+      {toasts.map((t) => <div key={t.key} className={t.bad ? 'bad' : ''}>{t.text}</div>)}
+    </div>,
+    document.body,
+  );
+}
+
 // ───────────────────────── fin de partida ─────────────────────────
 
 function GameOver({ s, startedAt, onExit, onRematch, onLobby }: { s: GameState; startedAt: number; onExit: () => void; onRematch?: () => void; onLobby?: () => void }) {
@@ -1383,11 +1475,12 @@ function GameOver({ s, startedAt, onExit, onRematch, onLobby }: { s: GameState; 
 function OnlineRoom({ client, onExit }: { client: NetClient; onExit: (error?: string) => void }) {
   const { view: v, fatal, error } = useNet(client);
   useEffect(() => { if (fatal) onExit(error ?? undefined); }, [fatal, error, onExit]);
-  if (!v?.game || v.you < 0) return <Shell><Lobby client={client} onExit={() => onExit()} /></Shell>;
+  if (!v?.game || v.you < 0) return <><Shell><Lobby client={client} onExit={() => onExit()} /></Shell><NetToasts client={client} /></>;
   setMe(v.you);
   const g = v.game;
   const cfg: GameConfig = { name: g.players[v.you].name, players: g.players.length, level: v.opts.level, extraCurses: v.opts.extraCurses, condena: v.opts.condena, beta: v.opts.beta };
-  return <Game key={`${v.code}:${v.round}`} cfg={cfg} net={client} onExit={() => { client.leave(); onExit(); }} />;
+  // Los avisos van en la misma posición en la sala y en la mesa, así no se pierden al cambiar de una a otra.
+  return <><Game key={`${v.code}:${v.round}`} cfg={cfg} net={client} onExit={() => { client.leave(); onExit(); }} /><NetToasts client={client} /></>;
 }
 
 type Screen = { k: 'home' } | { k: 'setup' } | { k: 'local'; cfg: GameConfig; n: number } | { k: 'entry'; code?: string; error?: string | null } | { k: 'room'; client: NetClient };
