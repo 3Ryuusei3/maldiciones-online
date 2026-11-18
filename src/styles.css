@@ -1279,3 +1279,6 @@ input[type='checkbox']:focus-visible { outline: 2px solid var(--gold); outline-o
 /* Ritmo del giro: ni tan lento que no se note ni tan rápido que distraiga. */
 .game .rays { animation-duration: 70s; }
 .game.cursed .rays { animation-duration: 50s; }
+/* Giro a la mitad de velocidad: una vuelta cada 140 s. */
+.game .rays { animation-duration: 140s; }
+.game.cursed .rays { animation-duration: 100s; }
