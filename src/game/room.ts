@@ -5,7 +5,7 @@
 
 import { Level, botDecide, botDup } from './bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from './engine';
-import { BOT_WINDOW_MS, DECIDE_MS, WINDOW_MS, botDelay, dupDelay, pickNames } from './timing';
+import { BOT_WINDOW_MS, DECIDE_MS, TINIEBLAS_PEEK_MS, WINDOW_MS, botDelay, dupDelay, pickNames, tinieblasJustFell } from './timing';
 import { viewFor } from './view';
 
 export interface RoomOpts {
@@ -361,7 +361,8 @@ function plan(r: RoomData, online: Set<string>, now: number) {
     if (!isLive) sc.at[p] = now + botDelay(s, r.opts.level, humanCanDup);
     else if (windowed) sc.at[p] = -1; // en las ventanas manda el reloj de la ventana
     else if (r.opts.timer === false) sc.at[p] = -1; // sin tiempo máximo: se espera a que decida
-    else sc.at[p] = now + (ph.t === 'turn' ? HUMAN_MS.turn : HUMAN_MS.other);
+    // Si acaban de caer las Tinieblas, se suma el tiempo de memorizar la mano.
+    else sc.at[p] = now + (ph.t === 'turn' ? HUMAN_MS.turn : HUMAN_MS.other) + (tinieblasJustFell(s) ? TINIEBLAS_PEEK_MS : 0);
   }
   // Máquinas (y ausentes) que quieren duplicar la carta superior.
   const top = topCard(s).id;
@@ -495,7 +496,7 @@ export function roomView(r: RoomData, token: string | null, online: Set<string>,
   if (r.pausedAt) { /* detenida: no corre ningún reloj */ }
   // El reloj de una ventana solo lo ve quien tiene algo que decidir en ella (al resto no se le pide nada).
   else if (windowed && you >= 0 && pendingPlayers(s!).includes(you) && r.sched.win && 'win' in ph! && ph.win === r.sched.win.key) timer = { key: `w${ph.win}`, until: r.sched.win.until, total: r.sched.win.total };
-  else if (s && !windowed && you >= 0 && (r.sched.at[you] ?? -1) > 0 && pendingPlayers(s).includes(you)) timer = { key: `s${s.seq}`, until: r.sched.at[you], total: DECIDE_MS };
+  else if (s && !windowed && you >= 0 && (r.sched.at[you] ?? -1) > 0 && pendingPlayers(s).includes(you)) timer = { key: `s${s.seq}`, until: r.sched.at[you], total: DECIDE_MS + (tinieblasJustFell(s) ? TINIEBLAS_PEEK_MS : 0) };
   return {
     t: 'room',
     code: r.code,

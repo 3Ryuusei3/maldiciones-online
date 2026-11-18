@@ -2,7 +2,7 @@
 // Niveles: 0 fácil, 1 normal, 2 difícil.
 
 import { Card, Color, COLORS, KINDS, RITUALS, isCursed, isGem, isPlainGem, rankOf } from './cards';
-import { Action, GameState, ReactKind, canDup, companions, isBlind, isCursedEnv, isLegal, predTargets, reactOptions, topCard } from './engine';
+import { Action, GameState, ReactKind, canDup, companions, isBlind, isCursedEnv, isLegal, nextPlayer, predTargets, reactOptions, topCard } from './engine';
 
 export type Level = 0 | 1 | 2;
 type Rnd = () => number;
@@ -191,7 +191,20 @@ function reactChoice(s: GameState, p: number, lvl: Level, r: Rnd): Action {
   if (!isTarget) return pass; // no se mete en líos ajenos
   if (lvl === 0 && r() < 0.45) return pass;
   if (eff.k === 'purga' || eff.k === 'rpurga') return hand.some(isCursed) || lvl < 2 ? pass : has('egida') ? { type: 'react', player: p, r: 'egida' } : pass;
-  if (eff.k === 'rcodicia') return pass;
+  if (eff.k === 'rcodicia') {
+    // Codicia reflejada: cada uno recibe la mano del anterior. Si la mía es mala (malditas o más cartas), que se la lleven;
+    // si no, se defiende (Égida, la vuelve a reflejar o, en difícil, Antitodo).
+    const ring: number[] = [];
+    for (let q = nextPlayer(s, eff.source); q !== eff.source; q = nextPlayer(s, q)) if (eff.targets.includes(q)) ring.push(q);
+    const i = ring.indexOf(p);
+    const prev = i >= 0 ? ring[(i - 1 + ring.length) % ring.length] : p;
+    const incoming = s.players[prev].hand.length;
+    if (hand.some(isCursed) || hand.length >= incoming) return pass;
+    if (has('egida')) return { type: 'react', player: p, r: 'egida' };
+    if (has('reflejo')) return { type: 'react', player: p, r: 'reflejo' };
+    if (has('antitodo') && lvl === 2) return { type: 'react', player: p, r: 'antitodo' };
+    return pass;
+  }
   if (has('chain')) {
     const c = hand.find((x) => (x.kind === 'travesura' || x.kind === 'trastada') && !(s.env.inutilizar && x.color))!;
     return { type: 'react', player: p, r: 'chain', cardId: c.id };

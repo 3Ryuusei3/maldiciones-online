@@ -11,6 +11,7 @@ import { Lobby, OnlineEntry, Shell } from './Online';
 import { SetupFields } from './Setup';
 import type { RoomOpts } from '../game/room';
 import { CardView, Icon, PCOL, asset, rich, toggleFullscreen } from './shared';
+import { TINIEBLAS_PEEK_MS } from '../game/timing';
 
 // ───────────────────────── piezas básicas ─────────────────────────
 
@@ -640,6 +641,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     : ph.t === 'imanPick' && ph.waiting.includes(ME) ? { options: ph.picks[ME].options, count: ph.picks[ME].count, from: ph.source, what: 'Imán' }
     : null;
   const gemas = ph.t === 'gemas' && ph.waiting.includes(ME);
+  /** Algo va contra mí y me toca responder (distinto de que sea mi turno). */
+  const underAttack = !!(reacting && reacting.eff.targets.includes(ME)) || !!tie || (ph.t === 'aplastar' && ph.players.includes(ME) && !ph.slapped.includes(ME));
   const condena = ph.t === 'condena' && ph.player === ME ? ph : null;
   const iman = ph.t === 'iman' && ph.launcher === ME ? ph : null;
   const adivinar = ph.t === 'adivinar' && ph.player === ME ? ph : null;
@@ -689,6 +692,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   // Avisos grandes: qué carta se acaba de jugar y cambios de sentido.
   const names = s.players.map((p) => p.name);
   const [callout, setCallout] = useState<Callout | null>(null);
+  const [shuffling, setShuffling] = useState(false);
   const [flash, setFlash] = useState<{ key: number; dir: 1 | -1 } | null>(null);
   const [muted, setMuted] = useState(-1);
   const prevDir = useRef(s.dir);
@@ -706,6 +710,11 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     if (g && !s.env.mutis) {
       setCallout(describePlay(s, g.from, g.cards));
       setMuted(s.announce?.n ?? -1); // el cartel ya lo anuncia: sobra el bocadillo
+    }
+    // La Pila se baraja para formar un Mazo nuevo: el Mazo se agita un momento.
+    if (s.fx.some((f) => f.from === 'pile' && f.to === 'deck')) {
+      setShuffling(true);
+      window.setTimeout(() => setShuffling(false), 1800);
     }
     // Égida recién usada: también se anuncia en grande.
     s.players.forEach((pl, p) => {
@@ -1020,6 +1029,22 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     ));
   }
 
+  /** Al caer las Tinieblas: unos segundos con las cartas a la vista para memorizarlas antes de que se den la vuelta. */
+  const [peekUntil, setPeekUntil] = useState(0);
+  const [, peekTick] = useState(0);
+  const wasBlind = useRef(blind);
+  useEffect(() => {
+    if (blind && !wasBlind.current && !dealing) setPeekUntil(Date.now() + TINIEBLAS_PEEK_MS);
+    if (!blind) setPeekUntil(0);
+    wasBlind.current = blind;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blind]);
+  useEffect(() => {
+    if (!peekUntil) return;
+    const i = window.setInterval(() => { peekTick((n) => n + 1); if (Date.now() >= peekUntil) setPeekUntil(0); }, 250);
+    return () => clearInterval(i);
+  }, [peekUntil]);
+  const peeking = blind && peekUntil > Date.now();
   /** Orden de mi mano al caer las Tinieblas: boca abajo cada carta sigue en su sitio (las nuevas, al final). */
   const blindOrder = useRef<string[] | null>(null);
   const sortedHand = useMemo(() => {
@@ -1044,11 +1069,12 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const mid = (n - 1) / 2;
 
   const cursed = isCursedEnv(s);
+  const deckEmpty = !dealing && s.deck.length === 0;
 
   const seats = SEATS[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
-    <div ref={root} className={`game col-${s.color} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
+    <div ref={root} className={`game col-${s.color} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
       <div className="rays" />
       <div className="shade" />
       <div className="flights" ref={flights} />
@@ -1088,10 +1114,12 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         ))}
 
         <div className="center">
-          <div className={`deck ${onDeck ? 'hot' : ''}`} data-anchor="deck" onClick={onDeck ?? undefined} title="Mazo">
+          <div className={`deck ${onDeck ? 'hot' : ''} ${deckEmpty ? 'empty' : ''} ${shuffling ? 'shuffling' : ''}`} data-anchor="deck" onClick={onDeck ?? undefined} title={deckEmpty ? 'Mazo vacío: se barajará la Pila al robar' : 'Mazo'}>
             <img className="d3" src={asset('cards/back.webp')} alt="" />
             <img className="d2" src={asset('cards/back.webp')} alt="" />
             <img src={asset('cards/back.webp')} alt="Mazo" draggable={false} />
+            {deckEmpty && <span className="deck-empty">Mazo vacío</span>}
+            {shuffling && <span className="deck-shuffle">¡Se baraja la Pila!</span>}
             <span className="count">{facedown ? s.deck.length + s.players.reduce((a, p) => a + p.hand.length - shown(p.id), 0) + 1 : s.deck.length}</span>
           </div>
 
@@ -1151,13 +1179,19 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         <div className="line1">
           {!dealing && !callout && !tinte && <div className="ticker" key={s.log.length}>{rich(s.log[s.log.length - 1]?.text ?? '', names, colors)}</div>}
         </div>
-        <div className={`banner ${alert ? 'alert' : ''} ${s.turn === ME && !dealing ? 'mine' : ''}`}>
+        <div className={`banner ${alert ? 'alert' : ''} ${s.turn === ME && !dealing ? 'mine' : ''} ${underAttack ? 'attack' : myTurn && !dealing ? 'myturn' : ''}`}>
           {s.announce?.n !== muted && s.announce?.player === ME && <span key={s.announce.n} className="say">{s.announce.text}</span>}
+          {underAttack ? <span className="btag attack">⚠ Contra ti</span> : myTurn && !dealing ? <span className="btag turn">Tu turno</span> : null}
           <span className="msg">{text}</span>
           {btns}
         </div>
       </div>
 
+      {peeking && (
+        <div className="peek-banner" role="status">
+          🌑 Tinieblas: memoriza tus cartas · se ponen boca abajo en <b>{Math.ceil((peekUntil - Date.now()) / 1000)}</b>
+        </div>
+      )}
       <div className={`hand ${s.turn === ME && !dealing ? 'turn' : ''}`}>
         <div className="me-tag">
           <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''}`} style={{ borderColor: colors[ME] }}>{me.name}<i>{shown(ME)}</i></span>
@@ -1185,7 +1219,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
                 style={{ marginLeft: i === 0 ? 0 : `calc(var(--card-w) * ${step - 1})`, transform: `rotate(${(i - mid) * Math.min(4, 30 / Math.max(n, 1))}deg) translateY(${Math.abs(i - mid) ** 1.7 * 1.6}px)`, zIndex: i }}
                 onClick={act?.run}
               >
-                <CardView card={c} back={blind || (facedown && c.kind !== 'maldicion') || turning[c.id] === 'out'} className={`${act ? '' : 'dim'} ${drawn ? 'drawn' : ''}`} badge={act?.label} onBadge={act?.alt} onInfo={setHelp} onHover={hoverHelp} />
+                <CardView card={c} back={(blind && !peeking) || (facedown && c.kind !== 'maldicion') || turning[c.id] === 'out'} className={`${act ? '' : 'dim'} ${drawn ? 'drawn' : ''}`} badge={act?.label} onBadge={act?.alt} onInfo={setHelp} onHover={hoverHelp} />
               </div>
             );
           })}

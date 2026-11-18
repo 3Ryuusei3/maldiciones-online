@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { botDecide, botDup, Level } from '../game/bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from '../game/engine';
-import { BOT_WINDOW_MS, DECIDE_MS, WINDOW_MS, botDelay, dupDelay, pickNames } from '../game/timing';
+import { BOT_WINDOW_MS, DECIDE_MS, TINIEBLAS_PEEK_MS, WINDOW_MS, botDelay, dupDelay, pickNames, tinieblasJustFell } from '../game/timing';
 
 export interface GameConfig {
   name: string;
@@ -103,8 +103,9 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
       const sk = `s${s.seq}`;
       // Reloj nuevo para cada decisión (y si se acaba de volver a activar el tiempo máximo con uno ya vencido).
       if (timer?.key !== sk || timer.until <= now) {
-        until = now + DECIDE_MS;
-        setTimer({ key: sk, until, total: DECIDE_MS });
+        const total = DECIDE_MS + (tinieblasJustFell(s) ? TINIEBLAS_PEEK_MS : 0);
+        until = now + total;
+        setTimer({ key: sk, until, total });
       } else until = timer.until;
       later(until - now, () => {
         const cur = ref.current;

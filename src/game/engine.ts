@@ -101,7 +101,8 @@ export interface GameState {
   undo: null | { dir: 1 | -1; spent: { p: number; card: Card; from: 'hand' | 'up' | 'pile' }[] };
   dir: 1 | -1;
   turn: number;
-  env: { mutis: boolean; inutilizar: boolean; tinieblas: null | { owner: number; count: number; fresh: boolean } };
+  /** `tinieblas.at`: jugada en la que cayeron (para dejar unos segundos de memorizar la mano). */
+  env: { mutis: boolean; inutilizar: boolean; tinieblas: null | { owner: number; count: number; fresh: boolean; at?: number } };
   phase: Phase;
   rafaga: Rafaga | null;
   /** Para el resumen final: cartas echadas y robadas por jugador, y turnos jugados. */
@@ -206,6 +207,7 @@ function takeDeck(s: GameState, n: number): Card[] {
       const top = s.pile.pop()!;
       s.deck = shuffle(s, s.pile);
       s.pile = [top];
+      fx(s, 'pile', 'deck', s.deck.length); // las cartas de la Pila vuelven al Mazo (boca abajo)
       log(s, 'Se baraja la Pila para formar un nuevo Mazo.');
     }
     out.push(s.deck.pop()!);
@@ -566,7 +568,7 @@ function toggleEnv(s: GameState, card: Card, by: number) {
     s.env.inutilizar = !s.env.inutilizar;
     log(s, s.env.inutilizar ? 'Inutilizar: las cartas de color pierden su efecto.' : 'Inutilizar termina.');
   } else if (card.kind === 'tinieblas') {
-    s.env.tinieblas = s.env.tinieblas ? null : { owner: by, count: 0, fresh: true };
+    s.env.tinieblas = s.env.tinieblas ? null : { owner: by, count: 0, fresh: true, at: s.seq };
     log(s, s.env.tinieblas ? 'Tinieblas: todos juegan con las cartas boca abajo.' : 'Se disipan las Tinieblas.');
   }
   if (isCursedEnv(s)) log(s, '☠ Entorno maldito: nadie puede ganar mientras haya 2 o más Entornos activos.');
@@ -919,6 +921,15 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
     ph.waiting = ph.waiting.filter((x) => x !== p);
     if (!ph.waiting.length) resolve(s, eff, ph.exempt);
   };
+  /**
+   * Tras protegerse: si ya se han librado todos a los que iba dirigido, el efecto se acaba ahí
+   * (nadie puede reflejarlo ni anularlo). Con Cristalizar, su lanzador aún decide qué Gemas deja.
+   */
+  const protectedDone = () => {
+    if (!eff.targets.every((t) => ph.exempt.includes(t))) return done();
+    ph.waiting = ph.waiting.filter((x) => x !== p && eff.k === 'cristal' && x === eff.source);
+    if (!ph.waiting.length) resolve(s, eff, ph.exempt);
+  };
   switch (a.r) {
     case 'pass':
       done();
@@ -940,7 +951,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       announce(s, p, '¡Égida!');
       s.tinte = p;
       ph.exempt.push(p);
-      done();
+      protectedDone();
       return true;
     }
     case 'antitodo': {
@@ -990,7 +1001,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       (eff.held ??= []).push({ p, ids: [c.id] });
       log(s, `${nm(s, p)} enseña ${cardName(c)} para librarse de Cristalizar.`);
       ph.exempt.push(p);
-      done();
+      protectedDone();
       return true;
     }
     case 'gems': {

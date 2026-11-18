@@ -7,9 +7,13 @@ import { AttrIcon, CATS, Icon, RankIcon, Triforce, asset, kindsOf, sample } from
 
 /** Color con el que se enseña cada carta de color en el compendio, para que no salgan todas iguales. */
 const HUE: Partial<Record<Kind, Color>> = { gema1: 'a', gema2: 'v', gema3: 'm', aplastar: 'a', cristalizar: 'm', travesura: 'v', codicia: 'a', adivinar: 'm', mutis: 'v' };
-const pic = (k: Kind, c?: Color | null) => asset(cardImage(c === null ? { id: 'x', kind: k, color: null } : sample(k, c ?? HUE[k] ?? 'm')));
+/**
+ * Imagen de una carta en el compendio. Travesura se enseña con la incolora, que es la que tiene el dibujo nuevo
+ * (3 cartas); las de color aún llevan el antiguo. Solo sale de color si se pide expresamente.
+ */
+const pic = (k: Kind, c?: Color | null) => asset(cardImage(c === null || (k === 'travesura' && c === undefined) ? { id: 'x', kind: k, color: null } : sample(k, c ?? HUE[k] ?? 'm')));
 /** En las mini partidas todo va en morado, para que las cartas encadenen entre sí. */
-const dpic = (k: Kind) => pic(k, 'm');
+const dpic = (k: Kind) => pic(k, k === 'travesura' ? null : 'm');
 const BACK = 'cards/back.webp';
 
 /** Cuántas hay de cada carta en el Mazo. */
@@ -493,7 +497,7 @@ function Mechanics({ open }: { open: (k: Kind) => void }) {
           <span><RankIcon rank={1} size={38} />I</span><span><RankIcon rank={2} size={38} />II</span><span><RankIcon rank={3} size={38} />III</span>
           <span><RankIcon rank={4} size={38} />Diamante</span><span><RankIcon rank={4} dark size={38} />Diamante</span>
         </div>
-        <Fig items={[{ k: 'aplastar', c: 'a', label: 'I' }, { k: 'codicia', c: 'v', label: 'II' }, { k: 'travesura', c: 'm', label: 'III' }, { k: 'antitodo', label: '◆ Diamante' }]} caption="Codicia e Imán se llevan tu carta de mayor Jerarquía; si hay empate, eliges tú cuál entregas." />
+        <Fig items={[{ k: 'aplastar', c: 'a', label: 'I' }, { k: 'codicia', c: 'v', label: 'II' }, { k: 'travesura', c: null, label: 'III' }, { k: 'antitodo', label: '◆ Diamante' }]} caption="Codicia e Imán se llevan tu carta de mayor Jerarquía; si hay empate, eliges tú cuál entregas." />
       </section>
       <section id="m-duplicar">
         <h2>Duplicar</h2>

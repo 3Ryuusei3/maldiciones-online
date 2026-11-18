@@ -33,9 +33,11 @@ export const isWindowed = (t: GameState['phase']['t']): t is Windowed => t === '
 export function botDelay(s: GameState, level: Level, humanCanDup: boolean): number {
   const t = s.phase.t;
   const k = PACE;
+  if (tinieblasJustFell(s) && t === 'turn') return TINIEBLAS_PEEK_MS + between(600, 1400);
   if (t === 'turn') return Math.max(between(3000, 3800) * k, humanCanDup ? 4800 : 0);
   if (t === 'aplastar') return SLAP_GRACE + between(...SLAP_MS[level]);
-  if (t === 'react') return between(2200, 3000) * k;
+  // Reacciones algo más pausadas: que dé tiempo a ver la carta (un Reflejo, por ejemplo) antes de que nadie responda.
+  if (t === 'react') return between(2900, 3700) * k;
   if (t === 'gemas') return between(1300, 2100) * k;
   if (t === 'choose' || t === 'tinte') return between(1400, 2000) * k;
   return between(1700, 2300) * k;
@@ -43,3 +45,11 @@ export function botDelay(s: GameState, level: Level, humanCanDup: boolean): numb
 
 /** Cuánto tarda una máquina en duplicar la carta superior cuando quiere hacerlo. */
 export const dupDelay = () => between(2000, 3400) * PACE;
+
+/**
+ * Al caer las Tinieblas, todos tienen unos segundos para memorizar su mano antes de que se den la vuelta
+ * (cuenta desde que caen: incluye la animación del Entorno). Las máquinas no juegan hasta que pasa.
+ */
+export const TINIEBLAS_PEEK_MS = 8000;
+/** ¿Acaban de caer las Tinieblas? (las máquinas esperan a que pase el tiempo de memorizar). */
+export const tinieblasJustFell = (s: GameState) => !!s.env.tinieblas && s.seq - (s.env.tinieblas.at ?? -99) <= 2;
