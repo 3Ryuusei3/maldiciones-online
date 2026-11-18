@@ -24,12 +24,15 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const CODE_RE = /^[A-Z]{4}$/;
 const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => ALPHABET[b % ALPHABET.length]).join('');
 
-const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
+/** La web puede estar en otro dominio (Vercel): la API admite peticiones de cualquier origen (no hay cookies ni datos privados). */
+const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type' };
+const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', ...CORS } });
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
+    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...CORS, 'access-control-max-age': '86400' } });
 
     if (url.pathname === '/api/salas' && req.method === 'POST') {
       for (let i = 0; i < 8; i++) {

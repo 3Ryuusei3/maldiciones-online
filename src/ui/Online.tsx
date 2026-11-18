@@ -70,14 +70,15 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack }: { ini
         Tu nombre
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jugador" maxLength={14} />
       </label>
-      <button className="play" disabled={busy} onClick={create}>Crear sala</button>
-      <div className="join-row">
-        <label>
-          Código de sala
-          <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4))} onKeyDown={(e) => e.key === 'Enter' && join()} placeholder="ABCD" className="code-input" />
-        </label>
-        <button disabled={busy || code.length !== 4} onClick={join}>Unirse</button>
+      <div className="play-row">
+        <button className="play" disabled={busy} onClick={create}>Crear sala</button>
       </div>
+      <p className="or-sep">o únete a la de un amigo</p>
+      <label>
+        Código de sala
+        <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4))} onKeyDown={(e) => e.key === 'Enter' && join()} placeholder="ABCD" className="code-input" />
+      </label>
+      <button className="play" disabled={busy || code.length !== 4} onClick={join}>Unirse a la sala</button>
       {error && <p className="net-error" role="alert">{error}</p>}
       <div className="home-links">
         <button onClick={onBack}>Volver</button>

@@ -5,8 +5,13 @@ import { useSyncExternalStore } from 'react';
 import type { Action } from '../game/engine';
 import type { ClientMsg, RoomOpts, RoomView, ServerMsg } from '../game/room';
 
-/** Dónde está el servidor. Vacío = el mismo sitio que la web (en desarrollo, Vite lo redirige al 8787). */
-const API = (import.meta.env.VITE_API as string | undefined)?.replace(/\/$/, '') ?? '';
+/**
+ * Dónde está el servidor. En desarrollo, el mismo sitio (Vite lo redirige al 8787). En producción, el Worker
+ * de Cloudflare: la web puede estar alojada en otro sitio (p. ej. Vercel, que no sirve /api ni WebSockets).
+ * VITE_API lo cambia.
+ */
+const SERVER = 'https://maldiciones.ryuusei3.workers.dev';
+const API = ((import.meta.env.VITE_API as string | undefined) ?? (import.meta.env.PROD ? SERVER : '')).replace(/\/$/, '');
 const httpUrl = (path: string) => `${API}${path}`;
 const wsUrl = (path: string) => {
   const u = new URL(httpUrl(path), location.href);
