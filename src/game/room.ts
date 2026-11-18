@@ -30,7 +30,7 @@ export interface Seat {
 }
 
 /** Colores de jugador disponibles (índices de la paleta PCOL de la interfaz). */
-export const COLOR_COUNT = 6;
+export const COLOR_COUNT = 9;
 /** El primer color que no usa nadie (o el del asiento si ya están todos). */
 const freeColor = (seats: Seat[], fallback: number) => {
   for (let c = 0; c < COLOR_COUNT; c++) if (!seats.some((x) => x.color === c)) return c;
@@ -77,7 +77,7 @@ interface Sched {
 /** Tiempo que tiene un humano conectado para decidir fuera de las ventanas antes de que juegue la máquina por él. */
 export const HUMAN_MS = { turn: DECIDE_MS, other: DECIDE_MS };
 /** Espera máxima a la animación del reparto. */
-const INTRO_MAX_MS = 15000;
+const INTRO_MAX_MS = 30000;
 /** Lo que se espera, con la partida detenida, a que vuelva un jugador que se ha caído. */
 export const WAIT_MS = 90000;
 /** Sala sin nadie conectado durante este tiempo: se borra. */
@@ -92,7 +92,8 @@ export function newRoom(code: string, now: number): RoomData {
     createdAt: now,
     seenAt: now,
     host: null,
-    opts: { size: 4, level: 1, extraCurses: false, condena: true, beta: false, timer: true },
+    // Ninguna casilla marcada por defecto.
+    opts: { size: 4, level: 1, extraCurses: false, condena: false, beta: false, timer: false },
     seats: [],
     game: null,
     round: 0,

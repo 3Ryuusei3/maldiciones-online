@@ -762,8 +762,8 @@ export function HelpDock({ kind, art, ping = 0, setKind, beta = true }: { kind: 
             <span className="dp-attr"><AttrIcon attr={KINDS[card].attr} size={16} />{ATTR_NAME[KINDS[card].attr]}{KINDS[card].rank > 0 && <RankIcon rank={KINDS[card].rank} dark={KINDS[card].attr === 'maldita'} size={16} />}{BETA.includes(card) && <i className="beta">Beta</i>}</span>
             <p>{HELP[card].text}</p>
             {HELP[card].reflejada && <p className="refl"><b>Reflejada:</b> {HELP[card].reflejada}</p>}
-            <button onClick={() => setMore(card)}>Ver más</button>
           </div>
+          <button className="dp-more" onClick={() => setMore(card)}>Ver más</button>
         </div>
       ) : cat ? (
         <div className="dock-list" ref={list}>

@@ -9,7 +9,8 @@ export function toggleFullscreen() {
 }
 
 /** Color de cada jugador (asiento): se usa en su placa y en el registro. */
-export const PCOL = ['#ffd23f', '#ff8fb1', '#6fd3ff', '#ffa34d', '#b5ff7d', '#d7a6ff'];
+/** Colores de jugador (los botones y avisos ya usan el color de cada jugador, así que el amarillo vuelve a estar libre). */
+export const PCOL = ['#ffd23f', '#2ee6c5', '#ff8fb1', '#6fd3ff', '#ff9a3d', '#b5ff7d', '#d7a6ff', '#ff6b6b', '#8c8cff'];
 
 export const CATS: Attr[] = ['gema', 'ataque', 'defensa', 'magia', 'apoyo', 'entorno', 'sagrada', 'maldita'];
 export const kindsOf = (a: Attr) => (Object.keys(KINDS) as Kind[]).filter((k) => KINDS[k].attr === a);
@@ -94,9 +95,10 @@ const NAMES = (Object.keys(KINDS) as Kind[]).map((k) => [KINDS[k].name, k] as co
 const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Convierte una línea del registro en texto enriquecido: jugadores en su color y cartas en MAYÚSCULAS con su icono. */
-/** `colors`: color de cada jugador (por defecto, el de su asiento). */
-export function rich(text: string, players: string[], colors?: string[]): React.ReactNode[] {
-  const re = new RegExp(`(${[...players].sort((a, b) => b.length - a.length).map(esc).join('|')})|(${NAMES.map((n) => esc(n[0])).join('|')})( Amarill[oa]| Morad[oa]| Verde| Incolora)?`, 'g');
+/** `colors`: color de cada jugador (por defecto, el de su asiento). `keys`: resaltar también las palabras clave (avisos). */
+const KEYWORDS = ['Mazo', 'Pila', 'roba', 'Roba', 'robar', 'robas', 'encadena', 'Encadena', 'elige', 'Elige', 'pulsa', 'Pulsa', 'descartar', 'descarta', 'turno', 'color', 'a ciegas', 'Gemas'];
+export function rich(text: string, players: string[], colors?: string[], keys = false): React.ReactNode[] {
+  const re = new RegExp(`(${[...players].sort((a, b) => b.length - a.length).map(esc).join('|')})|(${NAMES.map((n) => esc(n[0])).join('|')})( Amarill[oa]| Morad[oa]| Verde| Incolora)?${keys ? `|(${KEYWORDS.map(esc).join('|')}|\\d+)` : ''}`, 'g');
   const out: React.ReactNode[] = [];
   let last = 0;
   let m: RegExpExecArray | null;
@@ -106,7 +108,8 @@ export function rich(text: string, players: string[], colors?: string[]): React.
     const after = text[m.index + m[0].length];
     if ((before && /[\p{L}]/u.test(before)) || (after && /[\p{L}]/u.test(after))) continue;
     if (m.index > last) out.push(text.slice(last, m.index));
-    if (m[1]) out.push(<b key={m.index} className="lp" style={{ color: colors?.[players.indexOf(m[1])] ?? PCOL[players.indexOf(m[1]) % PCOL.length] }}>{m[1]}</b>);
+    if (m[4]) out.push(<b key={m.index} className="kw">{m[4]}</b>);
+    else if (m[1]) out.push(<b key={m.index} className="lp" style={{ color: colors?.[players.indexOf(m[1])] ?? PCOL[players.indexOf(m[1]) % PCOL.length] }}>{m[1]}</b>);
     else {
       const kind = NAMES.find((n) => n[0] === m![2])![1];
       out.push(<span key={m.index} className="lc"><Icon kind={kind} size={15} />{(m[2] + (m[3] ?? '')).toUpperCase()}</span>);

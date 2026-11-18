@@ -69,12 +69,12 @@ export function Gem({ color, size = 72 }: { color: Color; size?: number }) {
 }
 
 /** Elegir color: tres gemas que se pueden pulsar. */
-function GemPicker({ onPick }: { onPick: (c: Color) => void }) {
+function GemPicker({ onPick, size = 68 }: { onPick: (c: Color) => void; size?: number }) {
   return (
     <div className="gem-pick" role="group" aria-label="Elige el color">
       {COLORS.map((c, i) => (
         <button key={c} className={`gem-btn g-${c}`} style={{ animationDelay: `${i * 0.25}s` }} onClick={() => onPick(c)} aria-label={COLOR_NAME[c]}>
-          <Gem color={c} size={68} />
+          <Gem color={c} size={size} />
           <span>{COLOR_NAME[c]}</span>
         </button>
       ))}
@@ -89,7 +89,7 @@ const SETTLE_MS = 360;
 /** Lo que tarda una mano en abrir hueco antes de que salga la carta que va a ocuparlo. */
 const ROOM_MS = 300;
 
-interface FlyOpt { flat?: boolean; src: string; A: DOMRect; B: DOMRect; sA: number; sB: number; delay?: number; ms?: number; show?: number; showDx?: number; solid?: boolean; onStart?: () => void; onLand?: () => void }
+interface FlyOpt { flat?: boolean; src: string; A: DOMRect; B: DOMRect; sA: number; sB: number; delay?: number; ms?: number; show?: number; showDx?: number; showMs?: number; solid?: boolean; onStart?: () => void; onLand?: () => void }
 
 /**
  * Lanza una carta "fantasma" de A a B. El desplazamiento horizontal y el vertical llevan curvas Bézier distintas,
@@ -132,8 +132,8 @@ function launch(host: HTMLElement, o: FlyOpt): number {
         gx.style.transition = `transform ${SETTLE_MS}ms cubic-bezier(0.5, 0, 0.3, 1)`;
         gx.style.transform = `translateX(${cx(o.B)}px)`;
       }
-    }, total + SHOW_MS);
-    total += SHOW_MS + SETTLE_MS;
+    }, total + (o.showMs ?? SHOW_MS));
+    total += (o.showMs ?? SHOW_MS) + SETTLE_MS;
   }
   window.setTimeout(() => { gx.remove(); o.onLand?.(); }, total + 30);
   return total;
@@ -145,7 +145,8 @@ const ghostW = () => anchorRect('pile')?.width || 140;
 /** Escalas del fantasma (respecto al ancho de la carta de mesa) según de dónde sale o adónde llega. */
 const scaleAt = (a: Anchor, r: DOMRect, w: number) => (a === 'pile' || a === 'deck' ? Math.min(r.width, w * 1.2) / w : a === ME ? 0.9 : 0.55);
 
-const REVEAL_MS = 1500;
+/** Imán: lo que se quedan las cartas atraídas levantadas sobre cada jugador antes de volar (más pausado). */
+const REVEAL_MS = 2600;
 /** Muestra levantadas y marcadas las cartas que se van a llevar de cada jugador y después las hace volar a su destino. */
 function reveal(host: HTMLElement, takes: Fx[], w: number) {
   const bySrc = new Map<number, Fx[]>();
@@ -171,7 +172,7 @@ function reveal(host: HTMLElement, takes: Fx[], w: number) {
         // Si el Imán es mío, las cartas van al centro de la mesa, donde aparece la bandeja para repartirlas.
         const to: Anchor = f.to === ME ? 'pile' : f.to;
         const B = anchorRect(to);
-        if (B) launch(host, { src: imgs[i].src, A: r, B, sA: r.width / w, sB: to === 'pile' ? 0.8 : scaleAt(to, B, w), delay: (k++ % 8) * 120, solid: true });
+        if (B) launch(host, { src: imgs[i].src, A: r, B, sA: r.width / w, sB: to === 'pile' ? 0.8 : scaleAt(to, B, w), delay: (k++ % 8) * 280, ms: 1500, solid: true });
       });
       row.remove();
     }, REVEAL_MS);
@@ -238,6 +239,8 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
     const CAP = 14;
     const total = s.fx.reduce((n, f) => n + Math.min(f.n, CAP), 0);
     const gap = total > 8 ? 120 : total > 3 ? 170 : 240; // las cartas salen de una en una
+    // La jugada que gana la partida va a cámara lenta.
+    const slow = s.phase.t === 'over';
     const added: string[] = [];
     const hide: string[] = [];
     let k = 0;
@@ -277,8 +280,10 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
             sA: mine ? Math.min(A.width, w * 1.4) / w : scaleAt(f.from, A, w),
             sB,
             delay,
+            ms: slow ? FLY_MS * 2.6 : undefined,
+            showMs: slow ? SHOW_MS * 2.6 : undefined,
             solid: !!mine,
-            show: isStar ? (B.width * (stars.length > 1 ? 1.2 : 1.36)) / w : undefined,
+            show: isStar ? (B.width * (stars.length > 1 ? 1.2 : slow ? 1.7 : 1.36)) / w : undefined,
             showDx: dx - side,
             onStart: from !== null ? () => bump(from, -1) : undefined,
             onLand: () => {
@@ -359,10 +364,12 @@ function Home({ onLocal, onOnline }: { onLocal: () => void; onOnline: () => void
 /** Partida local contra las máquinas: nombre y opciones antes de empezar. */
 function LocalSetup({ onStart, onBack }: { onStart: (c: GameConfig) => void; onBack: () => void }) {
   const [name, setName] = useState(() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } });
-  const [opts, setOpts] = useState<RoomOpts>({ size: 4, level: 1, extraCurses: false, condena: true, beta: false, timer: true });
+  // Ninguna casilla marcada por defecto.
+  const [opts, setOpts] = useState<RoomOpts>({ size: 4, level: 1, extraCurses: false, condena: false, beta: false, timer: false });
+  const [color, setColor] = useState(() => { try { const c = Number(localStorage.getItem('maldiciones:color')); return c >= 0 && c < PCOL.length ? c : 0; } catch { return 0; } });
   const start = () => {
-    try { localStorage.setItem('maldiciones:nombre', name.trim()); } catch { /* sin almacenamiento: no se recuerda */ }
-    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta, timer: opts.timer !== false });
+    try { localStorage.setItem('maldiciones:nombre', name.trim()); localStorage.setItem('maldiciones:color', String(color)); } catch { /* sin almacenamiento: no se recuerda */ }
+    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta, timer: opts.timer !== false, color });
   };
   return (
     <>
@@ -372,6 +379,12 @@ function LocalSetup({ onStart, onBack }: { onStart: (c: GameConfig) => void; onB
         Tu nombre
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tú" maxLength={14} />
       </label>
+      <div className="field">
+        Tu color
+        <div className="color-pick" role="radiogroup" aria-label="Tu color">
+          {PCOL.map((c, i) => <button key={c} role="radio" aria-checked={color === i} aria-label={`Color ${i + 1}`} className={color === i ? 'on' : ''} style={{ background: c }} onClick={() => setColor(i)} />)}
+        </div>
+      </div>
       <SetupFields opts={opts} set={(o) => setOpts((v) => ({ ...v, ...o }))} />
       <div className="play-row">
         <button className="play" onClick={start}>Empezar</button>
@@ -436,6 +449,9 @@ function describePlay(s: GameState, from: Anchor, cards: Card[]): Callout {
   return { key: s.seq, player, verb, cards: [top, ...cards.filter((c) => c.id !== top.id)], text, tone };
 }
 
+/** Color que se elige con cada triángulo de la trifuerza. */
+const TRI_COLOR: ['tinieblas' | 'mutis' | 'inutilizar', Color][] = [['tinieblas', 'a'], ['mutis', 'v'], ['inutilizar', 'm']];
+
 const hash = (id: string) => { let h = 7; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0; return Math.abs(h); };
 
 /** Dónde se sienta cada rival: borde izquierdo, arriba (con su posición horizontal) o borde derecho, en sentido horario. */
@@ -447,7 +463,10 @@ const SEATS: Record<number, [string, number][]> = {
 };
 
 /** Fases de la entrada: reparto boca abajo, giro de las cartas (ocultar / mostrar) y primera carta de la Pila. */
-type Intro = 'deal' | 'out' | 'in' | 'pile' | null;
+/** Fases de la entrada: cuenta atrás, se coloca la mesa (Maldiciones, Mazo, trifuerza), reparto, giro y primera carta. */
+type Intro = 'count' | 'setup' | 'deal' | 'out' | 'in' | 'pile' | null;
+/** Fases en las que cada jugador tiene su Maldición aparte, boca arriba. */
+const curseApart = (i: Intro) => i === 'setup' || i === 'deal' || i === 'out';
 
 /** Estado de un asiento online: caído y esperándole, caído con una máquina jugando por él, o fuera de la partida. */
 type SeatState = 'wait' | 'auto' | 'out' | undefined;
@@ -460,7 +479,7 @@ const STATE_TAG: Record<'wait' | 'auto' | 'out', [string, string]> = {
 function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, state, onKick, egidaAir, color, next }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; state?: SeatState; onKick?: () => void; egidaAir: string[]; color: string; next: boolean }) {
   const pl = s.players[p];
   // Durante el reparto su Maldición está aparte, boca arriba, así que no cuenta en el abanico.
-  const have = Math.min(shown - (intro === 'deal' || intro === 'out' ? 1 : 0), 14);
+  const have = Math.max(0, Math.min(shown - (curseApart(intro) ? 1 : 0), 14));
   // Las cartas que le están llegando ya tienen su hueco en el abanico, aún vacío.
   const n = Math.min(have + room, 14);
   const mid = (n - 1) / 2;
@@ -478,10 +497,11 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
         </div>
       )}
       <div className="plate">
-        <span className="pill" style={{ borderColor: color }}>{pl.name}<i>{shown}</i></span>
-        {s.turn === p && !intro && s.phase.t !== 'over' && <span className="turn-tag">Su turno</span>}
-        {next && s.turn !== p && !intro && <span className="next-tag">Después</span>}
-        {(intro === 'deal' || intro === 'out') && <img className={`curse0 ${intro === 'out' ? 'flip-out' : ''}`} src={asset('cards/maldicion.webp')} alt="Su Maldición, boca arriba" />}
+        <span className="pill" style={{ background: color }}>{pl.name}<i>{shown}</i></span>
+        {s.turn === p && !intro && s.phase.t !== 'over' && <span className="turn-tag" style={{ background: color, boxShadow: `0 0 18px ${color}` }}>Su turno</span>}
+        {next && s.turn !== p && !intro && <span className="next-tag" style={{ borderColor: color }}>Después</span>}
+        {!intro && pl.hand.length === 1 && s.phase.t !== 'over' && <span className="last-tag">¡Última carta!</span>}
+        {curseApart(intro) && shown >= 1 && <img className={`curse0 ${intro === 'out' ? 'flip-out' : ''}`} src={asset('cards/maldicion.webp')} alt="Su Maldición, boca arriba" />}
         {pl.egida && <img className={`egida ${egidaAir.includes(pl.egida.id) ? 'air' : ''}`} data-egida={p} src={asset('cards/egida.webp')} alt="Égida boca arriba" title="Égida boca arriba: le queda 1 uso" />}
         {slapped && <span className="slapped">✋</span>}
         {state && <span className={`away-tag ${state}`} title={STATE_TAG[state][1]}>{STATE_TAG[state][0]}</span>}
@@ -502,7 +522,10 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   /** Entrada de la partida: cada jugador tiene su Maldición boca arriba y recibe 6 cartas boca abajo; luego se giran. */
   // Quien entra o vuelve a una partida online ya repartida no ve el reparto otra vez.
   const [intro, setIntro] = useState<Intro>(() => (net?.getSnap().view?.dealt ? null : 'deal'));
-  const [dealt, setDealt] = useState<number[]>(() => Array(cfg.players).fill(1));
+  const [dealt, setDealt] = useState<number[]>(() => Array(cfg.players).fill(0));
+  /** Cuenta atrás de la entrada (3, 2, 1…) y qué piezas de la mesa ya se han colocado. */
+  const [countText, setCountText] = useState<string | null>(null);
+  const [stage, setStage] = useState({ deck: intro === null, tri: intro === null });
   /** El compendio abierto en mitad de la partida también la detiene. */
   const [comp, setComp] = useState(false);
   /** Pausa (y su menú, que también sirve para confirmar la salida). */
@@ -524,7 +547,13 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   }, [net, local.timer, rv, remote.recvAt]);
   const isHost = !net || !!rv?.host;
   /** Color de cada jugador: online, el que eligió en la sala; en local, el de su asiento. */
-  const colors = s.players.map((_, p) => PCOL[(net ? rv?.seats[p]?.color : undefined) ?? p % PCOL.length] ?? PCOL[p % PCOL.length]);
+  const colors = useMemo(() => {
+    if (net) return s.players.map((_, p) => PCOL[rv?.seats[p]?.color ?? p % PCOL.length] ?? PCOL[p % PCOL.length]);
+    // En local: el mío, el que elegí; las máquinas, los que quedan, por orden.
+    const mine = cfg.color ?? 0;
+    const rest = PCOL.filter((_, i) => i !== mine);
+    return s.players.map((_, p) => (p === ME ? PCOL[mine] : rest[(p - 1 + rest.length) % rest.length]));
+  }, [net, rv?.seats, s.players.length, cfg.color]);
   const timerOn = net ? rv?.opts.timer !== false : localTimer;
   const seatState = (p: number): SeatState => (net && rv ? rv.seats[p]?.state : s.players[p].out ? 'out' : undefined);
   // Online: se avisa al servidor cuando ya se ha visto el reparto, para que empiece a correr el juego.
@@ -561,8 +590,13 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   // en marcha (playbackRate), así el cambio no da saltos.
   const cursedNow = isCursedEnv(s);
   useEffect(() => {
-    const rays = root.current?.querySelector<HTMLElement>('.rays');
-    rays?.getAnimations().forEach((a) => a.updatePlaybackRate(s.dir));
+    const el = root.current;
+    const rays = el?.querySelector<HTMLElement>('.rays');
+    // Los rayos y la malla de colores de la entrada (el ::before de la mesa).
+    el?.getAnimations({ subtree: true }).forEach((a) => {
+      const fx = a.effect as KeyframeEffect | null;
+      if (fx?.target === rays || (fx?.target === el && fx?.pseudoElement === '::before')) a.updatePlaybackRate(s.dir);
+    });
   }, [s.dir, cursedNow]);
 
   // El fondo radial y los rayos nacen del centro exacto de la Pila.
@@ -593,11 +627,30 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     const timers: number[] = [];
     let live = true;
     const at = (ms: number, fn: () => void) => timers.push(window.setTimeout(() => live && fn(), ms));
-    endDeal.current = () => { live = false; timers.forEach(clearTimeout); host.replaceChildren(); setIntro(null); };
-    setIntro('deal');
-    setDealt(Array(n).fill(1));
+    endDeal.current = () => { live = false; timers.forEach(clearTimeout); host.replaceChildren(); setCountText(null); setStage({ deck: true, tri: true }); setIntro(null); };
+    setIntro('count');
+    setDealt(Array(n).fill(0));
+    setStage({ deck: false, tri: false });
     const order = Array.from({ length: n }, (_, i) => (n - i) % n); // antihorario, empezando por mí
-    const GAP = 110, MS = 640, START = 900;
+    // 1) Cuenta atrás.
+    const CD = ['3', '2', '1', '¡A JUGAR!'];
+    CD.forEach((t, i) => at(i * 800, () => setCountText(t)));
+    const S0 = CD.length * 800;
+    at(S0, () => { setCountText(null); setIntro('setup'); });
+    // 2) Cada jugador recibe su Maldición, boca arriba, uno tras otro.
+    order.forEach((p, j) => at(S0 + 250 + j * 420, () => {
+      const slot = p === ME ? document.querySelectorAll<HTMLElement>('.cards-row .hc')[0] : null;
+      const A = anchorRect('pile'), B = slot?.getBoundingClientRect() ?? anchorRect(p), w = ghostW();
+      if (!A || !B) return setDealt((d) => d.map((x, i) => (i === p ? 1 : x)));
+      launch(host, { src: asset('cards/maldicion.webp'), A, B, sA: scaleAt('pile', A, w), sB: slot ? slot.offsetWidth / w : scaleAt(p, B, w), ms: 620, solid: true, onLand: () => live && setDealt((d) => d.map((x, i) => (i === p ? 1 : x))) });
+    }));
+    // 3) Se coloca el Mazo y después la trifuerza.
+    const S1 = S0 + 250 + n * 420 + 500;
+    at(S1, () => setStage((v) => ({ ...v, deck: true })));
+    at(S1 + 550, () => setStage({ deck: true, tri: true }));
+    at(S1 + 1100, () => setIntro('deal'));
+    // 4) Reparto.
+    const GAP = 110, MS = 640, START = S1 + 1300;
     let k = 0;
     for (let round = 1; round < 7; round++)
       for (const p of order) {
@@ -622,7 +675,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const dealing = intro !== null;
-  const facedown = intro === 'deal' || intro === 'out';
+  const facedown = intro === 'count' || intro === 'setup' || intro === 'deal' || intro === 'out';
   const shown = (p: number) => (facedown ? Math.min(dealt[p], s.players[p].hand.length) : Math.max(0, s.players[p].hand.length + (adj[p] ?? 0) - (p === ME ? s.players[ME].hand.filter((c) => hidden.includes(c.id)).length : 0)));
   const [showLog, setShowLog] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
@@ -630,6 +683,16 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
   // ── qué se me pide ahora
   const myTurn = ph.t === 'turn' && s.turn === ME;
+  /** Me toca hacer algo aunque no sea mi turno (reaccionar, descartar Gemas, aplastar, elegir color…). */
+  const actionNeeded = !dealing && ph.t !== 'over' && s.turn !== ME && pendingPlayers(s).includes(ME);
+  /** Texto del cartel cuando algo va contra mí: si es un efecto reflejado, se dice. */
+  const attackText = (() => {
+    if (ph.t !== 'react') return 'Contra ti';
+    const k = ph.eff.k;
+    if (k === 'rcodicia' || k === 'rpurga' || k === 'riman' || k === 'rescarcha') return 'Efecto reflejado contra todos';
+    if ((k === 'draw' && !ph.eff.aplastar) || (k === 'trav' && ph.eff.noChain)) return 'Efecto reflejado contra ti';
+    return 'Contra ti';
+  })();
   const choosing = ph.t === 'choose' && ph.player === ME ? ph : null;
   const reacting = ph.t === 'react' && ph.waiting.includes(ME) ? ph : null;
   const opts = reacting ? reactOptions(s, ME) : [];
@@ -691,7 +754,50 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
   // Avisos grandes: qué carta se acaba de jugar y cambios de sentido.
   const names = s.players.map((p) => p.name);
+  /**
+   * Color que enseña la mesa: cambia cuando la carta se posa en la Pila (no mientras se presenta en grande),
+   * y de forma gradual. Durante la entrada no hay color hasta que sale la primera carta.
+   */
+  const [shownColor, setShownColor] = useState<Color | null>(() => (intro === null ? s.color : null));
+  /** Hasta cuándo siguen las cartas de la última jugada en el aire. */
+  const busyUntil = useRef(0);
+  const colorTimer = useRef(0);
+  useEffect(() => {
+    const g = playGroup(s);
+    if (g) busyUntil.current = Date.now() + FLY_MS + SHOW_MS + SETTLE_MS;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.seq]);
+  useEffect(() => {
+    clearTimeout(colorTimer.current);
+    if (intro !== null) return setShownColor(null);
+    const wait = Math.max(0, busyUntil.current - Date.now());
+    colorTimer.current = window.setTimeout(() => setShownColor(s.color), wait);
+    return () => clearTimeout(colorTimer.current);
+  }, [s.color, s.seq, intro]);
+  /** Las gemas para elegir color salen cuando ya ha terminado la animación de la carta. */
+  const [pickReady, setPickReady] = useState(false);
+  useEffect(() => {
+    if (!(ph.t === 'tinte' && ph.player === ME)) return setPickReady(false);
+    const id = window.setTimeout(() => setPickReady(true), Math.max(250, busyUntil.current - Date.now()));
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ph.t, s.seq]);
   const [callout, setCallout] = useState<Callout | null>(null);
+  /** Final de la partida a cámara lenta: la última jugada y el anuncio del ganador, antes del resumen. */
+  const [finale, setFinale] = useState(false);
+  const wasOver = useRef(s.phase.t === 'over');
+  useEffect(() => {
+    const over = ph.t === 'over';
+    if (over && !wasOver.current) {
+      setFinale(true);
+      root.current?.querySelector<HTMLElement>('.rays')?.getAnimations().forEach((a) => a.updatePlaybackRate(0.15 * s.dir));
+      const id = window.setTimeout(() => setFinale(false), FINALE_MS);
+      wasOver.current = true;
+      return () => clearTimeout(id);
+    }
+    wasOver.current = over;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ph.t]);
   const [shuffling, setShuffling] = useState(false);
   const [flash, setFlash] = useState<{ key: number; dir: 1 | -1 } | null>(null);
   const [muted, setMuted] = useState(-1);
@@ -848,11 +954,11 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     btns.push(<button key={label} className={primary ? 'primary' : ''} disabled={disabled} onClick={run}>{label}</button>);
   if (ph.t === 'over') text = '';
   else if (dealing) {
-    text = 'Cada jugador tiene su Maldición. Repartiendo 6 cartas más…';
+    text = intro === 'count' ? '¡Empieza la partida!' : intro === 'setup' ? 'Cada jugador recibe su Maldición. Se coloca la mesa…' : 'Repartiendo 6 cartas más a cada jugador…';
     B('Saltar', () => endDeal.current());
   } else if (tinte) {
     alert = true;
-    text = 'Has jugado la última carta incolora: elige el color con el que sigue la partida.';
+    text = 'Has jugado la última carta incolora: elige el color con las gemas de debajo de la trifuerza.';
 
   } else if (choosing) {
     const e = choosing.pp.companion ?? choosing.pp.card;
@@ -946,7 +1052,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     alert = true;
     text = '¡APLASTAR! Pulsa la diana antes que los demás.';
   } else if (myTurn) {
-    text = ph.drawn ? 'Puedes jugar la carta robada o quedártela.' : blind ? 'Tinieblas: juega una carta a ciegas o roba 3.' : 'Tu turno: encadena una carta o roba del Mazo.';
+    text = ph.drawn ? 'Puedes jugar la carta robada o quedártela.' : blind ? 'Tinieblas: juega una carta a ciegas o roba 3.' : 'Encadena una carta o roba del Mazo.';
     if (ph.drawn) B('Quedármela', () => send({ type: 'keep', player: ME }), true);
     else B(blind ? 'Robar 3' : 'Robar', () => send({ type: 'draw', player: ME }), true);
   } else if (ph.t === 'turn') text = `Turno de ${name(s.turn)}${nextUp >= 0 && nextUp !== s.turn ? ` · después ${nextUp === ME ? 'tú' : name(nextUp)}` : ''}…`;
@@ -1074,7 +1180,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const seats = SEATS[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
-    <div ref={root} className={`game col-${s.color} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
+    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME] } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
       <div className="rays" />
       <div className="shade" />
       <div className="flights" ref={flights} />
@@ -1114,7 +1220,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         ))}
 
         <div className="center">
-          <div className={`deck ${onDeck ? 'hot' : ''} ${deckEmpty ? 'empty' : ''} ${shuffling ? 'shuffling' : ''}`} data-anchor="deck" onClick={onDeck ?? undefined} title={deckEmpty ? 'Mazo vacío: se barajará la Pila al robar' : 'Mazo'}>
+          <div className={`deck ${onDeck ? 'hot' : ''} ${deckEmpty ? 'empty' : ''} ${shuffling ? 'shuffling' : ''} ${stage.deck ? (dealing ? 'placed' : '') : 'unplaced'}`} data-anchor="deck" onClick={onDeck ?? undefined} title={deckEmpty ? 'Mazo vacío: se barajará la Pila al robar' : 'Mazo'}>
             <img className="d3" src={asset('cards/back.webp')} alt="" />
             <img className="d2" src={asset('cards/back.webp')} alt="" />
             <img src={asset('cards/back.webp')} alt="Mazo" draggable={false} />
@@ -1147,7 +1253,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             {ph.t === 'aplastar' && <div key={`slap${ph.win}`} className="slap-label">¡APLASTAR!<small>{slapping ? 'pulsa la diana' : 'todos a la diana'}</small></div>}
           </div>
 
-          <div className={`tri ${cursed ? 'cursed' : ''} ${envFx ? 'fxing' : ''}`} title="Indicadores de Entorno">
+          <div className={`tri ${cursed ? 'cursed' : ''} ${envFx ? 'fxing' : ''} ${stage.tri ? (dealing ? 'placed' : '') : 'unplaced'}`} title={tinte ? 'Elige color: pulsa un triángulo' : 'Indicadores de Entorno'}>
             {(['tinieblas', 'mutis', 'centro', 'inutilizar'] as const).map((k) => {
               const on = (triHold ?? envNow)[k];
               const label = k === 'centro' ? 'Entorno maldito' : KINDS[k].name;
@@ -1155,6 +1261,13 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
               const spin = k === 'tinieblas' && s.env.tinieblas ? { rotate: `${s.env.tinieblas.count * 120}deg` } : undefined;
               return <img key={k} style={spin} className={`t-${k} ${on ? 'on' : ''}`} src={asset(`ui/${k}-${on ? 'on' : 'off'}.webp`)} alt={`${label}: ${on ? 'activo' : 'inactivo'}`} title={`${label}: ${on ? 'activo' : 'inactivo'}`} />;
             })}
+            {/* Elegir color: gemas pequeñas debajo de la trifuerza, cuando ya ha terminado la animación de la carta. */}
+            {tinte && !envFx && pickReady && (
+              <div className="gem-under">
+                <GemPicker size={40} onPick={(c) => send({ type: 'color', player: ME, color: c })} />
+                <span className="gem-hint">Elige color</span>
+              </div>
+            )}
             {s.env.tinieblas && <span className="tin">{s.env.tinieblas.count + 1}/3</span>}
             {cursed && <span className="curse">Entorno maldito: nadie puede ganar</span>}
           </div>
@@ -1171,7 +1284,6 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         </div>
       </aside>
 
-      {tinte && !envFx && <div className="tinte-panel"><GemPicker onPick={(c) => send({ type: 'color', player: ME, color: c })} /></div>}
       {tray && <div className={`tray ${trayCount > 7 ? 'many' : ''} ${escarcha ? 'esc' : ''} ${iman ? 'late' : ''} ${adivinar ? 'adiv-tray' : ''}`}>{tray}</div>}
 
       {/* Zona de mensajes de alto fijo: lo que ocurre (arriba) y lo que se me pide (abajo). Nunca empuja la mesa ni la mano. */}
@@ -1179,10 +1291,14 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         <div className="line1">
           {!dealing && !callout && !tinte && <div className="ticker" key={s.log.length}>{rich(s.log[s.log.length - 1]?.text ?? '', names, colors)}</div>}
         </div>
+        {/* Cartel de lo que me toca, encima del aviso: mi turno o algo contra mí. */}
+        {underAttack ? <div className="turn-sign attack">⚠ {attackText}</div>
+          : s.turn === ME && !dealing && ph.t !== 'over' && (myTurn || pendingPlayers(s).includes(ME)) ? <div className="turn-sign mine">Tu turno</div>
+          : actionNeeded ? <div className="turn-sign act">Te toca decidir</div> : null}
         <div className={`banner ${alert ? 'alert' : ''} ${s.turn === ME && !dealing ? 'mine' : ''} ${underAttack ? 'attack' : myTurn && !dealing ? 'myturn' : ''}`}>
           {s.announce?.n !== muted && s.announce?.player === ME && <span key={s.announce.n} className="say">{s.announce.text}</span>}
-          {underAttack ? <span className="btag attack">⚠ Contra ti</span> : myTurn && !dealing ? <span className="btag turn">Tu turno</span> : null}
-          <span className="msg">{text}</span>
+          {/* El texto va en su propio span: dentro de la caja (flex) se perderían los espacios junto a los nombres. */}
+          <span className="msg"><span>{rich(text, names, colors, true)}</span></span>
           {btns}
         </div>
       </div>
@@ -1192,11 +1308,18 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
           🌑 Tinieblas: memoriza tus cartas · se ponen boca abajo en <b>{Math.ceil((peekUntil - Date.now()) / 1000)}</b>
         </div>
       )}
+      {/* Mini historial: las últimas jugadas, encima de mi nombre. */}
+      {!dealing && s.log.length > 1 && (
+        <ol className="mini-log" aria-label="Últimas jugadas">
+          {s.log.slice(-5).map((l, i, a) => <li key={s.log.length - a.length + i}>{rich(l.text, names, colors)}</li>)}
+        </ol>
+      )}
       <div className={`hand ${s.turn === ME && !dealing ? 'turn' : ''}`}>
         <div className="me-tag">
-          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''}`} style={{ borderColor: colors[ME] }}>{me.name}<i>{shown(ME)}</i></span>
-          {s.turn === ME && !dealing && ph.t !== 'over' && <span className="turn-tag">Tu turno</span>}
-          {nextUp === ME && s.turn !== ME && !dealing && <span className="next-tag">Te toca después</span>}
+          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''}`} style={{ background: colors[ME] }}>{me.name}<i>{shown(ME)}</i></span>
+          {s.turn === ME && !dealing && ph.t !== 'over' && <span className="turn-tag" style={{ background: colors[ME], boxShadow: `0 0 18px ${colors[ME]}` }}>Tu turno</span>}
+          {nextUp === ME && s.turn !== ME && !dealing && <span className="next-tag" style={{ borderColor: colors[ME] }}>Te toca después</span>}
+          {!dealing && me.hand.length === 1 && ph.t !== 'over' && <span className="last-tag">¡Última carta!</span>}
           {isHost && <button className="foul" title="Anfitrión: señalarte una falta (robas 3)" onClick={() => send({ type: 'penalize', target: ME })}>+3</button>}
         </div>
         {me.egida && (
@@ -1228,8 +1351,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
       {/* Anuncio de la carta jugada: quién, qué carta y qué hace, bajo la carta que se presenta en grande sobre la Pila. */}
       {/* Si me toca elegir color, el selector ocupa el sitio del cartel de la jugada (no se pisan). */}
-      {callout && !tinte && (
-        <div key={`call${callout.key}`} className={`callout c-${callout.tone}`}>
+      {callout && !tinte && !finale && (
+        <div key={`call${callout.key}`} className={`callout c-${callout.tone}`} style={{ '--cc': colors[callout.player] } as React.CSSProperties}>
           <small><i style={{ background: colors[callout.player] }} />{names[callout.player]} {callout.verb}</small>
           <strong>{callout.cards.map((c, i) => <span key={c.id}>{i > 0 && <em>+</em>}<Icon kind={c.kind} size={24} />{cardName(c)}</span>)}</strong>
           <span>{callout.text}</span>
@@ -1248,6 +1371,14 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         </button>
       )}
       {ph.t === 'adivinar' && ph.player !== ME && <AdivinarFx key={`adiv${ph.player}`} actor={ph.player} name={name(ph.player)} n={ph.cards.length} />}
+      {countText && <div key={countText} className="count-big" aria-live="assertive">{countText}</div>}
+      {/* Turno de otro jugador: se ilumina el borde de la pantalla por su lado. */}
+      {!dealing && ph.t !== 'over' && s.turn !== ME && (() => {
+        const i = rivals.findIndex((p) => p.id === s.turn);
+        if (i < 0 || !seats[i]) return null;
+        const [side, x] = seats[i];
+        return <div key={`edge${s.turn}`} className={`turn-edge ${side}`} style={side === 'top' ? { left: `${x}%` } : undefined} />;
+      })()}
       {envFx && <EnvFx key={envFx.key} steps={envFx.steps} before={envFx.before} onDone={() => envDone(envFx.key)} />}
       {flash && (
         <div key={`flash${flash.key}`} className="dirfx" style={{ '--d': flash.dir } as React.CSSProperties}>
@@ -1268,7 +1399,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {net && remote.status !== 'open' && <div className="net-banner" role="status">Reconectando…</div>}
       {net && rv && rv.waiting.length > 0 && ph.t !== 'over' && <WaitBox rv={rv} recvAt={remote.recvAt} isHost={isHost} decide={(p, how) => net.send({ t: 'drop', p, how })} />}
       {net && rv && rv.you >= 0 && rv.seats[rv.you]?.state === 'out' && ph.t !== 'over' && <div className="net-banner" role="status">Has quedado fuera de la partida: puedes seguir mirando.</div>}
-      {ph.t === 'over' && <GameOver s={s} colors={colors} startedAt={startedAt.current} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
+      {finale && s.winner !== null && <Finale name={s.winner === ME ? '¡Has ganado!' : `¡Gana ${name(s.winner)}!`} why={s.log.some((l) => l.text.includes('3 Rituales')) ? 'Reúne los 3 Rituales' : s.log.some((l) => l.text.includes('único que queda')) ? 'Es el único que queda' : 'Última carta'} color={colors[s.winner]} />}
+      {ph.t === 'over' && !finale && <GameOver s={s} colors={colors} startedAt={startedAt.current} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
       {pause && ph.t !== 'over' && (
         <div className="pause" role="dialog" aria-label="Partida en pausa">
           <div className="pause-box">
@@ -1383,6 +1515,26 @@ function EnvFx({ steps, before, onDone }: { steps: EnvStep[]; before: EnvState; 
         </div>
       )}
     </>
+  );
+}
+
+// ───────────────────────── final ─────────────────────────
+
+/** Lo que dura el final a cámara lenta antes de que salga el resumen de la partida. */
+const FINALE_MS = 6200;
+
+/** Final épico: bandas de cine, la mesa se oscurece y aparece el ganador. */
+function Finale({ name, why, color }: { name: string; why: string; color: string }) {
+  return (
+    <div className="finale" style={{ '--wc': color } as React.CSSProperties} role="status" aria-live="assertive">
+      <i className="finale-bar top" />
+      <i className="finale-bar bottom" />
+      <div className="finale-burst" />
+      <div className="finale-text">
+        <small>{why}</small>
+        <b>{name}</b>
+      </div>
+    </div>
   );
 }
 
@@ -1604,7 +1756,7 @@ export default function App() {
     if (sala && /^[A-Z]{4}$/.test(sala)) return { k: 'entry', code: sala };
     // ?demo=5 arranca directamente una partida de 5 jugadores (útil para probar).
     const demo = Number(q.get('demo'));
-    if (demo >= 3 && demo <= 6) return { k: 'local', n: 0, cfg: { name: 'Tú', players: demo, level: 1, extraCurses: false, condena: true, debugHand: q.get('mano')?.split(','), beta: q.has('beta') } };
+    if (demo >= 3 && demo <= 6) return { k: 'local', n: 0, cfg: { name: 'Tú', players: demo, level: 1, extraCurses: false, condena: true, debugHand: q.get('mano')?.split(','), debugSolo: q.has('solo'), beta: q.has('beta') } };
     return { k: 'home' };
   });
   const home = useCallback(() => {

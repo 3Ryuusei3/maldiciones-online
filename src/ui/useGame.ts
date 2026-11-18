@@ -17,8 +17,12 @@ export interface GameConfig {
   beta?: boolean;
   /** Tiempo máximo de 15 s para cada decisión (por defecto, sí). */
   timer?: boolean;
+  /** Mi color en local (índice de la paleta de jugadores); las máquinas usan los que quedan. */
+  color?: number;
   /** Solo para pruebas (?mano=tinieblas,reflejo): cartas que empiezan en mi mano, y empiezo yo. */
   debugHand?: string[];
+  /** Solo para pruebas (?solo): mi mano queda solo con las cartas de `debugHand`. */
+  debugSolo?: boolean;
 }
 
 /** Asiento del jugador de este navegador. En local es siempre 0; online lo fija la sala (setMe). */
@@ -44,6 +48,11 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
         const i = src.findIndex((c) => c.kind === kind);
         if (i >= 0) { [src[i], g.players[ME].hand[j]] = [g.players[ME].hand[j], src[i]]; break; }
       }
+    }
+    if (cfg.debugSolo && cfg.debugHand) {
+      const keep = g.players[ME].hand.filter((c) => cfg.debugHand!.includes(c.kind));
+      g.deck.push(...g.players[ME].hand.filter((c) => !keep.includes(c)));
+      g.players[ME].hand = keep;
     }
     if (cfg.debugHand) g.turn = ME;
     return g;
