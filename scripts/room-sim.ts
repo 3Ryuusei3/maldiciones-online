@@ -15,7 +15,7 @@ for (let g = 0; g < N; g++) {
   const tokens = ['a', 'b', 'c'].map((x) => x.repeat(20));
   const online = new Set(tokens.slice(0, 2 + (g % 2)));
   for (const [i, tk] of tokens.entries()) hello(r, tk, `Humano ${i}`);
-  setOpts(r, tokens[0], { size: 3 + (g % 4), level: (g % 3) as 0 | 1 | 2, beta: g % 2 === 0, extraCurses: g % 5 === 0 });
+  setOpts(r, tokens[0], { size: 3 + (g % 4), level: (g % 3) as 0 | 1 | 2, beta: g % 2 === 0, extraCurses: g % 5 === 0, timer: true }); // los humanos de la simulación no juegan: les mueve el piloto automático
   start(r, tokens[0], now, online);
   for (const tk of online) ready(r, tk, online, now);
   let guard = 0;
