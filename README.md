@@ -1,7 +1,7 @@
 # Maldiciones (web)
 
 Versión de navegador del juego de mesa **Maldiciones**. Reglas V7.0.1 (103 cartas), arte de la V6.
-De momento: 1 jugador contra 2–5 máquinas (fácil / normal / difícil).
+Un jugador contra 2–5 máquinas (fácil / normal / difícil), u online con amigos (y máquinas para completar la mesa).
 
 ```bash
 npm install
@@ -27,14 +27,37 @@ npm run sim 500    # 500 partidas solo de máquinas para comprobar que el motor 
 (`travesura-a.webp`, `cristalizar-m.webp`, `reflejo.webp`… a = amarillo, m = morado, v = verde, n = incolora).
 `aplastar-*.webp` es ahora la ilustración de Embestida V6.
 
-## Online (pendiente, solo Supabase)
+## Online (Cloudflare, plan gratuito)
 
-El motor ya está pensado para ello: un jugador hace de **anfitrión**, ejecuta `apply` y los demás solo envían acciones.
+Un servidor autoritativo: cada sala es un **Durable Object** que ejecuta `apply`, lleva los relojes, mueve a las
+máquinas y envía a cada jugador solo su vista (`viewFor`: sin manos ajenas, Mazo ni semilla; las cartas ocultas
+cambian de id porque `c0`, `c1`… delatan la carta). El mismo Worker sirve la web estática de `dist/`.
 
-1. Supabase Realtime (canal por sala): los invitados envían `Action`; el anfitrión difunde el estado.
-2. Falta una función `vistaPara(estado, jugador)` que oculte manos ajenas y el Mazo antes de difundir.
-3. Tabla `salas` (código, anfitrión, estado serializado) para reconexiones; Auth anónima.
-4. `useGame.ts` es lo único que cambia: hoy el asiento humano es fijo (`ME = 0`).
+```bash
+cd server && npm install
+npm run dev                       # servidor local en http://localhost:8787 (sirve también ../dist)
+# en otra terminal, desde la raíz:
+npm run dev                       # Vite redirige /api al 8787
+npx tsx scripts/room-sim.ts 200   # partidas online simuladas (piloto automático, desconexiones, fugas de info)
+node server/smoke.mjs             # prueba de extremo a extremo contra el servidor local
+```
+
+**Publicar** (una vez: `cd server && npx wrangler login`): `cd server && npm run deploy` → `https://maldiciones.<tu-subdominio>.workers.dev`.
+Si la web se aloja en otro sitio, compílala con `VITE_API=https://maldiciones.<tu-subdominio>.workers.dev`.
+
+| Ruta | Qué es |
+| --- | --- |
+| `src/game/room.ts` | Sala pura: espera, opciones, partida, planificación de máquinas/relojes, piloto automático |
+| `src/game/view.ts` | Lo que ve cada jugador |
+| `src/game/timing.ts` | Ritmos compartidos por el anfitrión local y el servidor |
+| `server/src/index.ts` | Worker + Durable Object (WebSockets con hibernación, alarmas, almacenamiento) |
+| `src/net/client.ts` | Conexión del navegador (reconexión, token por pestaña) |
+| `src/ui/Online.tsx` | Crear/unirse y sala de espera |
+
+Reglas online: los huecos se rellenan con máquinas; quien se desconecta o se va lo juega una máquina hasta que vuelve
+(mismo token = misma pestaña, aunque recargue); un humano conectado tiene 60 s en su turno y 40 s en otras decisiones
+antes del piloto automático; solo el anfitrión cambia opciones, empieza, señala faltas (+3) y pide revancha.
+Las salas sin nadie conectado durante 6 h se borran.
 
 ## Adaptaciones y supuestos de reglas
 

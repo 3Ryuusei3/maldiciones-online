@@ -1,9 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Card, Color, COLORS, COLOR_NAME, HELP, KINDS, Kind, cardImage, cardName, isCursed, isPlainGem } from '../game/cards';
 import { Action, Anchor, Effect, Fx, GameState, canDup, canFreeAntitodo, canPlay, isBlind, isCursedEnv, predTargets, reactOptions, topCard } from '../game/engine';
 import { Level } from '../game/bot';
 import { CompTab, Compendium, HelpDock } from './Compendium';
-import { GameConfig, ME, Timer, useGame } from './useGame';
+import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
+import { NetClient, useNet } from '../net/client';
+import { Lobby, OnlineEntry } from './Online';
 import { CardView, Icon, PCOL, asset, rich, toggleFullscreen } from './shared';
 
 // ───────────────────────── piezas básicas ─────────────────────────
@@ -284,7 +286,7 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
 
 // ───────────────────────── portada ─────────────────────────
 
-function Home({ onStart }: { onStart: (c: GameConfig) => void }) {
+function Home({ onStart, onOnline }: { onStart: (c: GameConfig) => void; onOnline: () => void }) {
   const [name, setName] = useState(() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } });
   const [players, setPlayers] = useState(4);
   const [level, setLevel] = useState<Level>(1);
@@ -331,8 +333,8 @@ function Home({ onStart }: { onStart: (c: GameConfig) => void }) {
         <button className="play" onClick={() => { try { localStorage.setItem('maldiciones:nombre', name.trim()); } catch { /* sin almacenamiento: no se recuerda */ } onStart({ name: name.trim() || 'Tú', players, level, extraCurses, condena, beta }); }}>Jugar</button>
         <div className="home-links">
           <button onClick={() => setPage('jugar')}>Compendio</button>
+          <button onClick={onOnline}>Jugar online</button>
         </div>
-        <small>Partidas online: próximamente</small>
       </div>
     </div>
   );
@@ -403,7 +405,7 @@ const SEATS: Record<number, [string, number][]> = {
 /** Fases de la entrada: reparto boca abajo, giro de las cartas (ocultar / mostrar) y primera carta de la Pila. */
 type Intro = 'deal' | 'out' | 'in' | 'pile' | null;
 
-function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[] }) {
+function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, away }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; away?: boolean }) {
   const pl = s.players[p];
   // Durante el reparto su Maldición está aparte, boca arriba, así que no cuenta en el abanico.
   const have = Math.min(shown - (intro === 'deal' || intro === 'out' ? 1 : 0), 14);
@@ -412,7 +414,7 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
   const mid = (n - 1) / 2;
   const spread = Math.min(11, 70 / Math.max(n, 1));
   return (
-    <div className={`seat ${side} ${s.turn === p && !intro ? 'turn' : ''} ${selectable ? 'selectable' : ''}`} style={side === 'top' ? { left: `${x}%` } : undefined} onClick={selectable ? onPick : undefined}>
+    <div className={`seat ${side} ${s.turn === p && !intro ? 'turn' : ''} ${selectable ? 'selectable' : ''} ${away ? 'away' : ''}`} style={side === 'top' ? { left: `${x}%` } : undefined} onClick={selectable ? onPick : undefined}>
       <div className="fanbox" data-anchor={`p${p}`}>
         {Array.from({ length: n }, (_, i) => (
           <img key={i} src={asset('cards/back.webp')} alt="" draggable={false} style={{ transform: `translateX(-50%) rotate(${(i - mid) * spread}deg)`, opacity: i < have ? 1 : 0 }} />
@@ -428,7 +430,8 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
         {(intro === 'deal' || intro === 'out') && <img className={`curse0 ${intro === 'out' ? 'flip-out' : ''}`} src={asset('cards/maldicion.webp')} alt="Su Maldición, boca arriba" />}
         {pl.egida && <img className="egida" src={asset('cards/egida.webp')} alt="Égida boca arriba" title="Égida boca arriba: le queda 1 uso" />}
         {slapped && <span className="slapped">✋</span>}
-        <button className="foul" title="Anfitrión: señalar falta (roba 3)" onClick={(e) => { e.stopPropagation(); onFoul(); }}>+3</button>
+        {away && <span className="away-tag" title="Desconectado: juega una máquina por él">ausente</span>}
+        {onFoul && <button className="foul" title="Anfitrión: señalar falta (roba 3)" onClick={(e) => { e.stopPropagation(); onFoul(); }}>+3</button>}
         {selectable && <span className="pickme">Elegir</span>}
         {say && s.announce?.player === p && <span key={s.announce.n} className="say">{s.announce.text}</span>}
       </div>
@@ -440,7 +443,7 @@ type Assign = Record<string, 'keep' | 'discard' | number>;
 type Fate = 'back' | 'keep' | 'discard';
 const FATE_LABEL: Record<Fate, string> = { back: 'Al Mazo', keep: 'Me la quedo', discard: 'Descartar' };
 
-function Game({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => void; onRematch: () => void }) {
+function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => void; onRematch?: () => void; net?: NetClient }) {
   /** Entrada de la partida: cada jugador tiene su Maldición boca arriba y recibe 6 cartas boca abajo; luego se giran. */
   const [intro, setIntro] = useState<Intro>('deal');
   const [dealt, setDealt] = useState<number[]>(() => Array(cfg.players).fill(1));
@@ -448,7 +451,24 @@ function Game({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => void;
   const [comp, setComp] = useState(false);
   /** Pausa (y su menú, que también sirve para confirmar la salida). */
   const [pause, setPause] = useState<null | 'menu' | 'exit'>(null);
-  const { state: s, dispatch, timer } = useGame(cfg, intro === null, pause !== null || comp);
+  // En local la partida la aloja este navegador; online, el servidor (aquí solo se muestra y se envían acciones).
+  const local = useGame(cfg, intro === null, pause !== null || comp, !net);
+  const remote = useNet(net ?? null);
+  const rv = remote.view;
+  const s = net && rv?.game ? rv.game : local.state;
+  const dispatch = net ? (a: Action) => net.act(a) : local.dispatch;
+  const timer = useMemo<Timer | null>(() => {
+    if (!net) return local.timer;
+    const t = rv?.timer;
+    const ph = rv?.game?.phase;
+    if (!t || !ph || !('win' in ph) || ph.win !== t.key) return null;
+    // La hora del servidor se pasa a la de este navegador.
+    return { until: t.until - rv!.now + remote.recvAt, total: t.total };
+  }, [net, local.timer, rv, remote.recvAt]);
+  const isHost = !net || !!rv?.host;
+  const away = (p: number) => !!net && !!rv && !rv.seats[p]?.bot && !rv.seats[p]?.online;
+  // Online: se avisa al servidor cuando ya se ha visto el reparto, para que empiece a correr el juego.
+  useEffect(() => { if (net && intro === null) net.send({ t: 'ready' }); }, [net, intro]);
   const startedAt = useRef(Date.now());
   const origins = useRef<Record<string, DOMRect>>({});
   const send = (a: Action) => {
@@ -463,7 +483,8 @@ function Game({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => void;
   const me = s.players[ME];
   const blind = isBlind(s);
   const top = topCard(s);
-  const rivals = s.players.filter((p) => p.id !== ME);
+  // Los rivales, en orden de juego a partir de mí (en local yo soy siempre el 0).
+  const rivals = s.players.map((_, i) => s.players[(ME + 1 + i) % s.players.length]).slice(0, -1);
   const name = (p: number) => s.players[p].name;
   const { layer: flights, flying, adj, hidden, room, turning } = useFlights(s, origins);
 
@@ -943,7 +964,8 @@ function Game({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => void;
             x={seats[i][1]}
             selectable={pickPlayers.includes(p.id)}
             onPick={() => onPlayer(p.id)}
-            onFoul={() => send({ type: 'penalize', target: p.id })}
+            onFoul={isHost ? () => send({ type: 'penalize', target: p.id }) : undefined}
+            away={away(p.id)}
             slapped={ph.t === 'aplastar' && ph.slapped.includes(p.id)}
             shown={shown(p.id)}
             reveal={revealed[p.id] ?? []}
@@ -1025,7 +1047,7 @@ function Game({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => void;
       <div className={`hand ${s.turn === ME && !dealing ? 'turn' : ''}`}>
         <div className="me-tag">
           <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''}`} style={{ borderColor: PCOL[ME] }}>{me.name}<i>{shown(ME)}</i></span>
-          <button className="foul" title="Anfitrión: señalarte una falta (robas 3)" onClick={() => send({ type: 'penalize', target: ME })}>+3</button>
+          {isHost && <button className="foul" title="Anfitrión: señalarte una falta (robas 3)" onClick={() => send({ type: 'penalize', target: ME })}>+3</button>}
         </div>
         {me.egida && (
           <div className="my-egida" title="Tu Égida boca arriba: le queda 1 uso">
@@ -1080,14 +1102,15 @@ function Game({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => void;
       <HelpDock kind={helpKind} setKind={setHelpKind} beta={!!cfg.beta} />
       <div className="edge"><Countdown timer={timer} /></div>
 
-      {ph.t === 'over' && <GameOver s={s} startedAt={startedAt.current} onExit={onExit} onRematch={onRematch} />}
+      {net && remote.status !== 'open' && <div className="net-banner" role="status">Reconectando…</div>}
+      {ph.t === 'over' && <GameOver s={s} startedAt={startedAt.current} onExit={onExit} onRematch={onRematch} onLobby={net && isHost ? () => net.send({ t: 'lobby' }) : undefined} waiting={!!net && !isHost} />}
       {pause && ph.t !== 'over' && (
         <div className="pause" role="dialog" aria-label="Partida en pausa">
           <div className="pause-box">
             {pause === 'menu' ? (
               <>
                 <h2>Pausa</h2>
-                <p>La partida está detenida: nadie juega y los tiempos no corren.</p>
+                <p>{net ? 'Es una partida online: aunque tengas este menú abierto, la partida sigue.' : 'La partida está detenida: nadie juega y los tiempos no corren.'}</p>
                 <button className="primary" onClick={() => setPause(null)}>Continuar</button>
                 <button onClick={toggleFullscreen}>Pantalla completa</button>
                 <button onClick={() => { setPause(null); setComp(true); }}>Compendio</button>
@@ -1096,7 +1119,7 @@ function Game({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => void;
             ) : (
               <>
                 <h2>¿Salir de la partida?</h2>
-                <p>Se perderá la partida en curso.</p>
+                <p>{net ? 'Una máquina jugará por ti el resto de la partida.' : 'Se perderá la partida en curso.'}</p>
                 <button className="danger" onClick={onExit}>Sí, salir</button>
                 <button onClick={() => setPause(null)}>Seguir jugando</button>
               </>
@@ -1143,7 +1166,7 @@ function EnvFx({ k }: { k: 'mutis' | 'inutilizar' | 'tinieblas' | 'centro' }) {
 
 // ───────────────────────── fin de partida ─────────────────────────
 
-function GameOver({ s, startedAt, onExit, onRematch }: { s: GameState; startedAt: number; onExit: () => void; onRematch: () => void }) {
+function GameOver({ s, startedAt, onExit, onRematch, onLobby, waiting }: { s: GameState; startedAt: number; onExit: () => void; onRematch?: () => void; onLobby?: () => void; waiting?: boolean }) {
   const [tab, setTab] = useState<'res' | 'log'>('res');
   const w = s.winner!;
   const mins = Math.max(1, Math.round((Date.now() - startedAt) / 60000));
@@ -1217,7 +1240,9 @@ function GameOver({ s, startedAt, onExit, onRematch }: { s: GameState; startedAt
           </ol>
         )}
         <div className="over-btns">
-          <button className="primary" onClick={onRematch}>Jugar otra vez</button>
+          {onRematch && <button className="primary" onClick={onRematch}>Jugar otra vez</button>}
+          {onLobby && <button onClick={onLobby}>Volver a la sala</button>}
+          {waiting && <small>Esperando a que el anfitrión decida si se juega otra…</small>}
           <button onClick={onExit}>Volver al inicio</button>
         </div>
       </div>
@@ -1227,11 +1252,45 @@ function GameOver({ s, startedAt, onExit, onRematch }: { s: GameState; startedAt
 
 // ───────────────────────── raíz ─────────────────────────
 
+/** Sala online: sala de espera o, si hay partida, la mesa (con mi asiento como ME). */
+function OnlineRoom({ client, onExit }: { client: NetClient; onExit: (error?: string) => void }) {
+  const { view: v, fatal, error } = useNet(client);
+  useEffect(() => { if (fatal) onExit(error ?? undefined); }, [fatal, error, onExit]);
+  if (!v?.game || v.you < 0) return <Lobby client={client} onExit={() => onExit()} />;
+  setMe(v.you);
+  const g = v.game;
+  const cfg: GameConfig = { name: g.players[v.you].name, players: g.players.length, level: v.opts.level, extraCurses: v.opts.extraCurses, condena: v.opts.condena, beta: v.opts.beta };
+  return <Game key={`${v.code}:${v.round}`} cfg={cfg} net={client} onExit={() => { client.leave(); onExit(); }} onRematch={v.host ? () => client.send({ t: 'rematch' }) : undefined} />;
+}
+
+type Screen = { k: 'home' } | { k: 'local'; cfg: GameConfig; n: number } | { k: 'entry'; code?: string; error?: string | null } | { k: 'room'; client: NetClient };
+
 export default function App() {
-  // ?demo=5 arranca directamente una partida de 5 jugadores (útil para probar).
-  const demo = Number(new URLSearchParams(location.search).get('demo'));
-  const [cfg, setCfg] = useState<GameConfig | null>(demo >= 3 && demo <= 6 ? { name: 'Tú', players: demo, level: 1, extraCurses: false, condena: true, debugHand: new URLSearchParams(location.search).get('mano')?.split(','), beta: new URLSearchParams(location.search).has('beta') } : null);
-  const [n, setN] = useState(0);
-  if (!cfg) return <Home onStart={(c) => { setCfg(c); setN((x) => x + 1); }} />;
-  return <Game key={n} cfg={cfg} onExit={() => setCfg(null)} onRematch={() => setN((x) => x + 1)} />;
+  const q = new URLSearchParams(location.search);
+  const [screen, setScreen] = useState<Screen>(() => {
+    // ?sala=ABCD abre directamente la entrada online con el código puesto (enlace de invitación).
+    const sala = q.get('sala')?.toUpperCase();
+    if (sala && /^[A-Z]{4}$/.test(sala)) return { k: 'entry', code: sala };
+    // ?demo=5 arranca directamente una partida de 5 jugadores (útil para probar).
+    const demo = Number(q.get('demo'));
+    if (demo >= 3 && demo <= 6) return { k: 'local', n: 0, cfg: { name: 'Tú', players: demo, level: 1, extraCurses: false, condena: true, debugHand: q.get('mano')?.split(','), beta: q.has('beta') } };
+    return { k: 'home' };
+  });
+  const home = useCallback(() => {
+    // Se quita ?sala= de la dirección para no volver a entrar al recargar.
+    if (location.search) history.replaceState(null, '', location.pathname);
+    setScreen({ k: 'home' });
+  }, []);
+  const leaveRoom = useCallback((error?: string) => setScreen({ k: 'entry', error }), []);
+  switch (screen.k) {
+    case 'home':
+      return <Home onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} onOnline={() => setScreen({ k: 'entry' })} />;
+    case 'entry':
+      return <OnlineEntry initialCode={screen.code} initialError={screen.error} onBack={home} onJoin={(code, name) => setScreen({ k: 'room', client: new NetClient(code, name) })} />;
+    case 'room':
+      return <OnlineRoom client={screen.client} onExit={leaveRoom} />;
+    case 'local':
+      setMe(0);
+      return <Game key={screen.n} cfg={screen.cfg} onExit={home} onRematch={() => setScreen({ ...screen, n: screen.n + 1 })} />;
+  }
 }

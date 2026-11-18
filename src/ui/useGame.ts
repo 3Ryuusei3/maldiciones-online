@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { botDecide, botDup, Level } from '../game/bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from '../game/engine';
+import { BOT_WINDOW_MS, WINDOW_MS, botDelay, dupDelay, pickNames } from '../game/timing';
 
 export interface GameConfig {
   name: string;
@@ -18,26 +19,17 @@ export interface GameConfig {
   debugHand?: string[];
 }
 
-export const ME = 0;
-/** Multiplicador de las pausas de las máquinas: ritmo único y pausado, para que dé tiempo a ver cada jugada. */
-const PACE = 1;
-const BOT_NAMES = ['Lilith', 'Grimm', 'Morgana', 'Corvus', 'Nyx', 'Hécate', 'Salem', 'Circe', 'Merlín', 'Baba Yaga', 'Fausto', 'Medea', 'Belial', 'Ágata', 'Mordred', 'Sibila', 'Rasputín', 'Carmilla', 'Astaroth', 'Nimue', 'Erebo', 'Brujilda', 'Lázaro', 'Úrsula', 'Vlad', 'Pandora', 'Azrael', 'Melusina', 'Caronte', 'Lucero'];
-/** Rivales al azar y sin repetir (ni coincidir con el nombre del jugador). */
-const pickNames = (n: number, mine: string) => BOT_NAMES.filter((x) => x.toLowerCase() !== mine.toLowerCase()).map((x) => [Math.random(), x] as const).sort((a, b) => a[0] - b[0]).slice(0, n).map((x) => x[1]);
-const between = (a: number, b: number) => a + Math.random() * (b - a);
-
-/** Duración (ms) de las ventanas cuando hay un humano implicado. */
-const WINDOW_MS = { react: 15000, aplastar: 4000, gemas: 15000 };
-/** Margen antes de que las máquinas empiecen a reaccionar en Aplastar, para que dé tiempo a verlo venir. */
-export const SLAP_GRACE = 900;
-const SLAP_MS: [number, number][] = [[900, 2400], [650, 1800], [450, 1300]];
+/** Asiento del jugador de este navegador. En local es siempre 0; online lo fija la sala (setMe). */
+export let ME = 0;
+export const setMe = (p: number) => { ME = p; };
 
 export interface Timer { until: number; total: number }
 
-export function useGame(cfg: GameConfig, ready = true, paused = false) {
+/** `enabled = false`: no aloja nada (la partida online la lleva el servidor). */
+export function useGame(cfg: GameConfig, ready = true, paused = false, enabled = true) {
   const [state, setState] = useState<GameState>(() => {
     const g = newGame({
-      players: [{ name: cfg.name || 'Tú', bot: false }, ...pickNames(cfg.players - 1, cfg.name || 'Tú').map((name) => ({ name, bot: true }))],
+      players: [{ name: cfg.name || 'Tú', bot: false }, ...pickNames(cfg.players - 1, [cfg.name || 'Tú']).map((name) => ({ name, bot: true }))],
       seed: (Math.random() * 2 ** 31) | 0,
       extraCurses: cfg.extraCurses,
       condena: cfg.condena,
@@ -79,7 +71,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false) {
   useEffect(() => {
     const s = state;
     const ph = s.phase;
-    if (ph.t === 'over' || !ready || paused) return;
+    if (!enabled || ph.t === 'over' || !ready || paused) return;
     const timers: number[] = [];
     const later = (ms: number, fn: () => void) => timers.push(window.setTimeout(fn, Math.max(0, ms)));
     const now = Date.now();
@@ -90,7 +82,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false) {
     let until = 0;
     if (windowed) {
       const humanIn = pend.includes(ME) || timer?.key === ph.win;
-      const total = humanIn ? WINDOW_MS[ph.t] : Math.min(6000, WINDOW_MS[ph.t]);
+      const total = humanIn ? WINDOW_MS[ph.t] : Math.min(BOT_WINDOW_MS, WINDOW_MS[ph.t]);
       if (timer?.key !== ph.win) {
         until = now + total;
         if (pend.includes(ME)) setTimer({ key: ph.win, until, total });
@@ -105,17 +97,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false) {
     for (const p of pend) {
       if (!s.players[p].bot) continue;
       let at = plan.current.at[p];
-      if (at === undefined) {
-        let d: number;
-        const k = PACE;
-        if (ph.t === 'turn') d = Math.max(between(3000, 3800) * k, humanCanDup ? 4800 : 0);
-        else if (ph.t === 'aplastar') d = SLAP_GRACE + between(...SLAP_MS[cfg.level]);
-        else if (ph.t === 'react') d = between(2200, 3000) * k;
-        else if (ph.t === 'gemas') d = between(1300, 2100) * k;
-        else if (ph.t === 'choose' || ph.t === 'tinte') d = between(1400, 2000) * k;
-        else d = between(1700, 2300) * k;
-        at = plan.current.at[p] = now + d;
-      }
+      if (at === undefined) at = plan.current.at[p] = now + botDelay(s, cfg.level, humanCanDup);
       later(at - now, () => {
         const cur = ref.current;
         const a = botDecide(cur, p, cfg.level);
@@ -130,7 +112,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false) {
       const k = `${top}:${pl.id}`;
       if (dupPlan.current[k] === undefined) {
         const a = botDup(s, pl.id, cfg.level);
-        dupPlan.current[k] = a ? now + between(2000, 3400) * PACE : 0;
+        dupPlan.current[k] = a ? now + dupDelay() : 0;
       }
       const at = dupPlan.current[k];
       if (at > 0)

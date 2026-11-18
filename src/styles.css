@@ -756,3 +756,23 @@ input[type='checkbox']:focus-visible { outline: 2px solid var(--gold); outline-o
 .over-log li { display: grid; grid-template-columns: 42px 1fr; gap: 8px; padding: 6px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.07); font-size: 12.5px; line-height: 1.45; }
 .over-log li span { color: var(--muted); font-size: 11px; text-align: right; padding-top: 2px; }
 .over-log li p { margin: 0; color: rgba(255, 255, 255, 0.88); }
+
+/* ───────── online ───────── */
+.join-row { display: flex; align-items: flex-end; gap: 10px; }
+.join-row label { flex: 1; }
+.join-row button { padding: 10px 18px; }
+.home-panel input.code-input { font-size: 22px; letter-spacing: 0.4em; text-transform: uppercase; }
+.net-error { color: #ffb0a8; font-size: 13px; }
+.room-code { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid rgba(255, 255, 255, 0.4); padding: 10px 10px 10px 18px; }
+.room-code span { font-size: 30px; font-weight: 600; letter-spacing: 0.4em; }
+.room-code button { padding: 9px 14px; }
+.lobby-seats { list-style: none; display: grid; gap: 6px; margin: 0; padding: 0; text-transform: none; letter-spacing: 0.04em; font-size: 15px; color: #fff; }
+.lobby-seats li { display: flex; align-items: center; gap: 10px; }
+.lobby-seats li i { width: 10px; height: 10px; flex: none; background: rgba(255, 255, 255, 0.3); }
+.lobby-seats li small { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.lobby-seats li.off { opacity: 0.55; }
+.lobby-seats li.bot { color: rgba(255, 255, 255, 0.5); }
+.lobby-wait { font-size: 13px; color: rgba(255, 255, 255, 0.75); }
+.seat.away .fanbox, .seat.away .pill { opacity: 0.5; }
+.away-tag { background: var(--ink); color: #fff; border: 1px solid rgba(255, 255, 255, 0.5); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 6px; }
+.net-banner { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 120; background: var(--danger); color: #fff; font-weight: 600; font-size: 13px; padding: 6px 14px; }

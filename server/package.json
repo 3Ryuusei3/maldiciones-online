@@ -1,0 +1,17 @@
+{
+  "name": "maldiciones-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "cd .. && npm run build && cd server && wrangler deploy",
+    "check": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "@types/ws": "^8.18.2",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.86.0",
+    "ws": "^8.23.0"
+  }
+}

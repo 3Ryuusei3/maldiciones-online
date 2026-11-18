@@ -1,0 +1,25 @@
+// Servidor online de Maldiciones (Cloudflare Workers, plan gratuito).
+//   npm run dev      -> servidor local en http://localhost:8787
+//   npm run deploy   -> compila la web (../dist) y lo publica todo junto
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "maldiciones",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+  // Se publica en https://maldiciones.ryuusei3.workers.dev (sin URLs de vista previa por versión).
+  "workers_dev": true,
+  "preview_urls": false,
+  // La web estática se sirve gratis desde aquí; solo /api/* pasa por el Worker.
+  "assets": {
+    "directory": "../dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // Una sala = un Durable Object. En el plan gratuito tienen que ser de SQLite.
+  "durable_objects": {
+    "bindings": [{ "name": "SALAS", "class_name": "Sala" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Sala"] }],
+  "observability": { "enabled": true }
+}
