@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { NetClient, createRoom, roomInfo, useNet } from '../net/client';
 import { PCOL, asset, toggleFullscreen } from './shared';
 import { LEVELS, SetupFields } from './Setup';
+import { CompendioButton } from './Compendium';
 
 
 /**
@@ -80,6 +81,7 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack }: { ini
       <button className="play" disabled={busy || code.length !== 4} onClick={join}>Unirse a la sala</button>
       {error && <p className="net-error" role="alert">{error}</p>}
       <div className="home-links">
+        <CompendioButton />
         <button onClick={onBack}>Volver</button>
       </div>
     </>
@@ -116,7 +118,7 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
         <ul className="lobby-seats">
           {v.seats.map((x, i) => (
             <li key={i} className={x.online ? '' : 'off'}>
-              <i style={{ background: PCOL[i % PCOL.length] }} />
+              <i style={{ background: PCOL[x.color] ?? PCOL[i % PCOL.length] }} />
               {x.name}
               {i === v.you && <small>(tú)</small>}
               {x.host && <small>anfitrión</small>}
@@ -126,6 +128,18 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
           {Array.from({ length: bots }, (_, i) => <li key={`b${i}`} className="bot"><i />Máquina ({LEVELS[o.level].toLowerCase()})</li>)}
         </ul>
       </div>
+      {v.you >= 0 && (
+        <div className="field">
+          Tu color
+          <div className="color-pick" role="radiogroup" aria-label="Tu color">
+            {PCOL.map((c, i) => {
+              const mine = v.seats[v.you]?.color === i;
+              const taken = !mine && v.seats.some((x, j) => j !== v.you && !x.bot && x.color === i);
+              return <button key={c} role="radio" aria-checked={mine} aria-label={`Color ${i + 1}${taken ? ' (ocupado)' : ''}`} className={mine ? 'on' : ''} disabled={taken} style={{ background: c }} onClick={() => client.send({ t: 'color', c: i })} />;
+            })}
+          </div>
+        </div>
+      )}
       {v.host ? (
         <>
           <SetupFields opts={o} set={(x) => client.opts(x)} min={v.seats.length} />
@@ -140,6 +154,7 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
       )}
       {(status !== 'open' || error) && <p className="net-error" role="alert">{status !== 'open' ? 'Reconectando…' : error}</p>}
       <div className="home-links">
+        <CompendioButton />
         <button onClick={() => { client.leave(); onExit(); }}>Salir de la sala</button>
       </div>
     </>

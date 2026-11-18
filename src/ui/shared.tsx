@@ -94,7 +94,8 @@ const NAMES = (Object.keys(KINDS) as Kind[]).map((k) => [KINDS[k].name, k] as co
 const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Convierte una línea del registro en texto enriquecido: jugadores en su color y cartas en MAYÚSCULAS con su icono. */
-export function rich(text: string, players: string[]): React.ReactNode[] {
+/** `colors`: color de cada jugador (por defecto, el de su asiento). */
+export function rich(text: string, players: string[], colors?: string[]): React.ReactNode[] {
   const re = new RegExp(`(${[...players].sort((a, b) => b.length - a.length).map(esc).join('|')})|(${NAMES.map((n) => esc(n[0])).join('|')})( Amarill[oa]| Morad[oa]| Verde| Incolora)?`, 'g');
   const out: React.ReactNode[] = [];
   let last = 0;
@@ -105,7 +106,7 @@ export function rich(text: string, players: string[]): React.ReactNode[] {
     const after = text[m.index + m[0].length];
     if ((before && /[\p{L}]/u.test(before)) || (after && /[\p{L}]/u.test(after))) continue;
     if (m.index > last) out.push(text.slice(last, m.index));
-    if (m[1]) out.push(<b key={m.index} className="lp" style={{ color: PCOL[players.indexOf(m[1]) % PCOL.length] }}>{m[1]}</b>);
+    if (m[1]) out.push(<b key={m.index} className="lp" style={{ color: colors?.[players.indexOf(m[1])] ?? PCOL[players.indexOf(m[1]) % PCOL.length] }}>{m[1]}</b>);
     else {
       const kind = NAMES.find((n) => n[0] === m![2])![1];
       out.push(<span key={m.index} className="lc"><Icon kind={kind} size={15} />{(m[2] + (m[3] ?? '')).toUpperCase()}</span>);

@@ -9,7 +9,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   ABANDON_MS, ClientMsg, Result, RoomData, ServerMsg,
-  act, decideDrop, hello, leave, newRoom, nextWake, ready, roomView, setOpts, start, tick, toLobby,
+  act, decideDrop, hello, setColor, leave, newRoom, nextWake, ready, roomView, setOpts, start, tick, toLobby,
 } from '../../src/game/room';
 
 interface Env {
@@ -133,6 +133,7 @@ export class Sala extends DurableObject<Env> {
         case 'opts': res = setOpts(r, token, m.opts ?? {}, online); break;
         case 'start': case 'rematch': res = start(r, token, now, online); break;
         case 'drop': res = decideDrop(r, token, Number(m.p), m.how, online, now); break;
+        case 'color': res = setColor(r, token, Number(m.c)); break;
         case 'lobby': res = toLobby(r, token); break;
         case 'ready': ready(r, token, online, now); res = { ok: true }; break;
         case 'act': res = act(r, token, m.a, online, now); break;

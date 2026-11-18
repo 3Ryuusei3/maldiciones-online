@@ -101,7 +101,8 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
     } else if (pend.includes(ME) && !s.players[ME].bot && cfg.timer !== false) {
       // Cualquier otra decisión mía tiene un tiempo máximo: al agotarse, juega la máquina por mí.
       const sk = `s${s.seq}`;
-      if (timer?.key !== sk) {
+      // Reloj nuevo para cada decisión (y si se acaba de volver a activar el tiempo máximo con uno ya vencido).
+      if (timer?.key !== sk || timer.until <= now) {
         until = now + DECIDE_MS;
         setTimer({ key: sk, until, total: DECIDE_MS });
       } else until = timer.until;
@@ -148,10 +149,10 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
     }
     return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, timer, ready, paused]);
+  }, [state, timer, ready, paused, cfg.timer]);
 
   const ph = state.phase;
   const windowed = ph.t === 'react' || ph.t === 'aplastar' || ph.t === 'gemas';
-  const activeTimer = timer && (windowed ? 'win' in ph && timer.key === `w${ph.win}` : timer.key === `s${state.seq}` && pendingPlayers(state).includes(ME)) ? timer : null;
+  const activeTimer = timer && (windowed ? 'win' in ph && timer.key === `w${ph.win}` : timer.key === `s${state.seq}` && pendingPlayers(state).includes(ME) && cfg.timer !== false) ? timer : null;
   return { state, dispatch, timer: activeTimer as Timer | null };
 }

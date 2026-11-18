@@ -272,8 +272,18 @@ function tryWin(s: GameState, p: number): boolean {
   s.winner = p;
   s.phase = { t: 'over' };
   s.after = null;
+  s.rafaga = null;
   log(s, `🏆 ${nm(s, p)} se queda sin cartas y gana la partida.`);
   return true;
+}
+
+/**
+ * Quien echa su última carta gana en ese mismo momento, sin que se aplique su efecto
+ * (salvo en Entorno maldito, donde roba 1 y la jugada sigue).
+ */
+function lastCard(s: GameState, p: number): boolean {
+  const pl = s.players[p];
+  return pl.hand.length === 0 && !pl.held && !pl.out && tryWin(s, p);
 }
 
 // ───────────────────────── consultas para UI y bots ─────────────────────────
@@ -504,6 +514,7 @@ function startPlay(s: GameState, p: number, card: Card) {
     log(s, `${nm(s, p)} juega ${cardName(card)}.`);
     announce(s, p, `¡${KINDS[card.kind].name}!`, card.kind === 'mutis');
   }
+  if (lastCard(s, p)) return;
   continuePlay(s, pp);
 }
 
@@ -967,6 +978,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       if (eff.k === 'cristal') eff.held = []; // las Gemas enseñadas se quedan en su mano
       log(s, `${nm(s, p)} usa Antitodo: el efecto queda anulado para todos.`);
       announce(s, p, '¡Antitodo!');
+      if (lastCard(s, p)) return true;
       ph.waiting = [];
       resolve(s, eff, [...eff.targets]);
       return true;
@@ -1005,6 +1017,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       const big = c.kind === 'trastada';
       log(s, `${nm(s, p)} encadena ${cardName(c)}: el efecto se acumula sobre ${nm(s, target)}.`);
       announce(s, p, `¡${KINDS[c.kind].name}!`);
+      if (lastCard(s, p)) return true;
       s.after = { turnTo: target };
       openReact(s, { k: 'trav', launchers: [...eff.launchers, ...(big ? [p, p] : [p])], targets: [target], amount: eff.amount + (big ? 3 : 2), noChain: false, given: [], last: c.kind as 'travesura' | 'trastada' });
       return true;
@@ -1018,6 +1031,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       s.undo?.spent.push({ p, card: c, from: 'pile' });
       s.dir = s.dir === 1 ? -1 : 1;
       announce(s, p, '¡Reflejo!');
+      if (lastCard(s, p)) return true;
       const everyone = inGame(s).filter((x) => x.id !== p).map((x) => x.id);
       let ne: Effect;
       if (eff.k === 'draw') ne = { k: 'draw', source: p, targets: [a.target!], amount: eff.amount, aplastar: false };
@@ -1047,6 +1061,7 @@ function handleDup(s: GameState, p: number, cardId: string): boolean {
   putOnPile(s, p, c);
   log(s, `${nm(s, p)} duplica ${cardName(c)}.`);
   announce(s, p, '¡Duplicar!');
+  if (lastCard(s, p)) return true;
   const ph = s.phase;
   const attr = KINDS[c.kind].attr;
   const inutil = s.env.inutilizar && c.color !== null;
@@ -1065,8 +1080,6 @@ function handleDup(s: GameState, p: number, cardId: string): boolean {
       log(s, `Travesura se multiplica: ${nm(s, ph.eff.targets[0])} recibirá ${ph.eff.launchers.length} carta(s) y robará ${ph.eff.amount}.`);
     }
   }
-  // Duplicando en mitad de una acción no se gana al instante: se comprueba cuando la acción termina.
-  if (ph.t === 'turn' && tryWin(s, p)) return true;
   settleTinte(s);
   return true;
 }
@@ -1310,6 +1323,14 @@ function step(s: GameState, a: Action): boolean {
       if (fromHand) {
         takeFromHand(s, L, c.id);
         r.own = false;
+        if (s.players[L].hand.length === 0) {
+          s.pile.push(c);
+          fx(s, L, 'pile', 1, c);
+          log(s, `Ráfaga: ${nm(s, L)} echa su última carta, ${cardName(c)}.`);
+          if (lastCard(s, L)) return true;
+          s.pile.pop();
+          s.fx.pop();
+        }
       } else r.pool = r.pool.filter((x) => x.id !== c!.id);
       log(s, `Ráfaga: ${nm(s, L)} juega ${cardName(c)} contra ${T === L ? 'sí mismo' : nm(s, T)}.`);
       if (isCursed(c)) {
@@ -1340,6 +1361,7 @@ function step(s: GameState, a: Action): boolean {
       for (const id of a.keep) s.players[a.player].hand.push(by(id));
       fx(s, 'deck', a.player, a.keep.length);
       for (const id of a.discard) s.pile.unshift(by(id));
+      fx(s, 'deck', 'pile', a.discard.length); // boca abajo, por debajo de la Pila
       for (const id of [...a.back].reverse()) s.deck.push(by(id));
       log(s, `${nm(s, a.player)} adivina: se queda ${a.keep.length}, descarta ${a.discard.length} y devuelve ${a.back.length} al Mazo.`);
       finish(s);

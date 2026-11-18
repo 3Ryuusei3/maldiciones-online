@@ -1,9 +1,9 @@
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Card, Color, COLORS, COLOR_NAME, HELP, KINDS, Kind, cardImage, cardName, isCursed, isPlainGem } from '../game/cards';
-import { Action, Anchor, Effect, Fx, GameState, canDup, canFreeAntitodo, canPlay, isBlind, isCursedEnv, predTargets, reactOptions, topCard } from '../game/engine';
+import { Action, Anchor, Effect, Fx, GameState, canDup, canFreeAntitodo, canPlay, isBlind, isCursedEnv, nextPlayer, pendingPlayers, predTargets, reactOptions, topCard } from '../game/engine';
 import { Level } from '../game/bot';
-import { CompTab, Compendium, HelpDock } from './Compendium';
+import { Compendium, CompendioButton, HelpDock } from './Compendium';
 import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
 import { NetClient, useNet } from '../net/client';
 import type { RoomView } from '../game/room';
@@ -340,11 +340,8 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
 
 /** Portada: elegir modo de juego (las opciones de cada partida van dentro de cada modo). */
 function Home({ onLocal, onOnline }: { onLocal: () => void; onOnline: () => void }) {
-  const [page, setPage] = useState<CompTab | null>(null);
   return (
     <>
-      {/* Por encima de todo (el panel tiene backdrop-filter y no dejaría salir un position: fixed). */}
-      {page && createPortal(<div className="home-page home-overlay"><Compendium tab={page} onClose={() => setPage(null)} /></div>, document.body)}
       <h1>Maldiciones</h1>
       <p className="tagline">El juego de cartas maldito</p>
       <div className="play-row">
@@ -352,7 +349,7 @@ function Home({ onLocal, onOnline }: { onLocal: () => void; onOnline: () => void
         <button className="play" onClick={onOnline}>Jugar online</button>
       </div>
       <div className="home-links">
-        <button onClick={() => setPage('jugar')}>Compendio</button>
+        <CompendioButton />
       </div>
     </>
   );
@@ -379,6 +376,7 @@ function LocalSetup({ onStart, onBack }: { onStart: (c: GameConfig) => void; onB
         <button className="play" onClick={start}>Empezar</button>
       </div>
       <div className="home-links">
+        <CompendioButton />
         <button onClick={onBack}>Volver</button>
       </div>
     </>
@@ -458,7 +456,7 @@ const STATE_TAG: Record<'wait' | 'auto' | 'out', [string, string]> = {
   out: ['fuera', 'Ha quedado fuera de la partida'],
 };
 
-function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, state, onKick, egidaAir }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; state?: SeatState; onKick?: () => void; egidaAir: string[] }) {
+function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, state, onKick, egidaAir, color, next }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; state?: SeatState; onKick?: () => void; egidaAir: string[]; color: string; next: boolean }) {
   const pl = s.players[p];
   // Durante el reparto su Maldición está aparte, boca arriba, así que no cuenta en el abanico.
   const have = Math.min(shown - (intro === 'deal' || intro === 'out' ? 1 : 0), 14);
@@ -479,7 +477,9 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
         </div>
       )}
       <div className="plate">
-        <span className="pill" style={{ borderColor: PCOL[p % PCOL.length] }}>{pl.name}<i>{shown}</i></span>
+        <span className="pill" style={{ borderColor: color }}>{pl.name}<i>{shown}</i></span>
+        {s.turn === p && !intro && s.phase.t !== 'over' && <span className="turn-tag">Su turno</span>}
+        {next && s.turn !== p && !intro && <span className="next-tag">Después</span>}
         {(intro === 'deal' || intro === 'out') && <img className={`curse0 ${intro === 'out' ? 'flip-out' : ''}`} src={asset('cards/maldicion.webp')} alt="Su Maldición, boca arriba" />}
         {pl.egida && <img className={`egida ${egidaAir.includes(pl.egida.id) ? 'air' : ''}`} data-egida={p} src={asset('cards/egida.webp')} alt="Égida boca arriba" title="Égida boca arriba: le queda 1 uso" />}
         {slapped && <span className="slapped">✋</span>}
@@ -507,7 +507,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   /** Pausa (y su menú, que también sirve para confirmar la salida). */
   const [pause, setPause] = useState<null | 'menu' | 'exit'>(null);
   // En local la partida la aloja este navegador; online, el servidor (aquí solo se muestra y se envían acciones).
-  const local = useGame(cfg, intro === null, pause !== null || comp, !net);
+  /** Tiempo máximo de 15 s: en local se puede cambiar desde la pausa; online lo cambia el anfitrión (opción de la sala). */
+  const [localTimer, setLocalTimer] = useState(cfg.timer !== false);
+  const local = useGame(useMemo(() => ({ ...cfg, timer: localTimer }), [cfg, localTimer]), intro === null, pause !== null || comp, !net);
   const remote = useNet(net ?? null);
   const rv = remote.view;
   const s = net && rv?.game ? rv.game : local.state;
@@ -520,6 +522,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     return { until: t.until - rv!.now + remote.recvAt, total: t.total };
   }, [net, local.timer, rv, remote.recvAt]);
   const isHost = !net || !!rv?.host;
+  /** Color de cada jugador: online, el que eligió en la sala; en local, el de su asiento. */
+  const colors = s.players.map((_, p) => PCOL[(net ? rv?.seats[p]?.color : undefined) ?? p % PCOL.length] ?? PCOL[p % PCOL.length]);
+  const timerOn = net ? rv?.opts.timer !== false : localTimer;
   const seatState = (p: number): SeatState => (net && rv ? rv.seats[p]?.state : s.players[p].out ? 'out' : undefined);
   // Online: se avisa al servidor cuando ya se ha visto el reparto, para que empiece a correr el juego.
   useEffect(() => { if (net && intro === null) net.send({ t: 'ready' }); }, [net, intro]);
@@ -547,7 +552,17 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   /** Rivales a los que se puede elegir (los que están fuera de la partida, no). */
   const rivalIds = rivals.filter((p) => !p.out).map((p) => p.id);
   const name = (p: number) => s.players[p].name;
+  /** A quién le toca después del turno en curso (si nadie cambia el sentido ni concede el turno). */
+  const nextUp = ph.t === 'over' ? -1 : s.after?.turnTo ?? nextPlayer(s, s.turn);
   const { layer: flights, flying, adj, hidden, room, turning, tucks, egidaAir } = useFlights(s, origins);
+
+  // Los rayos del fondo giran en el sentido de la partida (horario o antihorario). Se invierte la animación
+  // en marcha (playbackRate), así el cambio no da saltos.
+  const cursedNow = isCursedEnv(s);
+  useEffect(() => {
+    const rays = root.current?.querySelector<HTMLElement>('.rays');
+    rays?.getAnimations().forEach((a) => a.updatePlaybackRate(s.dir));
+  }, [s.dir, cursedNow]);
 
   // El fondo radial y los rayos nacen del centro exacto de la Pila.
   useLayoutEffect(() => {
@@ -737,13 +752,12 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const aplastarWin = ph.t === 'aplastar' ? ph.win : 0;
   useEffect(() => { if (aplastarWin) navigator.vibrate?.([120, 60, 120]); }, [aplastarWin]);
 
-  // Aplastar con la barra espaciadora.
-  useEffect(() => {
-    if (!slapping) return;
-    const h = (e: KeyboardEvent) => { if (e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); send({ type: 'slap', player: ME }); } };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  });
+  // Aplastar: aparece una diana en un sitio al azar de la mesa (el mismo para todos, sale de la ventana de la jugada)
+  // y hay que pulsarla antes que los demás.
+  const slapSpot = ph.t === 'aplastar' ? (() => {
+    const h = hash(`aplastar:${ph.win}:${ph.launcher}`);
+    return { x: 14 + (h % 7200) / 100, y: 16 + ((h >> 13) % 4400) / 100 };
+  })() : null;
 
   // ── qué hace cada carta de mi mano al pulsarla
   function cardAction(c: Card): { run: () => void; label?: string; alt?: () => void } | null {
@@ -815,7 +829,6 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     if (card) pickPlayers = predTargets(s, ME, card).filter((p) => p !== ME && rafaga.allowed.includes(p));
     onPlayer = (p) => send({ type: 'rafaga', player: ME, cardId: id, target: p });
   }
-  if (slapping) onPile = () => send({ type: 'slap', player: ME });
   if (myTurn && !ph.drawn && !dealing) onDeck = () => send({ type: 'draw', player: ME });
 
   // ── mensaje y botones sobre mi mano
@@ -922,20 +935,24 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     } else text = 'Recuperar: elige una carta de la Pila.';
   } else if (slapping) {
     alert = true;
-    text = '¡APLASTAR! Pulsa la Pila, Espacio o Intro antes que los demás.';
+    text = '¡APLASTAR! Pulsa la diana antes que los demás.';
   } else if (myTurn) {
     text = ph.drawn ? 'Puedes jugar la carta robada o quedártela.' : blind ? 'Tinieblas: juega una carta a ciegas o roba 3.' : 'Tu turno: encadena una carta o roba del Mazo.';
     if (ph.drawn) B('Quedármela', () => send({ type: 'keep', player: ME }), true);
     else B(blind ? 'Robar 3' : 'Robar', () => send({ type: 'draw', player: ME }), true);
-  } else if (ph.t === 'turn') text = `Turno de ${name(s.turn)}…`;
-  else if (ph.t === 'react') text = effText(s, ph.eff);
-  else if (ph.t === 'aplastar') text = '¡Aplastar! Todos ponen la mano en la Pila…';
+  } else if (ph.t === 'turn') text = `Turno de ${name(s.turn)}${nextUp >= 0 && nextUp !== s.turn ? ` · después ${nextUp === ME ? 'tú' : name(nextUp)}` : ''}…`;
+  // Me afecta pero no puedo hacer nada: solo se informa (la ventana sigue abierta por si otro lo intercepta).
+  else if (ph.t === 'react') text = effText(s, ph.eff) + (ph.eff.targets.includes(ME) ? ' No tienes con qué responder.' : '');
+  else if (ph.t === 'aplastar') text = '¡Aplastar! Todos a pulsar la diana…';
   else if (ph.t === 'gemas') text = `Gema Tricolor: ${ph.waiting.map(name).join(', ')} ${ph.waiting.length > 1 ? 'eligen' : 'elige'} qué Gemas descartar. Se echan todas a la vez.`;
   else if (ph.t === 'tinte') text = `${name(ph.player)} elige color…`;
   else if (ph.t === 'give') text = `${ph.waiting.map(name).join(' y ')} ${ph.waiting.length > 1 ? 'eligen' : 'elige'} qué carta(s) da a ${name(ph.target)}…`;
   else if (ph.t === 'escarcha') text = `${name(ph.player)} congela el tiempo y mueve cartas entre las manos…`;
   else if (ph.t === 'rafaga') text = `Ráfaga de ${name(s.rafaga?.player ?? s.turn)}: está eligiendo qué cartas jugar…`;
-  else text = `${name(s.turn)} está resolviendo su carta…`;
+  else {
+    const who = pendingPlayers(s)[0] ?? s.turn;
+    text = who === ME ? 'Estás resolviendo tu carta…' : ph.t === 'adivinar' ? `${name(who)} está adivinando el futuro…` : `${name(who)} está resolviendo su carta…`;
+  }
 
   // ── cartas apartadas que se muestran sobre mi mano (Imán, Adivinar, Recuperar)
   let tray: React.ReactNode = null;
@@ -988,7 +1005,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     const all = Object.fromEntries(escarcha.targets.flatMap((x) => s.players[x].hand).map((c) => [c.id, c]));
     tray = escarcha.targets.map((x) => (
       <div key={x} className="esc-row">
-        <b style={{ borderColor: PCOL[x % PCOL.length] }}>{name(x)}</b>
+        <b style={{ borderColor: colors[x] }}>{name(x)}</b>
         <div>
           {(esc[x] ?? []).map((id) => {
             const moved = !s.players[x].hand.some((c) => c.id === id);
@@ -1059,6 +1076,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             state={seatState(p.id)}
             onKick={net && isHost && seatState(p.id) === 'auto' ? () => net.send({ t: 'drop', p: p.id, how: 'kick' }) : undefined}
             egidaAir={egidaAir}
+            color={colors[p.id]}
+            next={nextUp === p.id}
             slapped={ph.t === 'aplastar' && ph.slapped.includes(p.id)}
             shown={shown(p.id)}
             reveal={revealed[p.id] ?? []}
@@ -1083,7 +1102,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
               <path className="arc" d="M 170 138 A 80 80 0 0 1 104 180" />
               <path className="tip" d="M 88 180 L 108 168 L 108 192 Z" />
             </svg>
-            <div className={`pile ${slapping ? 'slap' : ''} ${onPile && !slapping ? 'hot' : ''} ${tucks.length ? 'tucking' : ''}`} data-anchor="pile" onClick={onPile ?? undefined}>
+            <div className={`pile ${onPile ? 'hot' : ''} ${tucks.length ? 'tucking' : ''}`} data-anchor="pile" onClick={onPile ?? undefined}>
               {/* Cartas que entran por debajo: van antes en el DOM, así quedan por detrás de la carta superior. */}
               {tucks.map((t) => <div key={`t${t.key}`} className="pc tuck" style={{ '--sx': `${t.side}px` } as React.CSSProperties}><img src={t.src} alt="" /></div>)}
               {!dealing && s.pile.slice(-5).map((c, i, a) => {
@@ -1097,7 +1116,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
               })}
             </div>
             {!dealing && <span className="now"><span className={`dot c-${s.color}`} />{COLOR_NAME[s.color]} · {KINDS[top.kind].name}</span>}
-            {ph.t === 'aplastar' && <div key={`slap${ph.win}`} className="slap-label">¡APLASTAR!<small>{slapping ? 'pulsa la Pila, Espacio o Intro' : 'todos a la Pila'}</small></div>}
+            {ph.t === 'aplastar' && <div key={`slap${ph.win}`} className="slap-label">¡APLASTAR!<small>{slapping ? 'pulsa la diana' : 'todos a la diana'}</small></div>}
           </div>
 
           <div className={`tri ${cursed ? 'cursed' : ''} ${envFx ? 'fxing' : ''}`} title="Indicadores de Entorno">
@@ -1120,17 +1139,17 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
           <button onClick={() => setShowLog(false)} aria-label="Cerrar registro">×</button>
         </div>
         <div className="log-body" ref={logRef}>
-          {s.log.map((l, i) => <p key={i}>{rich(l.text, names)}</p>)}
+          {s.log.map((l, i) => <p key={i}>{rich(l.text, names, colors)}</p>)}
         </div>
       </aside>
 
       {tinte && !envFx && <div className="tinte-panel"><GemPicker onPick={(c) => send({ type: 'color', player: ME, color: c })} /></div>}
-      {tray && <div className={`tray ${trayCount > 7 ? 'many' : ''} ${escarcha ? 'esc' : ''} ${iman ? 'late' : ''}`}>{tray}</div>}
+      {tray && <div className={`tray ${trayCount > 7 ? 'many' : ''} ${escarcha ? 'esc' : ''} ${iman ? 'late' : ''} ${adivinar ? 'adiv-tray' : ''}`}>{tray}</div>}
 
       {/* Zona de mensajes de alto fijo: lo que ocurre (arriba) y lo que se me pide (abajo). Nunca empuja la mesa ni la mano. */}
       <div className="msgzone">
         <div className="line1">
-          {!dealing && !callout && !tinte && <div className="ticker" key={s.log.length}>{rich(s.log[s.log.length - 1]?.text ?? '', names)}</div>}
+          {!dealing && !callout && !tinte && <div className="ticker" key={s.log.length}>{rich(s.log[s.log.length - 1]?.text ?? '', names, colors)}</div>}
         </div>
         <div className={`banner ${alert ? 'alert' : ''} ${s.turn === ME && !dealing ? 'mine' : ''}`}>
           {s.announce?.n !== muted && s.announce?.player === ME && <span key={s.announce.n} className="say">{s.announce.text}</span>}
@@ -1141,7 +1160,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
       <div className={`hand ${s.turn === ME && !dealing ? 'turn' : ''}`}>
         <div className="me-tag">
-          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''}`} style={{ borderColor: PCOL[ME] }}>{me.name}<i>{shown(ME)}</i></span>
+          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''}`} style={{ borderColor: colors[ME] }}>{me.name}<i>{shown(ME)}</i></span>
+          {s.turn === ME && !dealing && ph.t !== 'over' && <span className="turn-tag">Tu turno</span>}
+          {nextUp === ME && s.turn !== ME && !dealing && <span className="next-tag">Te toca después</span>}
           {isHost && <button className="foul" title="Anfitrión: señalarte una falta (robas 3)" onClick={() => send({ type: 'penalize', target: ME })}>+3</button>}
         </div>
         {me.egida && (
@@ -1175,11 +1196,24 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {/* Si me toca elegir color, el selector ocupa el sitio del cartel de la jugada (no se pisan). */}
       {callout && !tinte && (
         <div key={`call${callout.key}`} className={`callout c-${callout.tone}`}>
-          <small><i style={{ background: PCOL[callout.player % PCOL.length] }} />{names[callout.player]} {callout.verb}</small>
+          <small><i style={{ background: colors[callout.player] }} />{names[callout.player]} {callout.verb}</small>
           <strong>{callout.cards.map((c, i) => <span key={c.id}>{i > 0 && <em>+</em>}<Icon kind={c.kind} size={24} />{cardName(c)}</span>)}</strong>
           <span>{callout.text}</span>
         </div>
       )}
+      {slapSpot && ph.t === 'aplastar' && (
+        <button
+          key={`diana${ph.win}`}
+          className={`diana ${slapping ? 'hot' : 'done'}`}
+          style={{ left: `${slapSpot.x}%`, top: `${slapSpot.y}%` }}
+          disabled={!slapping}
+          onPointerDown={slapping ? () => send({ type: 'slap', player: ME }) : undefined}
+          aria-label="Diana de Aplastar: púlsala"
+        >
+          <i /><b>✋</b>
+        </button>
+      )}
+      {ph.t === 'adivinar' && ph.player !== ME && <AdivinarFx key={`adiv${ph.player}`} actor={ph.player} name={name(ph.player)} n={ph.cards.length} />}
       {envFx && <EnvFx key={envFx.key} steps={envFx.steps} before={envFx.before} onDone={() => envDone(envFx.key)} />}
       {flash && (
         <div key={`flash${flash.key}`} className="dirfx" style={{ '--d': flash.dir } as React.CSSProperties}>
@@ -1200,7 +1234,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {net && remote.status !== 'open' && <div className="net-banner" role="status">Reconectando…</div>}
       {net && rv && rv.waiting.length > 0 && ph.t !== 'over' && <WaitBox rv={rv} recvAt={remote.recvAt} isHost={isHost} decide={(p, how) => net.send({ t: 'drop', p, how })} />}
       {net && rv && rv.you >= 0 && rv.seats[rv.you]?.state === 'out' && ph.t !== 'over' && <div className="net-banner" role="status">Has quedado fuera de la partida: puedes seguir mirando.</div>}
-      {ph.t === 'over' && <GameOver s={s} startedAt={startedAt.current} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
+      {ph.t === 'over' && <GameOver s={s} colors={colors} startedAt={startedAt.current} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
       {pause && ph.t !== 'over' && (
         <div className="pause" role="dialog" aria-label="Partida en pausa">
           <div className="pause-box">
@@ -1211,6 +1245,13 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
                 <button className="primary" onClick={() => setPause(null)}>Continuar</button>
                 <button onClick={toggleFullscreen}>Pantalla completa</button>
                 <button onClick={() => { setPause(null); setComp(true); }}>Compendio</button>
+                {(!net || isHost) && (
+                  <label className="check pause-check">
+                    <input type="checkbox" checked={timerOn} onChange={(e) => (net ? net.opts({ timer: e.target.checked }) : setLocalTimer(e.target.checked))} />
+                    Tiempo máximo de 15 s para decidir{net ? ' (para todos)' : ''}
+                  </label>
+                )}
+                {net && !isHost && <small className="pause-note">Tiempo máximo de 15 s: {timerOn ? 'activado' : 'desactivado'} (lo cambia el anfitrión).</small>}
                 <button onClick={() => setPause('exit')}>Salir de la partida</button>
               </>
             ) : (
@@ -1311,6 +1352,37 @@ function EnvFx({ steps, before, onDone }: { steps: EnvStep[]; before: EnvState; 
   );
 }
 
+// ───────────────────────── Adivinar ─────────────────────────
+
+/** Lo que ven los demás cuando alguien adivina: 3 cartas salen del Mazo y flotan junto a él, con un halo mágico. */
+function AdivinarFx({ actor, name, n }: { actor: number; name: string; n: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const deck = anchorRect('deck');
+    const seat = anchorRect(actor);
+    const pile = anchorRect('pile');
+    if (!el || !deck || !seat || !pile) return;
+    // Entre el jugador y el centro de la mesa (pegado a su asiento quedaría fuera de la pantalla).
+    const sx = seat.left + seat.width / 2, sy = seat.top + seat.height / 2;
+    const x = sx + (pile.left + pile.width / 2 - sx) * 0.42, y = sy + (pile.top + pile.height / 2 - sy) * 0.42;
+    Object.assign(el.style, { left: `${x}px`, top: `${y}px` });
+    el.style.setProperty('--fx', `${deck.left + deck.width / 2 - x}px`);
+    el.style.setProperty('--fy', `${deck.top + deck.height / 2 - y}px`);
+  }, [actor]);
+  return (
+    <div ref={ref} className="adiv" aria-live="polite">
+      <div className="adiv-aura" />
+      <div className="adiv-cards">
+        {Array.from({ length: n }, (_, i) => (
+          <img key={i} src={asset('cards/back.webp')} alt="" style={{ '--i': i, '--r': `${(i - (n - 1) / 2) * 14}deg` } as React.CSSProperties} />
+        ))}
+      </div>
+      <span className="adiv-label">🔮 {name} adivina el futuro…</span>
+    </div>
+  );
+}
+
 // ───────────────────────── online: jugadores caídos ─────────────────────────
 
 /** Partida detenida esperando a uno o varios jugadores que se han caído. El anfitrión decide qué hacer. */
@@ -1390,7 +1462,7 @@ function NetToasts({ client }: { client: NetClient }) {
 
 // ───────────────────────── fin de partida ─────────────────────────
 
-function GameOver({ s, startedAt, onExit, onRematch, onLobby }: { s: GameState; startedAt: number; onExit: () => void; onRematch?: () => void; onLobby?: () => void }) {
+function GameOver({ s, colors, startedAt, onExit, onRematch, onLobby }: { s: GameState; colors: string[]; startedAt: number; onExit: () => void; onRematch?: () => void; onLobby?: () => void }) {
   const [tab, setTab] = useState<'res' | 'log'>('res');
   const w = s.winner!;
   const mins = Math.max(1, Math.round((Date.now() - startedAt) / 60000));
@@ -1433,7 +1505,7 @@ function GameOver({ s, startedAt, onExit, onRematch, onLobby }: { s: GameState; 
             </div>
             <div className="over-awards">
               {awards.map(([title, p, value]) => (
-                <div key={title} style={{ borderTopColor: PCOL[p % PCOL.length] }}>
+                <div key={title} style={{ borderTopColor: colors[p] }}>
                   <small>{title}</small>
                   <b>{s.players[p].name}</b>
                   <span>{value}</span>
@@ -1446,7 +1518,7 @@ function GameOver({ s, startedAt, onExit, onRematch, onLobby }: { s: GameState; 
                 return (
                   <li key={p} className={p === w ? 'first' : ''}>
                     <span className="pos">{i + 1}</span>
-                    <span className="who" style={{ borderColor: PCOL[p % PCOL.length] }}>
+                    <span className="who" style={{ borderColor: colors[p] }}>
                       <b>{pl.name}{p === ME && pl.name !== 'Tú' && ' (tú)'}</b>
                       <small>Echó {s.stats.played[p]} · robó {s.stats.drawn[p]} · le quedan {pl.hand.length}</small>
                     </span>
@@ -1460,7 +1532,7 @@ function GameOver({ s, startedAt, onExit, onRematch, onLobby }: { s: GameState; 
           </>
         ) : (
           <ol className="over-log">
-            {s.log.map((l, i) => <li key={i}><span>{i + 1}</span><p>{rich(l.text, names)}</p></li>)}
+            {s.log.map((l, i) => <li key={i}><span>{i + 1}</span><p>{rich(l.text, names, colors)}</p></li>)}
           </ol>
         )}
         <div className="over-btns">

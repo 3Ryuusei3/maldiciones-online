@@ -1,6 +1,7 @@
 // Compendio (Cómo jugar · Mecánicas · Cartas), mini partidas de ejemplo y panel de ayuda rápida.
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ATTR_HELP, ATTR_NAME, Attr, BETA, Color, HELP, KINDS, Kind, RANK_NAME, cardImage } from '../game/cards';
 import { AttrIcon, CATS, Icon, RankIcon, Triforce, asset, kindsOf, sample } from './shared';
 
@@ -781,5 +782,20 @@ export function HelpDock({ kind, art, ping = 0, setKind, beta = true }: { kind: 
         </div>
       )}
     </aside>
+  );
+}
+
+/**
+ * Botón «Compendio» de los paneles de la portada, la partida local, la entrada online y la sala de espera.
+ * Se abre por encima de todo; si la partida empieza mientras está abierto, se cierra solo (el panel desaparece).
+ */
+export function CompendioButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setOpen(true)}>Compendio</button>
+      {/* En el body: el panel tiene backdrop-filter y no dejaría salir un position: fixed. */}
+      {open && createPortal(<div className="home-page home-overlay"><Compendium tab="jugar" onClose={() => setOpen(false)} /></div>, document.body)}
+    </>
   );
 }

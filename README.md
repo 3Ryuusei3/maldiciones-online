@@ -63,6 +63,9 @@ Reglas online:
 - Para volver: recargar la misma pestaña, o entrar con el mismo código y el mismo nombre (recupera su asiento).
 - Si se cae el anfitrión, hace de anfitrión el primer jugador conectado; cuando vuelve, recupera el papel.
 - Solo el anfitrión cambia opciones, empieza la partida y señala faltas (+3). Al terminar, cualquiera puede volver a la sala.
+- Cada jugador elige su color en la sala de espera. El anfitrión puede activar o quitar el tiempo máximo de 15 s
+  también en mitad de la partida (menú de pausa).
+- Para probar en local con `wrangler dev`, la web abierta en `localhost` usa el servidor local; publicada, usa el Worker.
 Las salas sin nadie conectado durante 6 h se borran.
 
 ## Adaptaciones y supuestos de reglas

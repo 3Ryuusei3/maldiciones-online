@@ -11,7 +11,9 @@ import type { ClientMsg, RoomOpts, RoomView, ServerMsg } from '../game/room';
  * VITE_API lo cambia.
  */
 const SERVER = 'https://maldiciones.ryuusei3.workers.dev';
-const API = ((import.meta.env.VITE_API as string | undefined) ?? (import.meta.env.PROD ? SERVER : '')).replace(/\/$/, '');
+/** Abierta en local (p. ej. `wrangler dev`), habla con el servidor local aunque sea la versión compilada. */
+const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const API = ((import.meta.env.VITE_API as string | undefined) ?? (import.meta.env.PROD && !isLocal ? SERVER : '')).replace(/\/$/, '');
 const httpUrl = (path: string) => `${API}${path}`;
 const wsUrl = (path: string) => {
   const u = new URL(httpUrl(path), location.href);

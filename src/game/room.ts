@@ -25,7 +25,17 @@ export interface Seat {
   token: string | null;
   /** Se ha ido de la partida: juega la máquina por él. */
   left?: boolean;
+  /** Color elegido (índice de la paleta de jugadores). */
+  color?: number;
 }
+
+/** Colores de jugador disponibles (índices de la paleta PCOL de la interfaz). */
+export const COLOR_COUNT = 6;
+/** El primer color que no usa nadie (o el del asiento si ya están todos). */
+const freeColor = (seats: Seat[], fallback: number) => {
+  for (let c = 0; c < COLOR_COUNT; c++) if (!seats.some((x) => x.color === c)) return c;
+  return fallback % COLOR_COUNT;
+};
 
 export interface RoomData {
   code: string;
@@ -104,10 +114,12 @@ export type ClientMsg =
   | { t: 'lobby' }
   | { t: 'leave' }
   /** Anfitrión: qué hacer con un jugador caído (esperar más, que juegue una máquina o quitarlo). */
-  | { t: 'drop'; p: number; how: Drop['mode'] };
+  | { t: 'drop'; p: number; how: Drop['mode'] }
+  /** Elegir mi color (en la sala de espera). */
+  | { t: 'color'; c: number };
 
 /** `state` de un asiento en partida: `wait` (caído, se le espera), `auto` (caído, juega una máquina), `out` (fuera). */
-export interface SeatInfo { name: string; bot: boolean; online: boolean; host: boolean; state?: 'wait' | 'auto' | 'out' }
+export interface SeatInfo { name: string; bot: boolean; online: boolean; host: boolean; color: number; state?: 'wait' | 'auto' | 'out' }
 
 export interface RoomView {
   t: 'room';
@@ -167,7 +179,7 @@ export function hello(r: RoomData, token: string, name: string, online: Set<stri
     let h = r.seats.findIndex((x) => !x.token);
     if (h < 0) h = r.seats.findIndex((x) => x.left);
     if (h < 0) return fail('La sala está llena.', true);
-    r.seats[h] = { name: nm, token };
+    r.seats[h] = { name: nm, token, color: r.seats[h].color ?? freeColor(r.seats, h) };
     r.game.players[h] = { ...r.game.players[h], name: nm, bot: false };
     // Se vuelve a planificar ese asiento como humano.
     delete r.sched.at[h];
@@ -176,7 +188,7 @@ export function hello(r: RoomData, token: string, name: string, online: Set<stri
     return ok;
   }
   if (r.seats.length >= r.opts.size) return fail('La sala está llena.', true);
-  r.seats.push({ name: nm, token });
+  r.seats.push({ name: nm, token, color: freeColor(r.seats, r.seats.length) });
   if (!r.host) r.host = token;
   return ok;
 }
@@ -193,8 +205,15 @@ export function hostOf(r: RoomData, online: Set<string>): string | null {
 
 export function setOpts(r: RoomData, token: string, o: Partial<RoomOpts>, online: Set<string> = new Set([token])): Result {
   if (token !== hostOf(r, online)) return fail('Solo el anfitrión puede cambiar las opciones.');
-  if (r.game) return fail('La partida ya ha empezado.');
   const n = r.opts;
+  if (r.game && r.game.phase.t !== 'over') {
+    // En partida solo se puede cambiar el tiempo máximo (por si alguien se ha quedado parado).
+    if (typeof o.timer !== 'boolean') return fail('La partida ya ha empezado.');
+    n.timer = o.timer;
+    // Se vuelve a planificar la decisión en curso con el nuevo criterio.
+    r.sched.key = '';
+    return ok;
+  }
   if (typeof o.size === 'number' && o.size >= 3 && o.size <= 6) n.size = Math.max(o.size, r.seats.length);
   if (o.level === 0 || o.level === 1 || o.level === 2) n.level = o.level;
   if (typeof o.extraCurses === 'boolean') n.extraCurses = o.extraCurses;
@@ -211,7 +230,8 @@ export function start(r: RoomData, token: string, now: number, online: Set<strin
   // Solo entran los que están conectados (los demás pueden unirse luego en el sitio de una máquina).
   const humans = r.seats.filter((x) => x.token && !x.left && online.has(x.token));
   if (!humans.length) return fail('No hay nadie en la sala.');
-  const bots = pickNames(Math.max(0, r.opts.size - humans.length), humans.map((x) => x.name)).map((name): Seat => ({ name, token: null }));
+  const bots: Seat[] = [];
+  for (const name of pickNames(Math.max(0, r.opts.size - humans.length), humans.map((x) => x.name))) bots.push({ name, token: null, color: freeColor([...humans, ...bots], humans.length + bots.length) });
   // Los asientos se sortean para que el anfitrión no sea siempre el primero.
   r.seats = [...humans, ...bots].map((x) => [Math.random(), x] as const).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
   r.game = newGame({
@@ -239,6 +259,17 @@ export function toLobby(r: RoomData, token: string): Result {
   r.sched = freshSched();
   r.drops = {};
   r.pausedAt = null;
+  return ok;
+}
+
+/** Un jugador elige su color en la sala de espera (no puede coincidir con el de otro). */
+export function setColor(r: RoomData, token: string, c: number): Result {
+  const i = seatOf(r, token);
+  if (i < 0) return fail('No estás en la sala.');
+  if (r.game && r.game.phase.t !== 'over') return fail('El color se elige en la sala de espera.');
+  if (!Number.isInteger(c) || c < 0 || c >= COLOR_COUNT) return fail('Color no válido.');
+  if (r.seats.some((x, j) => j !== i && x.color === c && x.token)) return fail('Ese color ya lo tiene otro jugador.');
+  r.seats[i].color = c;
   return ok;
 }
 
@@ -462,7 +493,8 @@ export function roomView(r: RoomData, token: string | null, online: Set<string>,
   const windowed = !!ph && (ph.t === 'react' || ph.t === 'aplastar' || ph.t === 'gemas');
   let timer: RoomView['timer'] = null;
   if (r.pausedAt) { /* detenida: no corre ningún reloj */ }
-  else if (windowed && r.sched.win && 'win' in ph! && ph.win === r.sched.win.key) timer = { key: `w${ph.win}`, until: r.sched.win.until, total: r.sched.win.total };
+  // El reloj de una ventana solo lo ve quien tiene algo que decidir en ella (al resto no se le pide nada).
+  else if (windowed && you >= 0 && pendingPlayers(s!).includes(you) && r.sched.win && 'win' in ph! && ph.win === r.sched.win.key) timer = { key: `w${ph.win}`, until: r.sched.win.until, total: r.sched.win.total };
   else if (s && !windowed && you >= 0 && (r.sched.at[you] ?? -1) > 0 && pendingPlayers(s).includes(you)) timer = { key: `s${s.seq}`, until: r.sched.at[you], total: DECIDE_MS };
   return {
     t: 'room',
@@ -475,6 +507,7 @@ export function roomView(r: RoomData, token: string | null, online: Set<string>,
       bot: !x.token || !!x.left,
       online: !!x.token && !x.left && online.has(x.token),
       host: !!x.token && x.token === hostOf(r, online),
+      color: x.color ?? p % COLOR_COUNT,
       state: s?.players[p]?.out ? 'out' : r.drops?.[p] ? (r.drops[p].mode === 'wait' ? 'wait' : 'auto') : undefined,
     })),
     round: r.round,
