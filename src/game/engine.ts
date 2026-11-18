@@ -469,7 +469,8 @@ function beginTurn(s: GameState, p: number) {
 function finish(s: GameState) {
   s.undo = null;
   // Comprobación estable: alguien se ha quedado sin cartas.
-  for (const pl of s.players) if (pl.held && pl.hand.length > 0) pl.held = false;
+  // La retención del Imán solo dura mientras su lanzador reparte: al acabar, quien se ha quedado sin cartas gana.
+  for (const pl of s.players) pl.held = false;
   for (let i = 0; i < s.players.length; i++) {
     const p = (s.turn + i) % s.players.length;
     if (s.players[p].hand.length === 0 && !s.players[p].held && !s.players[p].out && tryWin(s, p)) return;

@@ -1282,3 +1282,14 @@ input[type='checkbox']:focus-visible { outline: 2px solid var(--gold); outline-o
 /* Giro a la mitad de velocidad: una vuelta cada 140 s. */
 .game .rays { animation-duration: 140s; }
 .game.cursed .rays { animation-duration: 100s; }
+
+/* ═════════ Que nada tape lo que hay que pulsar ═════════ */
+/* Bandejas de decisión (Adivinar, Imán, Recuperar, Ráfaga, Escarcha): siempre por encima de avisos, carteles y vuelos,
+   y un poco más arriba para no pisar la zona de avisos. */
+.tray { z-index: 88; bottom: calc(var(--card-w) * 1.22 + 26px + 170px); }
+/* La zona de avisos solo atrapa clics en sus botones y cajas, no en el espacio vacío que ocupa. */
+.msgzone { pointer-events: none; }
+.msgzone > *, .msgzone .banner > * { pointer-events: auto; }
+/* Las gemas para elegir color y la diana, por encima de todo lo que flota en la mesa. */
+.gem-under { z-index: 89; }
+.tri:has(.gem-under) { z-index: 89; position: relative; }
