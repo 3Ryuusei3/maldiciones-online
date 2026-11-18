@@ -361,10 +361,10 @@ function Home({ onLocal, onOnline }: { onLocal: () => void; onOnline: () => void
 /** Partida local contra las máquinas: nombre y opciones antes de empezar. */
 function LocalSetup({ onStart, onBack }: { onStart: (c: GameConfig) => void; onBack: () => void }) {
   const [name, setName] = useState(() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } });
-  const [opts, setOpts] = useState<RoomOpts>({ size: 4, level: 1, extraCurses: false, condena: true, beta: false });
+  const [opts, setOpts] = useState<RoomOpts>({ size: 4, level: 1, extraCurses: false, condena: true, beta: false, timer: true });
   const start = () => {
     try { localStorage.setItem('maldiciones:nombre', name.trim()); } catch { /* sin almacenamiento: no se recuerda */ }
-    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta });
+    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta, timer: opts.timer !== false });
   };
   return (
     <>
@@ -531,7 +531,12 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     dispatch(a);
   };
   const [helpKind, setHelpKind] = useState<Kind | null>(null);
-  const setHelp = (c: Card) => setHelpKind(c.kind);
+  const [helpArt, setHelpArt] = useState<string | undefined>();
+  /** Cada vez que se pulsa el «?» de una carta (abre la ayuda aunque estuviera cerrada). */
+  const [helpPing, setHelpPing] = useState(0);
+  const setHelp = (c: Card) => { setHelpKind(c.kind); setHelpArt(asset(cardImage(c))); setHelpPing((n) => n + 1); };
+  /** Pasar el ratón por una carta boca arriba enseña su ayuda (y se queda hasta que se mira otra). */
+  const hoverHelp = (c: Card) => { setHelpKind(c.kind); setHelpArt(asset(cardImage(c))); };
   const root = useRef<HTMLDivElement>(null);
   const ph = s.phase;
   const me = s.players[ME];
@@ -939,7 +944,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       const d = assign[c.id] ?? 'discard';
       return (
         <div className="slot" key={c.id}>
-          <CardView card={c} className={`small ${trayPick === c.id ? 'selected' : ''}`} onClick={() => setTrayPick(trayPick === c.id ? null : c.id)} onInfo={setHelp} />
+          <CardView card={c} className={`small ${trayPick === c.id ? 'selected' : ''}`} onClick={() => setTrayPick(trayPick === c.id ? null : c.id)} onInfo={setHelp} onHover={hoverHelp} />
           <span className={`dest ${d === 'discard' ? '' : 'on'}`}>{d === 'keep' ? 'Para mí' : d === 'discard' ? 'Bajo la Pila' : `→ ${name(d)}`}</span>
         </div>
       );
@@ -952,7 +957,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       const f = fate[id] ?? 'back';
       return (
         <div className="slot" key={id}>
-          <CardView card={c} className={`small ${f === 'back' ? '' : 'dim'}`} onInfo={setHelp} />
+          <CardView card={c} className={`small ${f === 'back' ? '' : 'dim'}`} onInfo={setHelp} onHover={hoverHelp} />
           <div className="arrows">
             <button onClick={() => move(i, -1)} disabled={i === 0} aria-label="Mover a la izquierda">◀</button>
             <button className={f === 'back' ? '' : 'on'} onClick={() => setFate((x) => ({ ...x, [id]: f === 'back' ? 'keep' : f === 'keep' ? 'discard' : 'back' }))}>{FATE_LABEL[f]}</button>
@@ -963,7 +968,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     });
   } else if (rafaga) {
     tray = rafaga.pool.map((c) => (
-      <CardView key={c.id} card={c} className={`small ${trayPick === c.id ? 'selected' : trayPick ? 'dim' : ''}`} onInfo={setHelp}
+      <CardView key={c.id} card={c} className={`small ${trayPick === c.id ? 'selected' : trayPick ? 'dim' : ''}`} onInfo={setHelp} onHover={hoverHelp}
         onClick={() => setTrayPick(trayPick === c.id ? null : c.id)} />
     ));
   } else if (escarcha) {
@@ -987,7 +992,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         <div>
           {(esc[x] ?? []).map((id) => {
             const moved = !s.players[x].hand.some((c) => c.id === id);
-            return <CardView key={id} card={all[id]} className={`small ${escPick === id ? 'selected' : ''} ${moved ? 'moved' : ''}`} onClick={() => swap(id)} onInfo={setHelp} />;
+            return <CardView key={id} card={all[id]} className={`small ${escPick === id ? 'selected' : ''} ${moved ? 'moved' : ''}`} onClick={() => swap(id)} onInfo={setHelp} onHover={hoverHelp} />;
           })}
         </div>
       </div>
@@ -1086,7 +1091,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
                 const isTop = i === a.length - 1;
                 return (
                   <div key={c.id} className={`pc ${isTop ? 'top' : ''} ${flying.includes(c.id) ? 'air' : ''}`} style={{ transform: isTop ? `rotate(${(h % 9) - 4}deg)` : `rotate(${(h % 25) - 12}deg) translate(${((h >> 4) % 11) - 5}px, ${((h >> 8) % 9) - 4}px)` }}>
-                    <CardView card={c} onInfo={isTop ? setHelp : undefined} />
+                    <CardView card={c} onInfo={isTop ? setHelp : undefined} onHover={isTop ? hoverHelp : undefined} />
                   </div>
                 );
               })}
@@ -1141,7 +1146,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         </div>
         {me.egida && (
           <div className={`my-egida ${egidaAir.includes(me.egida.id) ? 'air' : ''}`} data-egida={ME} title="Tu Égida boca arriba: le queda 1 uso">
-            <CardView card={me.egida} className="small" />
+            <CardView card={me.egida} className="small" onHover={hoverHelp} />
             <small>Égida · 1 uso</small>
           </div>
         )}
@@ -1159,7 +1164,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
                 style={{ marginLeft: i === 0 ? 0 : `calc(var(--card-w) * ${step - 1})`, transform: `rotate(${(i - mid) * Math.min(4, 30 / Math.max(n, 1))}deg) translateY(${Math.abs(i - mid) ** 1.7 * 1.6}px)`, zIndex: i }}
                 onClick={act?.run}
               >
-                <CardView card={c} back={blind || (facedown && c.kind !== 'maldicion') || turning[c.id] === 'out'} className={`${act ? '' : 'dim'} ${drawn ? 'drawn' : ''}`} badge={act?.label} onBadge={act?.alt} onInfo={setHelp} />
+                <CardView card={c} back={blind || (facedown && c.kind !== 'maldicion') || turning[c.id] === 'out'} className={`${act ? '' : 'dim'} ${drawn ? 'drawn' : ''}`} badge={act?.label} onBadge={act?.alt} onInfo={setHelp} onHover={hoverHelp} />
               </div>
             );
           })}
@@ -1189,7 +1194,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         </div>
       )}
 
-      <HelpDock kind={helpKind} setKind={setHelpKind} beta={!!cfg.beta} />
+      <HelpDock kind={helpKind} art={helpArt} ping={helpPing} setKind={setHelpKind} beta={!!cfg.beta} />
       <div className="edge"><Countdown timer={timer} /></div>
 
       {net && remote.status !== 'open' && <div className="net-banner" role="status">Reconectando…</div>}
@@ -1478,7 +1483,7 @@ function OnlineRoom({ client, onExit }: { client: NetClient; onExit: (error?: st
   if (!v?.game || v.you < 0) return <><Shell><Lobby client={client} onExit={() => onExit()} /></Shell><NetToasts client={client} /></>;
   setMe(v.you);
   const g = v.game;
-  const cfg: GameConfig = { name: g.players[v.you].name, players: g.players.length, level: v.opts.level, extraCurses: v.opts.extraCurses, condena: v.opts.condena, beta: v.opts.beta };
+  const cfg: GameConfig = { name: g.players[v.you].name, players: g.players.length, level: v.opts.level, extraCurses: v.opts.extraCurses, condena: v.opts.condena, beta: v.opts.beta, timer: v.opts.timer !== false };
   // Los avisos van en la misma posición en la sala y en la mesa, así no se pierden al cambiar de una a otra.
   return <><Game key={`${v.code}:${v.round}`} cfg={cfg} net={client} onExit={() => { client.leave(); onExit(); }} /><NetToasts client={client} /></>;
 }

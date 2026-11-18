@@ -15,6 +15,8 @@ export interface RoomOpts {
   extraCurses: boolean;
   condena: boolean;
   beta: boolean;
+  /** Tiempo máximo (15 s) para cada decisión de un humano; sin él, se espera lo que haga falta. Por defecto, sí. */
+  timer?: boolean;
 }
 
 export interface Seat {
@@ -80,7 +82,7 @@ export function newRoom(code: string, now: number): RoomData {
     createdAt: now,
     seenAt: now,
     host: null,
-    opts: { size: 4, level: 1, extraCurses: false, condena: true, beta: false },
+    opts: { size: 4, level: 1, extraCurses: false, condena: true, beta: false, timer: true },
     seats: [],
     game: null,
     round: 0,
@@ -198,6 +200,7 @@ export function setOpts(r: RoomData, token: string, o: Partial<RoomOpts>, online
   if (typeof o.extraCurses === 'boolean') n.extraCurses = o.extraCurses;
   if (typeof o.condena === 'boolean') n.condena = o.condena;
   if (typeof o.beta === 'boolean') n.beta = o.beta;
+  if (typeof o.timer === 'boolean') n.timer = o.timer;
   return ok;
 }
 
@@ -326,6 +329,7 @@ function plan(r: RoomData, online: Set<string>, now: number) {
     sc.who[p] = isLive;
     if (!isLive) sc.at[p] = now + botDelay(s, r.opts.level, humanCanDup);
     else if (windowed) sc.at[p] = -1; // en las ventanas manda el reloj de la ventana
+    else if (r.opts.timer === false) sc.at[p] = -1; // sin tiempo máximo: se espera a que decida
     else sc.at[p] = now + (ph.t === 'turn' ? HUMAN_MS.turn : HUMAN_MS.other);
   }
   // Máquinas (y ausentes) que quieren duplicar la carta superior.

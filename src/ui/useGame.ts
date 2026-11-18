@@ -15,6 +15,8 @@ export interface GameConfig {
   condena: boolean;
   /** Cartas beta de V7 (Escarcha, Ráfaga, Trastada y Rituales). */
   beta?: boolean;
+  /** Tiempo máximo de 15 s para cada decisión (por defecto, sí). */
+  timer?: boolean;
   /** Solo para pruebas (?mano=tinieblas,reflejo): cartas que empiezan en mi mano, y empiezo yo. */
   debugHand?: string[];
 }
@@ -96,7 +98,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
         if (pend.includes(ME)) setTimer({ key: wk, until, total });
       } else until = timer.until;
       later(until - now, () => dispatch({ type: 'timeout' }));
-    } else if (pend.includes(ME) && !s.players[ME].bot) {
+    } else if (pend.includes(ME) && !s.players[ME].bot && cfg.timer !== false) {
       // Cualquier otra decisión mía tiene un tiempo máximo: al agotarse, juega la máquina por mí.
       const sk = `s${s.seq}`;
       if (timer?.key !== sk) {

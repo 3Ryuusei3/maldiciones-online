@@ -527,7 +527,7 @@ button:active:not(:disabled) { transform: none; }
 .ranks span { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 .d-ctl .d-dots button { background: rgba(255, 255, 255, 0.3); border: 0; }
 .d-ctl .d-dots button.on { background: var(--gold); }
-.dock { width: 268px; }
+.dock { width: min(300px, calc(100vw - 20px)); }
 
 /* ───── menos espaciado entre letras en títulos y avisos ───── */
 h1, h2, h3 { letter-spacing: 0.06em; }
@@ -810,3 +810,24 @@ input[type='checkbox']:focus-visible { outline: 2px solid var(--gold); outline-o
 .seat.out .fanbox { opacity: 0.2; }
 .lobby-note { font-size: 12px; letter-spacing: 0.06em; color: var(--gold); margin: 0; }
 .readonly { display: flex; flex-direction: column; gap: 15px; opacity: 0.6; pointer-events: none; }
+
+/* ───── ayuda de cartas: tamaño fijo (solo crece con «Ver más») y ficha resumida de la carta mirada ───── */
+.dock:not(.big) { height: min(300px, 46dvh); max-height: none; }
+.dock-bar .dock-menu { width: auto; padding: 0 8px; }
+.dock-peek { flex: 1; min-height: 0; display: grid; grid-template-columns: 92px 1fr; gap: 12px; padding: 12px; overflow-y: auto; animation: fade-in 0.25s; font-size: 12.5px; line-height: 1.4; }
+.dock-peek > img { width: 100%; border-radius: 7%/5%; border: 1px solid #0a0e10; }
+.dock-peek p { margin: 0 0 6px; }
+.dock-peek .dp-attr { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 10.5px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; }
+.dock-peek .refl { background: linear-gradient(90deg, #f3e3b6, #d9c7ee, #c4e8d2); border: 1px solid #0a0e10; padding: 4px 8px; }
+.dock-peek button { margin-top: 2px; font-size: 10.5px; padding: 5px 12px; border-radius: 0; background: var(--ink); color: #fff; box-shadow: none; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 500; }
+.dock-peek .beta { margin-left: 4px; }
+
+/* La mesa nunca se desplaza (ni por código: un scrollIntoView de dentro la movía y se cortaba por arriba). */
+.game { overflow: clip; }
+
+/* Explicación en grande: la carta con sus esquinas redondeadas (sin recuadro recto alrededor). */
+.dock-more .rot.dm-card { border: 0; background: none; }
+.dock-more img.dm-card { border-radius: 7%/5%; }
+/* Listado de un Atributo: cada carta con su imagen al lado, como en la ficha del hover. */
+.dock-card { grid-template-columns: 58px 1fr; }
+.dock-card .dc-art { width: 58px; display: block; border-radius: 7%/5%; border: 1px solid #0a0e10; grid-row: span 2; align-self: start; }

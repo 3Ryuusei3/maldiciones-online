@@ -24,6 +24,7 @@ export function SetupFields({ opts, set, min = 3, readOnly = false }: { opts: Ro
       <label className="check"><input type="checkbox" disabled={readOnly} checked={opts.extraCurses} onChange={(e) => set({ extraCurses: e.target.checked })} />Añadir las Maldiciones restantes al Mazo</label>
       <label className="check"><input type="checkbox" disabled={readOnly} checked={opts.condena} onChange={(e) => set({ condena: e.target.checked })} />Jugar con la carta Condena</label>
       <label className="check"><input type="checkbox" disabled={readOnly} checked={opts.beta} onChange={(e) => set({ beta: e.target.checked })} />Añadir las cartas beta (Escarcha, Ráfaga, Trastada y Rituales)</label>
+      <label className="check"><input type="checkbox" disabled={readOnly} checked={opts.timer !== false} onChange={(e) => set({ timer: e.target.checked })} />Tiempo máximo de 15 s para decidir (si se agota, juega la máquina)</label>
     </>
   );
 }

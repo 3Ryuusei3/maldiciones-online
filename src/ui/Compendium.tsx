@@ -695,29 +695,52 @@ export function Compendium({ start, tab: tab0, onClose }: { start?: Kind; tab?: 
 
 // ───────────────────────── ayuda rápida (esquina inferior derecha) ─────────────────────────
 
-export function HelpDock({ kind, setKind, beta = true }: { kind: Kind | null; setKind: (k: Kind | null) => void; beta?: boolean }) {
+/**
+ * Ayuda de cartas (esquina inferior derecha). Tiene un tamaño fijo y cuatro vistas:
+ * el menú de Atributos, las cartas de un Atributo, la ficha resumida de una carta (al pasar el ratón por una carta
+ * boca arriba o pulsar su «?»; se queda hasta que se mira otra) y, con «Ver más», la explicación completa en grande.
+ * `ping` cambia cada vez que se pulsa un «?»: entonces se abre aunque estuviera cerrada.
+ */
+export function HelpDock({ kind, art, ping = 0, setKind, beta = true }: { kind: Kind | null; art?: string; ping?: number; setKind: (k: Kind | null) => void; beta?: boolean }) {
   const [cat, setCat] = useState<Attr | null>(null);
+  const [card, setCard] = useState<Kind | null>(null);
+  /** Imagen de la carta concreta que se está mirando (con su color). */
+  const [cardArt, setCardArt] = useState<string | undefined>();
   const [more, setMore] = useState<Kind | null>(null);
   const [open, setOpen] = useState(() => window.innerWidth >= 1000);
   const list = useRef<HTMLDivElement>(null);
-  // Al pulsar el «?» de una carta se abre su Atributo con esa carta resaltada.
+  const lastPing = useRef(ping);
   useEffect(() => {
     if (!kind) return;
-    setOpen(true);
+    const asked = ping !== lastPing.current;
+    lastPing.current = ping;
+    if (asked) setOpen(true);
+    // Mientras se lee la explicación completa, pasar el ratón por otras cartas no la cambia.
+    if (more && !asked) return;
     setMore(null);
+    setCard(repOf(kind));
+    setCardArt(art);
     setCat(KINDS[kind].attr);
-  }, [kind]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, art, ping]);
   useEffect(() => {
-    if (kind && cat && !more) list.current?.querySelector(`[data-kind="${repOf(kind)}"]`)?.scrollIntoView({ block: 'nearest' });
-  }, [kind, cat, more]);
+    if (!kind || !cat || card || more) return;
+    // Solo se desplaza la lista (scrollIntoView también movería la mesa que hay detrás).
+    const box = list.current;
+    const el = box?.querySelector<HTMLElement>(`[data-kind="${repOf(kind)}"]`);
+    if (box && el) box.scrollTop = el.offsetTop - box.offsetTop - 8;
+  }, [kind, cat, card, more]);
   if (!open) return <button className="dock-tab" onClick={() => setOpen(true)}>? Ayuda</button>;
-  const back = () => { if (more) setMore(null); else { setCat(null); setKind(null); } };
+  const menu = () => { setMore(null); setCard(null); setCat(null); setKind(null); };
+  const back = () => { if (more) setMore(null); else if (card) setCard(null); else menu(); };
+  const title = more ? nameOf(more) : card ? nameOf(card) : cat ? <><AttrIcon attr={cat} size={18} /> {ATTR_NAME[cat]}</> : 'Ayuda de cartas';
   return (
-    <aside className={`dock ${more ? 'big' : cat ? 'mid' : ''}`}>
+    <aside className={`dock ${more ? 'big' : ''}`}>
       <div className="dock-bar">
-        {(more || cat) && <button onClick={back} aria-label="Atrás">←</button>}
-        <b>{more ? nameOf(more) : cat ? <><AttrIcon attr={cat} size={18} /> {ATTR_NAME[cat]}</> : 'Ayuda de cartas'}</b>
-        <button onClick={() => { setOpen(false); setMore(null); setKind(null); }} aria-label="Cerrar ayuda">×</button>
+        {(more || card || cat) && <button onClick={back} aria-label="Atrás" title="Atrás">←</button>}
+        <b>{title}</b>
+        {(more || card || cat) && <button className="dock-menu" onClick={menu} title="Volver al menú de la ayuda">Menú</button>}
+        <button onClick={() => { setOpen(false); setMore(null); }} aria-label="Cerrar ayuda">×</button>
       </div>
       {more ? (
         <div className="dock-more">
@@ -725,12 +748,22 @@ export function HelpDock({ kind, setKind, beta = true }: { kind: Kind | null; se
           <KindInfo kind={more} full />
           <Demo kind={more} />
         </div>
+      ) : card ? (
+        <div className="dock-peek">
+          <img src={cardArt ?? pic(card)} alt={nameOf(card)} />
+          <div>
+            <span className="dp-attr"><AttrIcon attr={KINDS[card].attr} size={16} />{ATTR_NAME[KINDS[card].attr]}{KINDS[card].rank > 0 && <RankIcon rank={KINDS[card].rank} dark={KINDS[card].attr === 'maldita'} size={16} />}{BETA.includes(card) && <i className="beta">Beta</i>}</span>
+            <p>{HELP[card].text}</p>
+            {HELP[card].reflejada && <p className="refl"><b>Reflejada:</b> {HELP[card].reflejada}</p>}
+            <button onClick={() => setMore(card)}>Ver más</button>
+          </div>
+        </div>
       ) : cat ? (
         <div className="dock-list" ref={list}>
           <p className="dock-note">{ATTR_HELP[cat]}</p>
           {entries(cat).filter((k) => beta || !BETA.includes(k)).map((k) => (
             <div key={k} data-kind={k} className={`dock-card ${kind && k === repOf(kind) ? 'on' : ''}`}>
-              <Icon kind={k} size={30} />
+              <img className="dc-art" src={pic(k)} alt="" />
               <div>
                 <b>{nameOf(k)}{BETA.includes(k) && <i className="beta">Beta</i>}{KINDS[k].rank > 0 && <i><RankIcon rank={KINDS[k].rank} dark={KINDS[k].attr === 'maldita'} size={18} /></i>}</b>
                 <p>{HELP[k].text}</p>

@@ -64,10 +64,11 @@ export function Triforce({ on = [], className = '' }: { on?: string[]; className
   );
 }
 
-export function CardView({ card, back, className = '', onClick, badge, onBadge, onInfo }: { card?: Card; back?: boolean; className?: string; onClick?: () => void; badge?: string; onBadge?: () => void; onInfo?: (c: Card) => void }) {
+/** `onHover`: al pasar el ratón por la carta (solo si está boca arriba), para enseñar su ayuda. */
+export function CardView({ card, back, className = '', onClick, badge, onBadge, onInfo, onHover }: { card?: Card; back?: boolean; className?: string; onClick?: () => void; badge?: string; onBadge?: () => void; onInfo?: (c: Card) => void; onHover?: (c: Card) => void }) {
   const hidden = back || !card;
   return (
-    <div className={`card ${className} ${onClick ? 'clickable' : ''}`} onClick={onClick}>
+    <div className={`card ${className} ${onClick ? 'clickable' : ''}`} onClick={onClick} onMouseEnter={onHover && !hidden ? () => onHover(card!) : undefined}>
       <img src={asset(hidden ? 'cards/back.webp' : cardImage(card!))} alt={hidden ? 'Carta' : cardName(card!)} draggable={false} />
       {badge && (onBadge
         ? <button className="badge" onClick={(e) => { e.stopPropagation(); onBadge(); }}>{badge}</button>
