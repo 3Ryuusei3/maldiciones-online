@@ -332,6 +332,9 @@ button.badge:hover:not(:disabled) { transform: translateX(-50%) translateY(-1px)
 .home-panel .play { background: #fff; color: #0a0e10; border-color: #fff; font-weight: 600; font-size: 15px; letter-spacing: 0.5em; text-indent: 0.5em; text-transform: uppercase; padding: 16px; margin-top: 8px; }
 .home-panel .play:hover:not(:disabled) { background: var(--gold); border-color: var(--gold); }
 .home-links { display: grid; gap: 8px; }
+.play-row { display: grid; gap: 10px; margin-top: 8px; }
+.play-row .play { margin-top: 0; }
+.home-overlay { position: fixed; inset: 0; z-index: 100; }
 .home-links button { font-size: 12px; letter-spacing: 0.3em; padding: 13px; text-transform: uppercase; }
 .home-panel > small { font-size: 10.5px; letter-spacing: 0.26em; text-transform: uppercase; color: rgba(255, 255, 255, 0.4); text-align: center; }
 

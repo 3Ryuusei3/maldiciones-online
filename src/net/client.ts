@@ -32,7 +32,7 @@ export async function createRoom(): Promise<string> {
   return j.code;
 }
 
-export async function roomInfo(code: string): Promise<{ exists: boolean; playing?: boolean; seats?: number; size?: number }> {
+export async function roomInfo(code: string): Promise<{ exists: boolean; playing?: boolean; seats?: number; size?: number; free?: boolean }> {
   const r = await fetch(httpUrl(`/api/salas/${encodeURIComponent(code)}`));
   if (!r.ok) return { exists: false };
   return r.json();

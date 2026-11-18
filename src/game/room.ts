@@ -103,6 +103,8 @@ export interface RoomView {
   seats: SeatInfo[];
   round: number;
   game: GameState | null;
+  /** Ya ha pasado el reparto inicial (quien entra o vuelve a mitad de partida no lo ve otra vez). */
+  dealt: boolean;
   /** Reloj de la ventana en curso, en la hora del servidor. */
   timer: { key: number; until: number; total: number } | null;
   now: number;
@@ -128,12 +130,24 @@ export function hello(r: RoomData, token: string, name: string): Result {
     if (!r.game) r.seats[i].name = cleanName(name);
     return ok;
   }
-  if (r.game) return fail('La partida ya ha empezado.', true);
-  if (r.seats.length >= r.opts.size) return fail('La sala está llena.', true);
   let nm = cleanName(name);
   // Nombres repetidos: se numeran.
   const taken = r.seats.map((x) => x.name.toLowerCase());
   for (let k = 2; taken.includes(nm.toLowerCase()); k++) nm = `${cleanName(name).slice(0, MAX_NAME - 2)} ${k}`;
+  if (r.game) {
+    // Partida empezada: se ocupa el sitio de una máquina (o de alguien que se fue) y se sigue desde ahí.
+    let h = r.seats.findIndex((x) => !x.token);
+    if (h < 0) h = r.seats.findIndex((x) => x.left);
+    if (h < 0) return fail('La sala está llena.', true);
+    r.seats[h] = { name: nm, token };
+    r.game.players[h] = { ...r.game.players[h], name: nm, bot: false };
+    // Se vuelve a planificar ese asiento como humano.
+    delete r.sched.at[h];
+    delete r.sched.who[h];
+    if (!r.host) r.host = token;
+    return ok;
+  }
+  if (r.seats.length >= r.opts.size) return fail('La sala está llena.', true);
   r.seats.push({ name: nm, token });
   if (!r.host) r.host = token;
   return ok;
@@ -299,6 +313,8 @@ export function tick(r: RoomData, online: Set<string>, now: number): boolean {
         if (at <= 0 || at > now) continue;
         sc.dup[k] = 0;
         const p = Number(k.split(':')[1]);
+        // Si el humano ha vuelto (o alguien ha ocupado el asiento), la máquina ya no duplica por él.
+        if (live(r, p, online)) continue;
         const c = s.players[p].hand.find((x) => canDup(s, p, x));
         if (c && topCard(s).id === k.split(':')[0]) {
           a = { type: 'dup', player: p, cardId: c.id };
@@ -347,6 +363,7 @@ export function roomView(r: RoomData, token: string | null, online: Set<string>,
     seats: r.seats.map((x) => ({ name: x.name, bot: !x.token || !!x.left, online: !!x.token && !x.left && online.has(x.token), host: !!x.token && x.token === r.host })),
     round: r.round,
     game: s ? viewFor(s, you < 0 ? -1 : you) : null,
+    dealt: !!s && now >= r.sched.startAt,
     timer,
     now,
   };

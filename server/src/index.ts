@@ -88,7 +88,10 @@ export class Sala extends DurableObject<Env> {
   async info() {
     const r = await this.load();
     if (!r) return { exists: false };
-    return { exists: true, playing: !!r.game && r.game.phase.t !== 'over', seats: r.seats.filter((x) => x.token && !x.left).length, size: r.opts.size };
+    const humans = r.seats.filter((x) => x.token && !x.left).length;
+    // Sitio libre: en la sala de espera, un hueco; en partida, una máquina o alguien que se fue.
+    const free = r.game ? humans < r.seats.length : r.seats.length < r.opts.size;
+    return { exists: true, playing: !!r.game && r.game.phase.t !== 'over', seats: humans, size: r.opts.size, free };
   }
 
   async fetch(req: Request): Promise<Response> {

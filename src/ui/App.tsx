@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Card, Color, COLORS, COLOR_NAME, HELP, KINDS, Kind, cardImage, cardName, isCursed, isPlainGem } from '../game/cards';
 import { Action, Anchor, Effect, Fx, GameState, canDup, canFreeAntitodo, canPlay, isBlind, isCursedEnv, predTargets, reactOptions, topCard } from '../game/engine';
@@ -5,7 +6,7 @@ import { Level } from '../game/bot';
 import { CompTab, Compendium, HelpDock } from './Compendium';
 import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
 import { NetClient, useNet } from '../net/client';
-import { Lobby, OnlineEntry } from './Online';
+import { Lobby, OnlineEntry, Shell } from './Online';
 import { CardView, Icon, PCOL, asset, rich, toggleFullscreen } from './shared';
 
 // ───────────────────────── piezas básicas ─────────────────────────
@@ -294,12 +295,10 @@ function Home({ onStart, onOnline }: { onStart: (c: GameConfig) => void; onOnlin
   const [condena, setCondena] = useState(true);
   const [beta, setBeta] = useState(false);
   const [page, setPage] = useState<CompTab | null>(null);
-  if (page) return <div className="home-page"><Compendium tab={page} onClose={() => setPage(null)} /></div>;
   return (
-    <div className="home">
-      <div className="home-bg" style={{ backgroundImage: `url(${asset('ui/fondo.webp')})` }} />
-      <button className="fs-btn" onClick={toggleFullscreen} title="Pantalla completa" aria-label="Pantalla completa">⛶</button>
-      <div className="home-panel">
+    <>
+      {/* Por encima de todo (el panel tiene backdrop-filter y no dejaría salir un position: fixed). */}
+      {page && createPortal(<div className="home-page home-overlay"><Compendium tab={page} onClose={() => setPage(null)} /></div>, document.body)}
         <h1>Maldiciones</h1>
         <p className="tagline">El juego de cartas maldito</p>
         <label>
@@ -330,13 +329,14 @@ function Home({ onStart, onOnline }: { onStart: (c: GameConfig) => void; onOnlin
           <input type="checkbox" checked={beta} onChange={(e) => setBeta(e.target.checked)} />
           Añadir las cartas beta (Escarcha, Ráfaga, Trastada y Rituales)
         </label>
-        <button className="play" onClick={() => { try { localStorage.setItem('maldiciones:nombre', name.trim()); } catch { /* sin almacenamiento: no se recuerda */ } onStart({ name: name.trim() || 'Tú', players, level, extraCurses, condena, beta }); }}>Jugar</button>
+        <div className="play-row">
+          <button className="play" onClick={() => { try { localStorage.setItem('maldiciones:nombre', name.trim()); } catch { /* sin almacenamiento: no se recuerda */ } onStart({ name: name.trim() || 'Tú', players, level, extraCurses, condena, beta }); }}>Jugar</button>
+          <button className="play" onClick={onOnline}>Jugar online</button>
+        </div>
         <div className="home-links">
           <button onClick={() => setPage('jugar')}>Compendio</button>
-          <button onClick={onOnline}>Jugar online</button>
         </div>
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -445,7 +445,8 @@ const FATE_LABEL: Record<Fate, string> = { back: 'Al Mazo', keep: 'Me la quedo',
 
 function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => void; onRematch?: () => void; net?: NetClient }) {
   /** Entrada de la partida: cada jugador tiene su Maldición boca arriba y recibe 6 cartas boca abajo; luego se giran. */
-  const [intro, setIntro] = useState<Intro>('deal');
+  // Quien entra o vuelve a una partida online ya repartida no ve el reparto otra vez.
+  const [intro, setIntro] = useState<Intro>(() => (net?.getSnap().view?.dealt ? null : 'deal'));
   const [dealt, setDealt] = useState<number[]>(() => Array(cfg.players).fill(1));
   /** El compendio abierto en mitad de la partida también la detiene. */
   const [comp, setComp] = useState(false);
@@ -508,9 +509,10 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   // Reparto inicial: todos tienen ya su Maldición boca arriba; llegan 6 cartas boca abajo en sentido antihorario,
   // se giran las manos y por último se descubre la primera carta de la Pila.
   const endDeal = useRef<() => void>(() => {});
+  const skipDeal = useRef(intro === null);
   useEffect(() => {
     const host = flights.current;
-    if (!host) return;
+    if (!host || skipDeal.current) return;
     const n = s.players.length;
     const timers: number[] = [];
     let live = true;
@@ -1256,7 +1258,7 @@ function GameOver({ s, startedAt, onExit, onRematch, onLobby, waiting }: { s: Ga
 function OnlineRoom({ client, onExit }: { client: NetClient; onExit: (error?: string) => void }) {
   const { view: v, fatal, error } = useNet(client);
   useEffect(() => { if (fatal) onExit(error ?? undefined); }, [fatal, error, onExit]);
-  if (!v?.game || v.you < 0) return <Lobby client={client} onExit={() => onExit()} />;
+  if (!v?.game || v.you < 0) return <Shell><Lobby client={client} onExit={() => onExit()} /></Shell>;
   setMe(v.you);
   const g = v.game;
   const cfg: GameConfig = { name: g.players[v.you].name, players: g.players.length, level: v.opts.level, extraCurses: v.opts.extraCurses, condena: v.opts.condena, beta: v.opts.beta };
@@ -1284,9 +1286,9 @@ export default function App() {
   const leaveRoom = useCallback((error?: string) => setScreen({ k: 'entry', error }), []);
   switch (screen.k) {
     case 'home':
-      return <Home onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} onOnline={() => setScreen({ k: 'entry' })} />;
+      return <Shell><Home onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} onOnline={() => setScreen({ k: 'entry' })} /></Shell>;
     case 'entry':
-      return <OnlineEntry initialCode={screen.code} initialError={screen.error} onBack={home} onJoin={(code, name) => setScreen({ k: 'room', client: new NetClient(code, name) })} />;
+      return <Shell><OnlineEntry initialCode={screen.code} initialError={screen.error} onBack={home} onJoin={(code, name) => setScreen({ k: 'room', client: new NetClient(code, name) })} /></Shell>;
     case 'room':
       return <OnlineRoom client={screen.client} onExit={leaveRoom} />;
     case 'local':

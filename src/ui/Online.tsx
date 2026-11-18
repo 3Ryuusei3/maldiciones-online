@@ -7,7 +7,11 @@ import { PCOL, asset, toggleFullscreen } from './shared';
 
 const LEVELS = ['Fácil', 'Normal', 'Difícil'] as const;
 
-function Shell({ children }: { children: React.ReactNode }) {
+/**
+ * Fondo de la portada con su panel lateral. Lo pinta App una sola vez para la portada, la entrada online
+ * y la sala de espera: al pasar de una a otra solo cambia el contenido del panel (el fondo no se recarga).
+ */
+export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="home">
       <div className="home-bg" style={{ backgroundImage: `url(${asset('ui/fondo.webp')})` }} />
@@ -46,6 +50,7 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack }: { ini
     try {
       const info = await roomInfo(c);
       if (!info.exists) setError('No existe ninguna sala con ese código.');
+      else if (info.playing && !info.free) setError('La partida ya ha empezado y no quedan sitios libres.');
       else {
         remember();
         onJoin(c, nm);
@@ -58,7 +63,7 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack }: { ini
   };
 
   return (
-    <Shell>
+    <>
       <h1>Online</h1>
       <p className="tagline">Juega con amigos</p>
       <label>
@@ -77,7 +82,7 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack }: { ini
       <div className="home-links">
         <button onClick={onBack}>Volver</button>
       </div>
-    </Shell>
+    </>
   );
 }
 
@@ -85,7 +90,7 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack }: { ini
 export function Lobby({ client, onExit }: { client: NetClient; onExit: () => void }) {
   const { view: v, status, error } = useNet(client);
   const [copied, setCopied] = useState(false);
-  if (!v) return <Shell><p className="tagline">{status === 'connecting' ? 'Conectando…' : 'Sin conexión'}</p><button onClick={onExit}>Volver</button></Shell>;
+  if (!v) return <><p className="tagline">{status === 'connecting' ? 'Conectando…' : 'Sin conexión'}</p><button onClick={onExit}>Volver</button></>;
   const o = v.opts;
   const link = `${location.origin}${location.pathname}?sala=${v.code}`;
   const copy = async () => {
@@ -100,7 +105,7 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
   };
   const bots = Math.max(0, o.size - v.seats.length);
   return (
-    <Shell>
+    <>
       <h1>Sala</h1>
       <div className="room-code">
         <span>{v.code}</span>
@@ -147,6 +152,6 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
       <div className="home-links">
         <button onClick={() => { client.leave(); onExit(); }}>Salir de la sala</button>
       </div>
-    </Shell>
+    </>
   );
 }
