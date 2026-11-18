@@ -589,15 +589,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   // Los rayos del fondo giran en el sentido de la partida (horario o antihorario). Se invierte la animación
   // en marcha (playbackRate), así el cambio no da saltos.
   const cursedNow = isCursedEnv(s);
-  useEffect(() => {
-    const el = root.current;
-    const rays = el?.querySelector<HTMLElement>('.rays');
-    // Los rayos y la malla de colores de la entrada (el ::before de la mesa).
-    el?.getAnimations({ subtree: true }).forEach((a) => {
-      const fx = a.effect as KeyframeEffect | null;
-      if (fx?.target === rays || (fx?.target === el && fx?.pseudoElement === '::before')) a.updatePlaybackRate(s.dir);
-    });
-  }, [s.dir, cursedNow]);
+  // (El sentido de giro de los rayos lo pone la clase `rev` de la mesa: horario o antihorario, como las flechas.)
 
   // El fondo radial y los rayos nacen del centro exacto de la Pila.
   useLayoutEffect(() => {
@@ -790,7 +782,6 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     const over = ph.t === 'over';
     if (over && !wasOver.current) {
       setFinale(true);
-      root.current?.querySelector<HTMLElement>('.rays')?.getAnimations().forEach((a) => a.updatePlaybackRate(0.15 * s.dir));
       const id = window.setTimeout(() => setFinale(false), FINALE_MS);
       wasOver.current = true;
       return () => clearTimeout(id);
@@ -1180,7 +1171,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const seats = SEATS[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
-    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME] } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
+    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME] } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
       <div className="rays" />
       <div className="shade" />
       <div className="flights" ref={flights} />

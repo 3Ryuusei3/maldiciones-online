@@ -1260,3 +1260,22 @@ input[type='checkbox']:focus-visible { outline: 2px solid var(--gold); outline-o
 .game.col-m { --bg1: #a886c6; --bg2: #5a3c76; }
 .game.col-v { --bg1: #82c89c; --bg2: #3b7550; }
 .game.col-n .disc { --d1: transparent; --d2: transparent; }
+
+/* Fondo con color en juego: algo menos de luz y un poco más de saturación. */
+.game.col-a { --bg1: #e2b24e; --bg2: #84601c; }
+.game.col-m { --bg1: #9a70c6; --bg2: #4c2a72; }
+.game.col-v { --bg1: #64c088; --bg2: #2a6b44; }
+/* Los rayos giran hacia el mismo lado que las flechas, a un ritmo que se aprecia (se invierten con el sentido). */
+.rays { animation-duration: 55s; }
+.game.cursed .rays { animation-duration: 40s; }
+
+/* Rayos del fondo: giran hacia el mismo lado que las flechas del sentido de juego, a un ritmo que se ve. */
+.game .rays { animation: rays-cw 32s linear infinite; background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(255, 255, 255, 0.1) 0deg 9deg, transparent 9deg 18deg); }
+.game.rev .rays { animation-name: rays-ccw; }
+.game.cursed .rays { animation-duration: 24s; }
+.game[data-finale] .rays { animation-duration: 400s; }
+@keyframes rays-cw { to { transform: rotate(360deg); } }
+@keyframes rays-ccw { to { transform: rotate(-360deg); } }
+/* Ritmo del giro: ni tan lento que no se note ni tan rápido que distraiga. */
+.game .rays { animation-duration: 70s; }
+.game.cursed .rays { animation-duration: 50s; }
