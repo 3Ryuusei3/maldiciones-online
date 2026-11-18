@@ -22,6 +22,10 @@ function bestColor(s: GameState, p: number, r: Rnd): Color {
  */
 function leader(s: GameState, p: number, among?: number[], r: Rnd = Math.random): number {
   const pool = (among ?? s.players.map((x) => x.id)).filter((x) => x !== p);
+  // Si alguien está a punto de ganar (1-2 cartas), casi siempre va a por él.
+  const len = (x: number) => s.players[x].hand.length;
+  const min = Math.min(...pool.map(len));
+  if (pool.length && min <= 2 && r() < (min <= 1 ? 0.95 : 0.75)) return pick(pool.filter((x) => len(x) === min), r);
   const w = pool.map((x) => 1 / (s.players[x].hand.length + 1) ** 1.6);
   let roll = r() * w.reduce((a, b) => a + b, 0);
   for (let i = 0; i < pool.length; i++) if ((roll -= w[i]) <= 0) return pool[i];
@@ -55,14 +59,36 @@ function pickTied(hand: Card[], options: string[], n: number, lvl: Level, r: Rnd
   return cards.sort((a, b) => a.k - b.k).slice(0, n).map((x) => x.c.id);
 }
 
+/** Menor nº de cartas entre los oponentes (para saber si alguien está a punto de ganar). */
+const rivalMin = (s: GameState, p: number) => Math.min(...s.players.filter((x) => x.id !== p).map((x) => x.hand.length));
+
+/** ¿Quedaría el Entorno maldito (2 o más) si esta carta de Entorno cambia su estado? */
+function envAfter(s: GameState, c: Card): number {
+  const e = { mutis: s.env.mutis, inutilizar: s.env.inutilizar, tinieblas: !!s.env.tinieblas };
+  if (c.kind === 'mutis' && !e.inutilizar) e.mutis = !e.mutis;
+  if (c.kind === 'inutilizar') e.inutilizar = !e.inutilizar;
+  if (c.kind === 'tinieblas') e.tinieblas = !e.tinieblas;
+  return Number(e.mutis) + Number(e.inutilizar) + Number(e.tinieblas);
+}
+
 function scorePlay(s: GameState, p: number, c: Card): number {
   const hand = s.players[p].hand;
   const cursed = hand.some(isCursed);
   const inutil = s.env.inutilizar && c.color !== null;
   const few = hand.length <= 2;
+  // Un oponente a punto de ganar: conviene atacar, robarle o bloquear la victoria.
+  const danger = rivalMin(s, p) <= 2;
   let v: number;
   switch (c.kind) {
-    case 'antitodo': v = hand.some((x) => x.kind === 'maldicion') ? 12 : isCursedEnv(s) && hand.length <= 3 ? 7 : few ? 3 : -5; break;
+    case 'antitodo': {
+      // Sin Maldición, el Antitodo vale más guardado (para defenderse). Solo se juega si sirve de algo:
+      // ganar con la última carta, deshacer un Entorno maldito que me impide ganar o quitar Égidas cuando hay peligro.
+      if (hand.some((x) => x.kind === 'maldicion')) { v = 12; break; }
+      if (hand.length === 1) { v = isCursedEnv(s) ? -8 : 11; break; }
+      if (isCursedEnv(s) && hand.length <= 3 && !danger) { v = 6; break; }
+      v = -10;
+      break;
+    }
     case 'gema1': case 'gema2': case 'gema3': v = 5; break;
     case 'gematri': v = 5 + hand.filter(isPlainGem).length; break;
     case 'travesura': v = inutil ? 3 : cursed ? 9 : 6; break;
@@ -78,11 +104,23 @@ function scorePlay(s: GameState, p: number, c: Card): number {
     case 'aplastar': v = inutil ? 3 : 6; break;
     case 'cristalizar': v = 7; break;
     case 'adivinar': v = 4; break;
-    case 'mutis': case 'inutilizar': v = 3; break;
-    case 'tinieblas': v = 2; break;
+    case 'mutis': case 'inutilizar': case 'tinieblas': {
+      v = c.kind === 'tinieblas' ? 2 : 3;
+      const after = envAfter(s, c);
+      // Crear un Entorno maldito bloquea a quien va a ganar; deshacerlo me abre la victoria.
+      if (after >= 2 && danger && !few) v += 8;
+      if (after >= 2 && few) v -= 7;
+      if (after < 2 && isCursedEnv(s) && few && !danger) v += 6;
+      break;
+    }
     default: v = 0;
   }
-  if (few) v += 3;
+  if (danger) {
+    const attr = KINDS[c.kind].attr;
+    if (attr === 'ataque' && !inutil) v += 4;
+    if ((c.kind === 'codicia' || c.kind === 'predestinar') && !inutil) v += 3;
+  }
+  if (few && c.kind !== 'antitodo') v += 3;
   return v;
 }
 
@@ -114,7 +152,9 @@ function chooseValue(s: GameState, p: number, lvl: Level, r: Rnd): string | numb
       }
       if (e.kind === 'purga') {
         if (self && hand.some(isCursed)) return p;
-        return leader(s, p, others);
+        // Purgar a quien tiene 1 carta no sirve (roba otra): mejor a quien tenga pocas pero más de una.
+        const useful = others.filter((x) => s.players[x].hand.length > 1);
+        return leader(s, p, useful.length ? useful : others);
       }
       if (e.kind === 'codicia') {
         // Con una maldita que colocar, al líder; si no, a quien más cartas (mejores) tenga.
@@ -160,15 +200,17 @@ function reactChoice(s: GameState, p: number, lvl: Level, r: Rnd): Action {
     const c = hand.find((x) => isPlainGem(x) && x.color === eff.tone) ?? hand.find((x) => x.kind === 'gematri')!;
     return { type: 'react', player: p, r: 'gem', cardId: c.id };
   }
-  if (eff.k === 'gift') return has('antitodo') && lvl >= 1 ? { type: 'react', player: p, r: 'antitodo' } : pass;
+  // Solo bloquea (y devuelve) lo que perjudica: una Maldición o la Condena.
+  if (eff.k === 'gift') return has('antitodo') && lvl >= 1 && isCursed(eff.card) ? { type: 'react', player: p, r: 'antitodo' } : pass;
   if (has('egida')) return { type: 'react', player: p, r: 'egida' };
   if (has('reflejo')) {
     const src = eff.k === 'trav' ? eff.launchers[eff.launchers.length - 1] : eff.source;
-    const target = lvl === 2 || src === p ? leader(s, p) : src;
+    // Se lo devuelve a quien lo lanzó, salvo que otro esté a punto de ganar.
+    const target = lvl === 2 || src === p || rivalMin(s, p) <= 2 ? leader(s, p) : src;
     return { type: 'react', player: p, r: 'reflejo', target };
   }
   if (has('antitodo') && lvl === 2) {
-    const heavy = (eff.k === 'draw' && eff.amount >= 6) || (eff.k === 'trav' && eff.amount >= 4) || eff.k === 'riman';
+    const heavy = (eff.k === 'draw' && eff.amount >= 6) || (eff.k === 'trav' && eff.amount >= 4) || eff.k === 'riman' || hand.length <= 2;
     if (heavy && !hand.some((c) => c.kind === 'maldicion')) return { type: 'react', player: p, r: 'antitodo' };
   }
   return pass;
@@ -264,7 +306,7 @@ export function botDecide(s: GameState, p: number, lvl: Level, r: Rnd = Math.ran
       const assign: Record<string, 'keep' | 'discard' | number> = {};
       const load: Record<number, number> = {};
       let kept = 0;
-      const rivals = s.players.filter((x) => x.id !== p).map((x) => ({ id: x.id, k: x.hand.length + r() * 2 })).sort((a, b) => a.k - b.k).map((x) => x.id);
+      const rivals = s.players.filter((x) => x.id !== p).map((x) => ({ id: x.id, k: x.hand.length + (x.hand.length <= 2 ? 0 : r() * 2) })).sort((a, b) => a.k - b.k).map((x) => x.id);
       for (const c of ph.pool) {
         if (isCursed(c) && lvl > 0) {
           // Una a cada rival antes de repetir: no se las lleva todas el mismo.

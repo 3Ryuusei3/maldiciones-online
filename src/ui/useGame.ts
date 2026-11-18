@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { botDecide, botDup, Level } from '../game/bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from '../game/engine';
-import { BOT_WINDOW_MS, WINDOW_MS, botDelay, dupDelay, pickNames } from '../game/timing';
+import { BOT_WINDOW_MS, DECIDE_MS, WINDOW_MS, botDelay, dupDelay, pickNames } from '../game/timing';
 
 export interface GameConfig {
   name: string;
@@ -48,10 +48,13 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
   });
   const ref = useRef(state);
   ref.current = state;
-  const [timer, setTimer] = useState<(Timer & { key: number }) | null>(null);
+  /** Reloj visible: el de una ventana (`w<n>`) o el de mi decisión pendiente (`s<seq>`). */
+  const [timer, setTimer] = useState<(Timer & { key: string }) | null>(null);
   /** Momentos ya planificados para cada máquina dentro de una ventana. */
   const plan = useRef<{ key: string; at: Record<number, number> }>({ key: '', at: {} });
   const dupPlan = useRef<Record<string, number>>({});
+  /** Fin de la ventana en curso aunque yo no esté en ella (no se reinicia con cada acción de otro). */
+  const winUntil = useRef(0);
 
   // Pausa: al reanudar, los relojes y las decisiones planificadas se retrasan lo que duró la pausa.
   const pausedAt = useRef(0);
@@ -61,6 +64,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
     const d = Date.now() - pausedAt.current;
     pausedAt.current = 0;
     if (timer) timer.until += d;
+    if (winUntil.current) winUntil.current += d;
     for (const k of Object.keys(plan.current.at)) plan.current.at[+k] += d;
     for (const k of Object.keys(dupPlan.current)) if (dupPlan.current[k] > 0) dupPlan.current[k] += d;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -81,13 +85,30 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
     // Reloj de la ventana (solo visible si el humano tiene algo que decidir).
     let until = 0;
     if (windowed) {
-      const humanIn = pend.includes(ME) || timer?.key === ph.win;
+      const wk = `w${ph.win}`;
+      // El reloj de la ventana se fija al abrirse (la clave de plan cambia con la ventana).
+      const fresh = plan.current.key !== `${ph.t}:${ph.win}`;
+      const humanIn = pend.includes(ME) || timer?.key === wk;
       const total = humanIn ? WINDOW_MS[ph.t] : Math.min(BOT_WINDOW_MS, WINDOW_MS[ph.t]);
-      if (timer?.key !== ph.win) {
-        until = now + total;
-        if (pend.includes(ME)) setTimer({ key: ph.win, until, total });
+      if (timer?.key !== wk) {
+        until = fresh || !winUntil.current ? now + total : winUntil.current;
+        winUntil.current = until;
+        if (pend.includes(ME)) setTimer({ key: wk, until, total });
       } else until = timer.until;
       later(until - now, () => dispatch({ type: 'timeout' }));
+    } else if (pend.includes(ME) && !s.players[ME].bot) {
+      // Cualquier otra decisión mía tiene un tiempo máximo: al agotarse, juega la máquina por mí.
+      const sk = `s${s.seq}`;
+      if (timer?.key !== sk) {
+        until = now + DECIDE_MS;
+        setTimer({ key: sk, until, total: DECIDE_MS });
+      } else until = timer.until;
+      later(until - now, () => {
+        const cur = ref.current;
+        if (cur.seq !== s.seq) return;
+        const a = botDecide(cur, ME, 1);
+        if (a) dispatch(a);
+      });
     }
 
     // Máquinas con algo que decidir.
@@ -128,6 +149,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
   }, [state, timer, ready, paused]);
 
   const ph = state.phase;
-  const activeTimer = (ph.t === 'react' || ph.t === 'aplastar' || ph.t === 'gemas') && timer?.key === ph.win ? timer : null;
+  const windowed = ph.t === 'react' || ph.t === 'aplastar' || ph.t === 'gemas';
+  const activeTimer = timer && (windowed ? 'win' in ph && timer.key === `w${ph.win}` : timer.key === `s${state.seq}` && pendingPlayers(state).includes(ME)) ? timer : null;
   return { state, dispatch, timer: activeTimer as Timer | null };
 }

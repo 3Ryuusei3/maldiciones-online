@@ -241,6 +241,7 @@ function dropFaceUpEgidas(s: GameState) {
   for (const p of s.players)
     if (p.egida) {
       s.pile.unshift(p.egida);
+      fx(s, p.id, 'pile', 1, p.egida);
       p.egida = null;
     }
 }
@@ -765,8 +766,10 @@ function resolve(s: GameState, eff: Effect, exempt: number[]) {
     case 'gift': {
       const t = targets[0];
       if (t === undefined) {
-        s.pile.unshift(eff.card);
-        log(s, `${cardName(eff.card)} queda descartada.`);
+        // Bloqueada con Antitodo: la carta vuelve a quien la entregaba.
+        s.players[eff.source].hand.push(eff.card);
+        fx(s, eff.targets[0] ?? 'pile', eff.source, 1, eff.card);
+        log(s, `El Antitodo bloquea la entrega: ${cardName(eff.card)} vuelve a ${nm(s, eff.source)}.`);
       } else {
         s.players[t].hand.push(eff.card);
         fx(s, eff.source, t);
@@ -898,6 +901,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       if (pl.egida) {
         s.undo?.spent.push({ p, card: pl.egida, from: 'up' });
         s.pile.unshift(pl.egida);
+        fx(s, p, 'pile', 1, pl.egida);
         pl.egida = null;
         log(s, `${nm(s, p)} se protege con su Égida (último uso).`);
       } else {
@@ -1129,7 +1133,12 @@ function step(s: GameState, a: Action): boolean {
       } else if (ph.need === 'card') {
         const c = takeFromHand(s, a.player, a.value as string)!;
         pp.companion = c;
-        if (!isCursed(c)) putOnPile(s, a.player, c);
+        if (!isCursed(c)) {
+          // La carta acompañante queda debajo del Predestinar: arriba sigue Predestinar (incolora) y su lanzador elige color.
+          s.pile.splice(s.pile.length - 1, 0, c);
+          s.stats.played[a.player]++;
+          fx(s, a.player, 'pile', 1, c);
+        }
       } else {
         const c = takeFromHand(s, a.player, a.value as string)!;
         s.pile.unshift(c);

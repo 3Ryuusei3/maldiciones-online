@@ -1,11 +1,10 @@
 // Partidas online: crear o unirse a una sala y sala de espera.
 
 import { useState } from 'react';
-import type { Level } from '../game/bot';
 import { NetClient, createRoom, roomInfo, useNet } from '../net/client';
 import { PCOL, asset, toggleFullscreen } from './shared';
+import { LEVELS, SetupFields } from './Setup';
 
-const LEVELS = ['Fácil', 'Normal', 'Difícil'] as const;
 
 /**
  * Fondo de la portada con su panel lateral. Lo pinta App una sola vez para la portada, la entrada online
@@ -129,25 +128,14 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
       </div>
       {v.host ? (
         <>
-          <div className="field">
-            Total en la mesa
-            <div className="seg">
-              {[3, 4, 5, 6].map((n) => <button key={n} className={o.size === n ? 'on' : ''} disabled={n < v.seats.length} onClick={() => client.opts({ size: n })}>{n}</button>)}
-            </div>
-          </div>
-          <div className="field">
-            Nivel de las máquinas
-            <div className="seg">
-              {LEVELS.map((t, i) => <button key={t} className={o.level === i ? 'on' : ''} onClick={() => client.opts({ level: i as Level })}>{t}</button>)}
-            </div>
-          </div>
-          <label className="check"><input type="checkbox" checked={o.extraCurses} onChange={(e) => client.opts({ extraCurses: e.target.checked })} />Añadir las Maldiciones restantes al Mazo</label>
-          <label className="check"><input type="checkbox" checked={o.condena} onChange={(e) => client.opts({ condena: e.target.checked })} />Jugar con la carta Condena</label>
-          <label className="check"><input type="checkbox" checked={o.beta} onChange={(e) => client.opts({ beta: e.target.checked })} />Añadir las cartas beta</label>
+          <SetupFields opts={o} set={(x) => client.opts(x)} min={v.seats.length} />
           <button className="play" onClick={() => client.send({ t: 'start' })}>Empezar</button>
         </>
       ) : (
-        <p className="lobby-wait">Esperando a que el anfitrión empiece la partida…</p>
+        <>
+          <SetupFields opts={o} set={() => {}} readOnly />
+          <p className="lobby-wait">Esperando a que el anfitrión empiece la partida…</p>
+        </>
       )}
       {(status !== 'open' || error) && <p className="net-error" role="alert">{status !== 'open' ? 'Reconectando…' : error}</p>}
       <div className="home-links">

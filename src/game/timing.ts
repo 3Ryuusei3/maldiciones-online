@@ -18,6 +18,8 @@ export const between = (a: number, b: number) => a + Math.random() * (b - a);
 
 /** Duración (ms) de las ventanas cuando hay un humano implicado. */
 export const WINDOW_MS = { react: 15000, aplastar: 4000, gemas: 15000 };
+/** Tiempo máximo de un humano para cualquier decisión fuera de las ventanas (después juega la máquina por él). */
+export const DECIDE_MS = 15000;
 /** Ventana cuando solo deciden máquinas. */
 export const BOT_WINDOW_MS = 6000;
 /** Margen antes de que las máquinas empiecen a reaccionar en Aplastar, para que dé tiempo a verlo venir. */

@@ -7,6 +7,8 @@ import { CompTab, Compendium, HelpDock } from './Compendium';
 import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
 import { NetClient, useNet } from '../net/client';
 import { Lobby, OnlineEntry, Shell } from './Online';
+import { SetupFields } from './Setup';
+import type { RoomOpts } from '../game/room';
 import { CardView, Icon, PCOL, asset, rich, toggleFullscreen } from './shared';
 
 // ───────────────────────── piezas básicas ─────────────────────────
@@ -178,12 +180,22 @@ function reveal(host: HTMLElement, takes: Fx[], w: number) {
  * La jugada que se acaba de hacer: la carta que ha quedado arriba en la Pila y las que la acompañan
  * (la Maldición que se va con un Antitodo, la Gema que se descarta debajo de un Apoyo, la carta de un Predestinar...).
  */
-export function playGroup(s: GameState): { from: Anchor; fx: Fx[] } | null {
+export function playGroup(s: GameState): { from: Anchor; fx: Fx[]; cards: Card[] } | null {
   const top = s.pile[s.pile.length - 1];
   const star = s.fx.find((f) => f.card && f.to === 'pile' && f.card.id === top?.id && f.from !== 'pile');
-  if (!star) return null;
-  return { from: star.from, fx: s.fx.filter((f) => f.card && f.to === 'pile' && f.from === star.from) };
+  if (!star) {
+    // La carta que acompaña a un Predestinar queda debajo de él: se presenta igual, junto al Predestinar.
+    const below = s.pile[s.pile.length - 2];
+    const comp = top?.kind === 'predestinar' && below ? s.fx.find((f) => f.card?.id === below.id && f.to === 'pile' && typeof f.from === 'number') : undefined;
+    return comp ? { from: comp.from, fx: [comp], cards: [top, below] } : null;
+  }
+  const fx = s.fx.filter((f) => f.card && f.to === 'pile' && f.from === star.from);
+  return { from: star.from, fx, cards: fx.map((f) => f.card!) };
 }
+
+/** Lo que tarda una carta en deslizarse por debajo de la Pila. */
+const TUCK_MS = 700;
+let tuckSeq = 0;
 
 /**
  * Cartas que vuelan entre mano, Mazo, Pila y jugadores según los movimientos de la última acción.
@@ -202,6 +214,11 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
   const [room, setRoom] = useState<Record<number, number>>({});
   /** Cartas recién robadas que se están dando la vuelta en mi mano (como en el reparto). */
   const [turning, setTurning] = useState<Record<string, 'out' | 'in'>>({});
+  /** Cartas que se están metiendo por debajo de la Pila (Gemas descartadas, la Maldición de un Antitodo...). */
+  const [tucks, setTucks] = useState<{ key: number; src: string; side: number }[]>([]);
+  /** Égidas que vuelan a su sitio (no se pintan junto al jugador hasta que llegan). */
+  const [egidaAir, setEgidaAir] = useState<string[]>([]);
+  const prevEgida = useRef<(string | null)[]>(s.players.map((p) => p.egida?.id ?? null));
   const prevHand = useRef<string[]>(s.players[ME].hand.map((c) => c.id));
   useLayoutEffect(() => {
     const host = layer.current;
@@ -245,20 +262,32 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
         // Varias cartas a la vez (Antitodo + Maldición, Apoyo + Gema...): se ven en fila, centradas sobre la Pila.
         const dx = isStar ? (si - (stars.length - 1) / 2) * B.width * 1.32 : 0;
         const fromDeck = f.from === 'deck';
+        // Va debajo de la Pila (no queda arriba): llega a un lado y se desliza por debajo de la carta superior.
+        const pileIdx = f.card ? s.pile.findIndex((c) => c.id === f.card!.id) : -1;
+        const under = f.to === 'pile' && (!f.card || (pileIdx >= 0 && pileIdx < s.pile.length - 1));
+        const side = under ? (k % 2 ? 1 : -1) * B.width * 0.95 : 0;
+        const src = asset(f.card && !(typeof f.to === 'number' && f.from !== ME) ? cardImage(f.card) : 'cards/back.webp');
         const go = (B2: DOMRect, sB: number, delay: number) =>
           launch(host, {
             // Las cartas que pasan de una mano a otra van boca abajo (salvo las mías).
-            src: asset(f.card && !(typeof f.to === 'number' && f.from !== ME) ? cardImage(f.card) : 'cards/back.webp'),
-            A, B: B2,
+            src,
+            A, B: under ? new DOMRect(B2.left + side, B2.top, B2.width, B2.height) : B2,
             sA: mine ? Math.min(A.width, w * 1.4) / w : scaleAt(f.from, A, w),
             sB,
             delay,
             solid: !!mine,
             show: isStar ? (B.width * (stars.length > 1 ? 1.2 : 1.36)) / w : undefined,
-            showDx: dx,
+            showDx: dx - side,
             onStart: from !== null ? () => bump(from, -1) : undefined,
             onLand: () => {
-              if (id) setFlying((v) => v.filter((x) => x !== id));
+              if (under) {
+                const key = ++tuckSeq;
+                setTucks((v) => [...v, { key, src, side }]);
+                window.setTimeout(() => {
+                  setTucks((v) => v.filter((x) => x.key !== key));
+                  if (id) setFlying((v) => v.filter((x) => x !== id));
+                }, TUCK_MS);
+              } else if (id) setFlying((v) => v.filter((x) => x !== id));
               if (to !== null) { bump(to, 1); gapFor(to, -1); }
               if (got) setHidden((v) => v.filter((x) => x !== got));
               if (got && fromDeck) {
@@ -281,61 +310,76 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
     if (added.length) setFlying((v) => [...v, ...added]);
     if (hide.length) setHidden((v) => [...v, ...hide]);
     origins.current = {};
+    // Égida recién usada: se ve en grande sobre la Pila y después vuela, pequeña, junto a su dueño.
+    s.players.forEach((pl, p) => {
+      const id = pl.egida?.id ?? null;
+      if (id && prevEgida.current[p] !== id) {
+        const A = anchorRect(p), P = anchorRect('pile');
+        const src = asset('cards/egida.webp');
+        if (A && P) {
+          setEgidaAir((v) => [...v, id]);
+          const free = () => setEgidaAir((v) => v.filter((x) => x !== id));
+          launch(host, {
+            src, A, B: P, sA: scaleAt(p, A, w), sB: scaleAt('pile', P, w), show: (P.width * 1.5) / w,
+            onLand: () => {
+              const R = document.querySelector(`[data-egida="${p}"]`)?.getBoundingClientRect();
+              if (!R) return free();
+              launch(host, { src, A: P, B: R, sA: scaleAt('pile', P, w), sB: R.width / w, ms: 650, solid: true, onLand: free });
+            },
+          });
+        }
+      }
+      prevEgida.current[p] = id;
+    });
   }, [s.seq, s.fx, s.phase.t, s.players, origins]);
-  return { layer, flying, adj, hidden, room, turning };
+  return { layer, flying, adj, hidden, room, turning, tucks, egidaAir };
 }
 
 // ───────────────────────── portada ─────────────────────────
 
-function Home({ onStart, onOnline }: { onStart: (c: GameConfig) => void; onOnline: () => void }) {
-  const [name, setName] = useState(() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } });
-  const [players, setPlayers] = useState(4);
-  const [level, setLevel] = useState<Level>(1);
-  const [extraCurses, setExtra] = useState(false);
-  const [condena, setCondena] = useState(true);
-  const [beta, setBeta] = useState(false);
+/** Portada: elegir modo de juego (las opciones de cada partida van dentro de cada modo). */
+function Home({ onLocal, onOnline }: { onLocal: () => void; onOnline: () => void }) {
   const [page, setPage] = useState<CompTab | null>(null);
   return (
     <>
       {/* Por encima de todo (el panel tiene backdrop-filter y no dejaría salir un position: fixed). */}
       {page && createPortal(<div className="home-page home-overlay"><Compendium tab={page} onClose={() => setPage(null)} /></div>, document.body)}
-        <h1>Maldiciones</h1>
-        <p className="tagline">El juego de cartas maldito</p>
-        <label>
-          Tu nombre
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tú" maxLength={14} />
-        </label>
-        <div className="field">
-          Jugadores
-          <div className="seg">
-            {[3, 4, 5, 6].map((n) => <button key={n} className={players === n ? 'on' : ''} onClick={() => setPlayers(n)}>{n}</button>)}
-          </div>
-        </div>
-        <div className="field">
-          Nivel de las máquinas
-          <div className="seg">
-            {(['Fácil', 'Normal', 'Difícil'] as const).map((t, i) => <button key={t} className={level === i ? 'on' : ''} onClick={() => setLevel(i as Level)}>{t}</button>)}
-          </div>
-        </div>
-        <label className="check">
-          <input type="checkbox" checked={extraCurses} onChange={(e) => setExtra(e.target.checked)} />
-          Añadir las Maldiciones restantes al Mazo
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={condena} onChange={(e) => setCondena(e.target.checked)} />
-          Jugar con la carta Condena
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={beta} onChange={(e) => setBeta(e.target.checked)} />
-          Añadir las cartas beta (Escarcha, Ráfaga, Trastada y Rituales)
-        </label>
-        <div className="play-row">
-          <button className="play" onClick={() => { try { localStorage.setItem('maldiciones:nombre', name.trim()); } catch { /* sin almacenamiento: no se recuerda */ } onStart({ name: name.trim() || 'Tú', players, level, extraCurses, condena, beta }); }}>Jugar</button>
-          <button className="play" onClick={onOnline}>Jugar online</button>
-        </div>
-        <div className="home-links">
-          <button onClick={() => setPage('jugar')}>Compendio</button>
-        </div>
+      <h1>Maldiciones</h1>
+      <p className="tagline">El juego de cartas maldito</p>
+      <div className="play-row">
+        <button className="play" onClick={onLocal}>Jugar en local</button>
+        <button className="play" onClick={onOnline}>Jugar online</button>
+      </div>
+      <div className="home-links">
+        <button onClick={() => setPage('jugar')}>Compendio</button>
+      </div>
+    </>
+  );
+}
+
+/** Partida local contra las máquinas: nombre y opciones antes de empezar. */
+function LocalSetup({ onStart, onBack }: { onStart: (c: GameConfig) => void; onBack: () => void }) {
+  const [name, setName] = useState(() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } });
+  const [opts, setOpts] = useState<RoomOpts>({ size: 4, level: 1, extraCurses: false, condena: true, beta: false });
+  const start = () => {
+    try { localStorage.setItem('maldiciones:nombre', name.trim()); } catch { /* sin almacenamiento: no se recuerda */ }
+    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta });
+  };
+  return (
+    <>
+      <h1>En local</h1>
+      <p className="tagline">Contra las máquinas</p>
+      <label>
+        Tu nombre
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tú" maxLength={14} />
+      </label>
+      <SetupFields opts={opts} set={(o) => setOpts((v) => ({ ...v, ...o }))} />
+      <div className="play-row">
+        <button className="play" onClick={start}>Empezar</button>
+      </div>
+      <div className="home-links">
+        <button onClick={onBack}>Volver</button>
+      </div>
     </>
   );
 }
@@ -405,7 +449,7 @@ const SEATS: Record<number, [string, number][]> = {
 /** Fases de la entrada: reparto boca abajo, giro de las cartas (ocultar / mostrar) y primera carta de la Pila. */
 type Intro = 'deal' | 'out' | 'in' | 'pile' | null;
 
-function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, away }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; away?: boolean }) {
+function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, away, egidaAir }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; away?: boolean; egidaAir: string[] }) {
   const pl = s.players[p];
   // Durante el reparto su Maldición está aparte, boca arriba, así que no cuenta en el abanico.
   const have = Math.min(shown - (intro === 'deal' || intro === 'out' ? 1 : 0), 14);
@@ -428,7 +472,7 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
       <div className="plate">
         <span className="pill" style={{ borderColor: PCOL[p % PCOL.length] }}>{pl.name}<i>{shown}</i></span>
         {(intro === 'deal' || intro === 'out') && <img className={`curse0 ${intro === 'out' ? 'flip-out' : ''}`} src={asset('cards/maldicion.webp')} alt="Su Maldición, boca arriba" />}
-        {pl.egida && <img className="egida" src={asset('cards/egida.webp')} alt="Égida boca arriba" title="Égida boca arriba: le queda 1 uso" />}
+        {pl.egida && <img className={`egida ${egidaAir.includes(pl.egida.id) ? 'air' : ''}`} data-egida={p} src={asset('cards/egida.webp')} alt="Égida boca arriba" title="Égida boca arriba: le queda 1 uso" />}
         {slapped && <span className="slapped">✋</span>}
         {away && <span className="away-tag" title="Desconectado: juega una máquina por él">ausente</span>}
         {onFoul && <button className="foul" title="Anfitrión: señalar falta (roba 3)" onClick={(e) => { e.stopPropagation(); onFoul(); }}>+3</button>}
@@ -461,8 +505,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const timer = useMemo<Timer | null>(() => {
     if (!net) return local.timer;
     const t = rv?.timer;
-    const ph = rv?.game?.phase;
-    if (!t || !ph || !('win' in ph) || ph.win !== t.key) return null;
+    if (!t) return null;
     // La hora del servidor se pasa a la de este navegador.
     return { until: t.until - rv!.now + remote.recvAt, total: t.total };
   }, [net, local.timer, rv, remote.recvAt]);
@@ -487,7 +530,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   // Los rivales, en orden de juego a partir de mí (en local yo soy siempre el 0).
   const rivals = s.players.map((_, i) => s.players[(ME + 1 + i) % s.players.length]).slice(0, -1);
   const name = (p: number) => s.players[p].name;
-  const { layer: flights, flying, adj, hidden, room, turning } = useFlights(s, origins);
+  const { layer: flights, flying, adj, hidden, room, turning, tucks, egidaAir } = useFlights(s, origins);
 
   // El fondo radial y los rayos nacen del centro exacto de la Pila.
   useLayoutEffect(() => {
@@ -617,22 +660,38 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const [flash, setFlash] = useState<{ key: number; dir: 1 | -1 } | null>(null);
   const [muted, setMuted] = useState(-1);
   const prevDir = useRef(s.dir);
-  /** Entorno recién activado: su Indicador viene al centro, se da la vuelta y vuelve a su sitio. */
-  const [envFx, setEnvFx] = useState<{ key: number; k: 'mutis' | 'inutilizar' | 'tinieblas' | 'centro' } | null>(null);
-  const prevEnv = useRef({ mutis: false, inutilizar: false, tinieblas: false, centro: false });
+  /** Cambio de Entorno: la trifuerza crece en el centro y se dan la vuelta, uno tras otro, los Indicadores que cambian. */
+  const envNow: EnvState = { mutis: s.env.mutis, inutilizar: s.env.inutilizar, tinieblas: !!s.env.tinieblas, centro: isCursedEnv(s) };
+  const [envFx, setEnvFx] = useState<{ key: number; steps: EnvStep[]; before: EnvState } | null>(null);
+  /** Lo que enseña la trifuerza pequeña mientras se espera (o se ve) la animación: el estado de antes. */
+  const [triHold, setTriHold] = useState<EnvState | null>(null);
+  const lastEnvKey = useRef(0);
+  const prevEnv = useRef<EnvState>(envNow);
+  const prevEgidas = useRef(s.players.map((p) => p.egida?.id ?? null));
   useEffect(() => {
     const g = playGroup(s);
     const f = g ? g.fx : null;
     if (g && !s.env.mutis) {
-      setCallout(describePlay(s, g.from, g.fx.map((x) => x.card!)));
+      setCallout(describePlay(s, g.from, g.cards));
       setMuted(s.announce?.n ?? -1); // el cartel ya lo anuncia: sobra el bocadillo
     }
-    const now = { mutis: s.env.mutis, inutilizar: s.env.inutilizar, tinieblas: !!s.env.tinieblas, centro: isCursedEnv(s) };
-    const lit = (['centro', 'tinieblas', 'inutilizar', 'mutis'] as const).find((k) => now[k] && !prevEnv.current[k]);
-    prevEnv.current = now;
-    if (lit) {
+    // Égida recién usada: también se anuncia en grande.
+    s.players.forEach((pl, p) => {
+      if (pl.egida && prevEgidas.current[p] !== pl.egida.id && !s.env.mutis) {
+        setCallout({ key: s.seq, player: p, verb: p === ME ? 'te proteges con' : 'se protege con', cards: [pl.egida], text: HELP.egida.text, tone: 'n' });
+        setMuted(s.announce?.n ?? -1);
+      }
+    });
+    prevEgidas.current = s.players.map((p) => p.egida?.id ?? null);
+    const before = prevEnv.current;
+    prevEnv.current = envNow;
+    // Primero los Indicadores de los lados y, después, el central.
+    const steps = (['tinieblas', 'mutis', 'inutilizar', 'centro'] as const).filter((k) => envNow[k] !== before[k]).map((k) => ({ k, on: envNow[k] }));
+    if (steps.length) {
       const key = s.seq;
-      window.setTimeout(() => setEnvFx({ key, k: lit }), f ? FLY_MS + SHOW_MS + SETTLE_MS : 200);
+      lastEnvKey.current = key;
+      setTriHold((h) => h ?? before);
+      window.setTimeout(() => setEnvFx({ key, steps, before }), f ? FLY_MS + SHOW_MS + SETTLE_MS : 200);
     }
     if (prevDir.current !== s.dir) {
       prevDir.current = s.dir;
@@ -647,11 +706,12 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     const id = window.setTimeout(() => setCallout(null), 3600);
     return () => clearTimeout(id);
   }, [callout]);
-  useEffect(() => {
-    if (!envFx) return;
-    const id = window.setTimeout(() => setEnvFx(null), 3000);
-    return () => clearTimeout(id);
-  }, [envFx]);
+  const envDone = useCallback((key: number) => {
+    // Si ya hay otro cambio en camino, la trifuerza sigue esperando a esa animación.
+    if (key !== lastEnvKey.current) return;
+    setEnvFx(null);
+    setTriHold(null);
+  }, []);
   useEffect(() => {
     if (!flash) return;
     const id = window.setTimeout(() => setFlash(null), 3000);
@@ -926,12 +986,24 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     ));
   }
 
+  /** Orden de mi mano al caer las Tinieblas: boca abajo cada carta sigue en su sitio (las nuevas, al final). */
+  const blindOrder = useRef<string[] | null>(null);
   const sortedHand = useMemo(() => {
     // Durante el reparto las cartas van llegando de una en una, con la Maldición primero.
     if (facedown) return [...me.hand].sort((a, b) => Number(b.kind === 'maldicion') - Number(a.kind === 'maldicion'));
-    if (blind) return me.hand;
     const o = (c: Card) => (c.color ? COLORS.indexOf(c.color) : KINDS[c.kind].attr === 'maldita' ? 5 : KINDS[c.kind].attr === 'sagrada' ? 4 : 3);
-    return [...me.hand].sort((a, b) => o(a) - o(b) || a.kind.localeCompare(b.kind));
+    const sorted = [...me.hand].sort((a, b) => o(a) - o(b) || a.kind.localeCompare(b.kind));
+    if (!blind) {
+      blindOrder.current = null;
+      return sorted;
+    }
+    // Se fija el orden visible justo antes de darse la vuelta y se mantiene mientras duren.
+    const prev = blindOrder.current ?? sorted.map((c) => c.id);
+    const byId = new Map(me.hand.map((c) => [c.id, c]));
+    const kept = prev.filter((id) => byId.has(id));
+    const order = [...kept, ...me.hand.map((c) => c.id).filter((id) => !kept.includes(id))];
+    blindOrder.current = order;
+    return order.map((id) => byId.get(id)!);
   }, [me.hand, blind, facedown]);
   const n = sortedHand.length;
   const step = Math.min(0.5, 4.6 / Math.max(n, 1)); // fracción del ancho de carta entre una carta y la siguiente
@@ -968,6 +1040,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             onPick={() => onPlayer(p.id)}
             onFoul={isHost ? () => send({ type: 'penalize', target: p.id }) : undefined}
             away={away(p.id)}
+            egidaAir={egidaAir}
             slapped={ph.t === 'aplastar' && ph.slapped.includes(p.id)}
             shown={shown(p.id)}
             reveal={revealed[p.id] ?? []}
@@ -992,7 +1065,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
               <path className="arc" d="M 170 138 A 80 80 0 0 1 104 180" />
               <path className="tip" d="M 88 180 L 108 168 L 108 192 Z" />
             </svg>
-            <div className={`pile ${slapping ? 'slap' : ''} ${onPile && !slapping ? 'hot' : ''}`} data-anchor="pile" onClick={onPile ?? undefined}>
+            <div className={`pile ${slapping ? 'slap' : ''} ${onPile && !slapping ? 'hot' : ''} ${tucks.length ? 'tucking' : ''}`} data-anchor="pile" onClick={onPile ?? undefined}>
+              {/* Cartas que entran por debajo: van antes en el DOM, así quedan por detrás de la carta superior. */}
+              {tucks.map((t) => <div key={`t${t.key}`} className="pc tuck" style={{ '--sx': `${t.side}px` } as React.CSSProperties}><img src={t.src} alt="" /></div>)}
               {!dealing && s.pile.slice(-5).map((c, i, a) => {
                 const h = hash(c.id);
                 const isTop = i === a.length - 1;
@@ -1007,9 +1082,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             {ph.t === 'aplastar' && <div key={`slap${ph.win}`} className="slap-label">¡APLASTAR!<small>{slapping ? 'pulsa la Pila, Espacio o Intro' : 'todos a la Pila'}</small></div>}
           </div>
 
-          <div className={`tri ${cursed ? 'cursed' : ''}`} title="Indicadores de Entorno">
+          <div className={`tri ${cursed ? 'cursed' : ''} ${envFx ? 'fxing' : ''}`} title="Indicadores de Entorno">
             {(['tinieblas', 'mutis', 'centro', 'inutilizar'] as const).map((k) => {
-              const on = k === 'centro' ? cursed : k === 'tinieblas' ? !!s.env.tinieblas : s.env[k];
+              const on = (triHold ?? envNow)[k];
               const label = k === 'centro' ? 'Entorno maldito' : KINDS[k].name;
               // El Indicador de Tinieblas gira un tercio de vuelta cada vez que termina un turno de su lanzador (I → II → III).
               const spin = k === 'tinieblas' && s.env.tinieblas ? { rotate: `${s.env.tinieblas.count * 120}deg` } : undefined;
@@ -1052,7 +1127,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
           {isHost && <button className="foul" title="Anfitrión: señalarte una falta (robas 3)" onClick={() => send({ type: 'penalize', target: ME })}>+3</button>}
         </div>
         {me.egida && (
-          <div className="my-egida" title="Tu Égida boca arriba: le queda 1 uso">
+          <div className={`my-egida ${egidaAir.includes(me.egida.id) ? 'air' : ''}`} data-egida={ME} title="Tu Égida boca arriba: le queda 1 uso">
             <CardView card={me.egida} className="small" />
             <small>Égida · 1 uso</small>
           </div>
@@ -1087,7 +1162,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
           <span>{callout.text}</span>
         </div>
       )}
-      {envFx && <EnvFx key={envFx.key} k={envFx.k} />}
+      {envFx && <EnvFx key={envFx.key} steps={envFx.steps} before={envFx.before} onDone={() => envDone(envFx.key)} />}
       {flash && (
         <div key={`flash${flash.key}`} className="dirfx" style={{ '--d': flash.dir } as React.CSSProperties}>
           <i className="ring" />
@@ -1105,7 +1180,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       <div className="edge"><Countdown timer={timer} /></div>
 
       {net && remote.status !== 'open' && <div className="net-banner" role="status">Reconectando…</div>}
-      {ph.t === 'over' && <GameOver s={s} startedAt={startedAt.current} onExit={onExit} onRematch={onRematch} onLobby={net && isHost ? () => net.send({ t: 'lobby' }) : undefined} waiting={!!net && !isHost} />}
+      {ph.t === 'over' && <GameOver s={s} startedAt={startedAt.current} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
       {pause && ph.t !== 'over' && (
         <div className="pause" role="dialog" aria-label="Partida en pausa">
           <div className="pause-box">
@@ -1134,41 +1209,91 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   );
 }
 
-const ENV_TEXT: Record<'mutis' | 'inutilizar' | 'tinieblas' | 'centro', [string, string]> = {
+type EnvK = 'mutis' | 'inutilizar' | 'tinieblas' | 'centro';
+type EnvState = Record<EnvK, boolean>;
+interface EnvStep { k: EnvK; on: boolean }
+
+const ENV_TEXT: Record<EnvK, [string, string]> = {
   mutis: ['¡Mutis!', 'Silencio: las cartas dejan de anunciarse.'],
   inutilizar: ['¡Inutilizar!', 'Las cartas de color pierden su efecto.'],
   tinieblas: ['¡Tinieblas!', 'Todos juegan con las cartas boca abajo durante 3 turnos.'],
   centro: ['¡Entorno maldito!', 'Con 2 o más Entornos activos nadie puede ganar.'],
 };
+const ENV_OFF: Record<EnvK, [string, string]> = {
+  mutis: ['Fin de Mutis', 'Las cartas vuelven a anunciarse.'],
+  inutilizar: ['Fin de Inutilizar', 'Las cartas de color recuperan su efecto.'],
+  tinieblas: ['Se disipan las Tinieblas', 'Las cartas vuelven a verse.'],
+  centro: ['Fin del Entorno maldito', 'Ya se puede ganar otra vez.'],
+};
 
-/** El Indicador de Entorno sale de la trifuerza, crece en el centro, se da la vuelta y vuelve a su sitio. */
-function EnvFx({ k }: { k: 'mutis' | 'inutilizar' | 'tinieblas' | 'centro' }) {
+/** Ritmo del cambio de Entorno: crecer, cada vuelta, pausa final y vuelta a su sitio. */
+const ENV_GROW = 550, ENV_STEP = 900, ENV_HOLD = 900, ENV_BACK = 500;
+
+/**
+ * La trifuerza entera crece hasta el centro de la mesa y se dan la vuelta, de uno en uno, los Indicadores que cambian;
+ * después vuelve a su sitio. La trifuerza pequeña se oculta mientras tanto (es la misma que se ve crecer).
+ */
+function EnvFx({ steps, before, onDone }: { steps: EnvStep[]; before: EnvState; onDone: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const done = useRef(onDone);
+  done.current = onDone;
+  const [flipped, setFlipped] = useState(0);
+  const [label, setLabel] = useState<{ x: number; y: number } | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
-    const from = document.querySelector(`.tri .t-${k}`)?.getBoundingClientRect();
+    const tri = document.querySelector('.tri')?.getBoundingClientRect();
     const pile = anchorRect('pile');
-    if (!el || !from || !pile) return;
-    el.style.setProperty('--fx', `${from.left + from.width / 2 - (pile.left + pile.width / 2)}px`);
-    el.style.setProperty('--fy', `${from.top + from.height / 2 - (pile.top + pile.height / 2)}px`);
-  }, [k]);
-  const [title, desc] = ENV_TEXT[k];
+    if (!el || !tri || !pile) { done.current(); return; }
+    const s = Math.max(1.4, Math.min(2.8, (window.innerHeight * 0.4) / tri.height, (window.innerWidth * 0.8) / tri.width));
+    // Centrada sobre la Pila, pero siempre entera dentro de la pantalla (con sitio para el texto debajo).
+    const hw = (tri.width * s) / 2, hh = (tri.height * s) / 2;
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+    const cx = clamp(pile.left + pile.width / 2, hw + 12, window.innerWidth - hw - 12);
+    const cy = clamp(pile.top + pile.height / 2, hh + 12, window.innerHeight - hh - 80);
+    Object.assign(el.style, { left: `${tri.left}px`, top: `${tri.top}px`, width: `${tri.width}px`, height: `${tri.height}px` });
+    el.style.setProperty('--dx', `${cx - (tri.left + tri.width / 2)}px`);
+    el.style.setProperty('--dy', `${cy - (tri.top + tri.height / 2)}px`);
+    el.style.setProperty('--s', `${s}`);
+    setLabel({ x: cx, y: cy + (tri.height * s) / 2 + 14 });
+    const timers: number[] = [];
+    const at = (ms: number, fn: () => void) => timers.push(window.setTimeout(fn, ms));
+    at(20, () => el.classList.add('big'));
+    steps.forEach((_, i) => at(ENV_GROW + i * ENV_STEP, () => setFlipped(i + 1)));
+    const end = ENV_GROW + steps.length * ENV_STEP + ENV_HOLD;
+    at(end, () => { el.classList.remove('big'); setLabel(null); });
+    at(end + ENV_BACK, () => done.current());
+    return () => timers.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // El texto es el del último Indicador que se ha dado la vuelta (o el primero que va a hacerlo).
+  const cur = steps[Math.max(0, flipped - 1)];
+  const [title, desc] = (cur.on ? ENV_TEXT : ENV_OFF)[cur.k];
   return (
-    <div ref={ref} className={`envfx ${k === 'centro' ? 'down' : ''}`} aria-live="polite">
-      <div className="envfx-card">
-        <div className="envfx-flip">
-          <img className="face off" src={asset(`ui/${k}-off.webp`)} alt="" />
-          <img className="face on" src={asset(`ui/${k}-on.webp`)} alt="" />
-        </div>
+    <>
+      <div ref={ref} className="envfx" aria-hidden="true">
+        {(['tinieblas', 'mutis', 'centro', 'inutilizar'] as const).map((k) => {
+          const i = steps.findIndex((x) => x.k === k);
+          const to = i >= 0 ? steps[i].on : before[k];
+          return (
+            <div key={k} className={`ef t-${k} ${i >= 0 && flipped > i ? 'flip' : ''} ${i >= 0 ? 'moving' : ''}`}>
+              <img className="face a" src={asset(`ui/${k}-${before[k] ? 'on' : 'off'}.webp`)} alt="" />
+              <img className="face b" src={asset(`ui/${k}-${to ? 'on' : 'off'}.webp`)} alt="" />
+            </div>
+          );
+        })}
       </div>
-      <div className="envfx-label"><b>{title}</b><span>{desc}</span></div>
-    </div>
+      {label && (
+        <div key={`${cur.k}${cur.on}`} className="envfx-label" style={{ left: label.x, top: label.y }} aria-live="polite">
+          <b>{title}</b><span>{desc}</span>
+        </div>
+      )}
+    </>
   );
 }
 
 // ───────────────────────── fin de partida ─────────────────────────
 
-function GameOver({ s, startedAt, onExit, onRematch, onLobby, waiting }: { s: GameState; startedAt: number; onExit: () => void; onRematch?: () => void; onLobby?: () => void; waiting?: boolean }) {
+function GameOver({ s, startedAt, onExit, onRematch, onLobby }: { s: GameState; startedAt: number; onExit: () => void; onRematch?: () => void; onLobby?: () => void }) {
   const [tab, setTab] = useState<'res' | 'log'>('res');
   const w = s.winner!;
   const mins = Math.max(1, Math.round((Date.now() - startedAt) / 60000));
@@ -1243,9 +1368,9 @@ function GameOver({ s, startedAt, onExit, onRematch, onLobby, waiting }: { s: Ga
         )}
         <div className="over-btns">
           {onRematch && <button className="primary" onClick={onRematch}>Jugar otra vez</button>}
-          {onLobby && <button onClick={onLobby}>Volver a la sala</button>}
-          {waiting && <small>Esperando a que el anfitrión decida si se juega otra…</small>}
-          <button onClick={onExit}>Volver al inicio</button>
+          {/* Online: se vuelve a la sala de espera (todos juntos) o se sale de la sala. */}
+          {onLobby && <button className="primary" onClick={onLobby}>Volver a la sala</button>}
+          <button onClick={onExit}>{onLobby ? 'Salir de la sala' : 'Volver al inicio'}</button>
         </div>
       </div>
     </div>
@@ -1262,10 +1387,10 @@ function OnlineRoom({ client, onExit }: { client: NetClient; onExit: (error?: st
   setMe(v.you);
   const g = v.game;
   const cfg: GameConfig = { name: g.players[v.you].name, players: g.players.length, level: v.opts.level, extraCurses: v.opts.extraCurses, condena: v.opts.condena, beta: v.opts.beta };
-  return <Game key={`${v.code}:${v.round}`} cfg={cfg} net={client} onExit={() => { client.leave(); onExit(); }} onRematch={v.host ? () => client.send({ t: 'rematch' }) : undefined} />;
+  return <Game key={`${v.code}:${v.round}`} cfg={cfg} net={client} onExit={() => { client.leave(); onExit(); }} />;
 }
 
-type Screen = { k: 'home' } | { k: 'local'; cfg: GameConfig; n: number } | { k: 'entry'; code?: string; error?: string | null } | { k: 'room'; client: NetClient };
+type Screen = { k: 'home' } | { k: 'setup' } | { k: 'local'; cfg: GameConfig; n: number } | { k: 'entry'; code?: string; error?: string | null } | { k: 'room'; client: NetClient };
 
 export default function App() {
   const q = new URLSearchParams(location.search);
@@ -1286,7 +1411,9 @@ export default function App() {
   const leaveRoom = useCallback((error?: string) => setScreen({ k: 'entry', error }), []);
   switch (screen.k) {
     case 'home':
-      return <Shell><Home onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} onOnline={() => setScreen({ k: 'entry' })} /></Shell>;
+      return <Shell><Home onLocal={() => setScreen({ k: 'setup' })} onOnline={() => setScreen({ k: 'entry' })} /></Shell>;
+    case 'setup':
+      return <Shell><LocalSetup onBack={home} onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} /></Shell>;
     case 'entry':
       return <Shell><OnlineEntry initialCode={screen.code} initialError={screen.error} onBack={home} onJoin={(code, name) => setScreen({ k: 'room', client: new NetClient(code, name) })} /></Shell>;
     case 'room':

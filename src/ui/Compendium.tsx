@@ -421,7 +421,8 @@ function HowTo() {
   );
 }
 
-const MECH: [string, string][] = [['m-cartas', 'Cartas'], ['m-jerarquia', 'Jerarquía'], ['m-duplicar', 'Duplicar'], ['m-tinte', 'Tinte'], ['m-gemas', 'Gemas'], ['m-atributos', 'Atributos'], ['m-reflejar', 'Al reflejar una Magia…'], ['m-entorno', 'Entorno maldito']];
+/** Etiquetas cortas: el menú va arriba (como en Jerarquía) y tiene que caber en una fila. */
+const MECH: [string, string][] = [['m-cartas', 'Cartas'], ['m-jerarquia', 'Jerarquía'], ['m-duplicar', 'Duplicar'], ['m-tinte', 'Tinte'], ['m-gemas', 'Gemas'], ['m-atributos', 'Atributos'], ['m-reflejar', 'Reflejar Magia'], ['m-entorno', 'Entorno maldito']];
 
 /** Mientras se desplaza por un clic en el menú, el resaltado se queda en la sección elegida. */
 let spyLock = 0;
@@ -457,14 +458,28 @@ function useSpy(ids: string[]): [string, (id: string) => void] {
   return [active, setActive];
 }
 
+/**
+ * Menú de secciones fijo arriba. En pantallas estrechas no cabe en una fila: se desliza de lado
+ * (con un degradado en los bordes) y la sección activa se mantiene a la vista.
+ */
+function TopNav({ label, active, children }: { label: string; active: string; children: React.ReactNode }) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = ref.current;
+    const b = nav?.querySelector<HTMLElement>(`[data-id="${active}"]`);
+    if (!nav || !b || nav.scrollWidth <= nav.clientWidth) return;
+    nav.scrollTo({ left: b.offsetLeft - (nav.clientWidth - b.offsetWidth) / 2, behavior: 'smooth' });
+  }, [active]);
+  return <nav ref={ref} className="top-nav" aria-label={label}>{children}</nav>;
+}
+
 function Mechanics({ open }: { open: (k: Kind) => void }) {
   const [active, setActive] = useSpy(MECH.map((m) => m[0]));
   return (
-    <div className="with-nav">
-      <nav className="side-nav" aria-label="Mecánicas">
-        {MECH.map(([id, label]) => <button key={id} className={active === id ? 'on' : ''} onClick={() => goTo(id, setActive)}>{label}</button>)}
-      </nav>
     <div className="guide one">
+      <TopNav label="Mecánicas" active={active}>
+        {MECH.map(([id, label]) => <button key={id} data-id={id} className={active === id ? 'on' : ''} onClick={() => goTo(id, setActive)}>{label}</button>)}
+      </TopNav>
       <section id="m-cartas">
         <h2>Cartas</h2>
         <p>Se dividen en 3 tipos según el color: <b>básicas</b> (amarillas, moradas y verdes), <b>incoloras</b> (grises) y <b>míticas</b> (blancas y negras). Cada carta posee un <u>Atributo</u> que le otorga efectos especiales; se encuentra en la esquina superior derecha.</p>
@@ -531,7 +546,6 @@ function Mechanics({ open }: { open: (k: Kind) => void }) {
           <figure><Triforce className="g-tri" on={['mutis', 'tinieblas']} /><figcaption>Entorno maldito</figcaption></figure>
         </div>
       </section>
-    </div>
     </div>
   );
 }
@@ -619,13 +633,13 @@ function Hierarchy({ open }: { open: (k: Kind) => void }) {
   const [active, setActive] = useSpy(RANKS.map(([r]) => `h-${r}`));
   return (
     <div className="guide one hier">
-      <nav className="top-nav" aria-label="Niveles de Jerarquía">
+      <TopNav label="Niveles de Jerarquía" active={active}>
         {RANKS.map(([r, label]) => (
-          <button key={r} className={active === `h-${r}` ? 'on' : ''} onClick={() => goTo(`h-${r}`, setActive)}>
+          <button key={r} data-id={`h-${r}`} className={active === `h-${r}` ? 'on' : ''} onClick={() => goTo(`h-${r}`, setActive)}>
             {r > 0 && <RankIcon rank={r} size={18} />}{r > 0 ? label : 'Sin Jerarquía'}
           </button>
         ))}
-      </nav>
+      </TopNav>
       <section>
         <h2>Jerarquía</h2>
         <p>Las cartas tienen un valor dentro de la partida que corresponde con su Jerarquía. A medida que aumenta, mejoran sus efectos y su importancia: <b>I</b> es el valor más bajo y <b>Diamante</b> el más alto. Se encuentra en la esquina inferior izquierda de la carta.</p>

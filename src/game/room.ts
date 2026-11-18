@@ -5,7 +5,7 @@
 
 import { Level, botDecide, botDup } from './bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from './engine';
-import { BOT_WINDOW_MS, WINDOW_MS, botDelay, dupDelay, pickNames } from './timing';
+import { BOT_WINDOW_MS, DECIDE_MS, WINDOW_MS, botDelay, dupDelay, pickNames } from './timing';
 import { viewFor } from './view';
 
 export interface RoomOpts {
@@ -54,7 +54,7 @@ interface Sched {
 }
 
 /** Tiempo que tiene un humano conectado para decidir fuera de las ventanas antes de que juegue la máquina por él. */
-export const HUMAN_MS = { turn: 60000, other: 40000 };
+export const HUMAN_MS = { turn: DECIDE_MS, other: DECIDE_MS };
 /** Espera máxima a la animación del reparto. */
 const INTRO_MAX_MS = 15000;
 /** Sala sin nadie conectado durante este tiempo: se borra. */
@@ -105,8 +105,8 @@ export interface RoomView {
   game: GameState | null;
   /** Ya ha pasado el reparto inicial (quien entra o vuelve a mitad de partida no lo ve otra vez). */
   dealt: boolean;
-  /** Reloj de la ventana en curso, en la hora del servidor. */
-  timer: { key: number; until: number; total: number } | null;
+  /** Mi reloj: el de la ventana en curso o el de mi decisión pendiente (hora del servidor). */
+  timer: { key: string; until: number; total: number } | null;
   now: number;
 }
 
@@ -188,7 +188,9 @@ export function start(r: RoomData, token: string, now: number): Result {
 
 /** Vuelve a la sala de espera (tras una partida). Las máquinas se van; los humanos que se fueron, también. */
 export function toLobby(r: RoomData, token: string): Result {
-  if (token !== r.host) return fail('Solo el anfitrión puede hacerlo.');
+  // Con la partida terminada, cualquiera de la sala puede volver a la sala de espera (vuelven todos).
+  const i = seatOf(r, token);
+  if (i < 0 || r.seats[i].left) return fail('No estás en la sala.');
   if (r.game && r.game.phase.t !== 'over') return fail('La partida sigue en curso.');
   r.game = null;
   r.seats = r.seats.filter((x) => x.token && !x.left);
@@ -353,7 +355,10 @@ export function roomView(r: RoomData, token: string | null, online: Set<string>,
   const you = token ? seatOf(r, token) : -1;
   const s = r.game;
   const ph = s?.phase;
-  const timer = r.sched.win && ph && 'win' in ph && ph.win === r.sched.win.key && (ph.t === 'react' || ph.t === 'aplastar' || ph.t === 'gemas') ? r.sched.win : null;
+  const windowed = !!ph && (ph.t === 'react' || ph.t === 'aplastar' || ph.t === 'gemas');
+  let timer: RoomView['timer'] = null;
+  if (windowed && r.sched.win && 'win' in ph! && ph.win === r.sched.win.key) timer = { key: `w${ph.win}`, until: r.sched.win.until, total: r.sched.win.total };
+  else if (s && !windowed && you >= 0 && (r.sched.at[you] ?? -1) > 0 && pendingPlayers(s).includes(you)) timer = { key: `s${s.seq}`, until: r.sched.at[you], total: DECIDE_MS };
   return {
     t: 'room',
     code: r.code,
