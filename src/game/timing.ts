@@ -17,7 +17,9 @@ export const pickNames = (n: number, taken: string[]) => {
 export const between = (a: number, b: number) => a + Math.random() * (b - a);
 
 /** Duración (ms) de las ventanas cuando hay un humano implicado. */
-export const WINDOW_MS = { react: 15000, aplastar: 4000, gemas: 15000 };
+// Reaccionar pide a veces dos pasos (pulsar Reflejo y elegir a quién) y la ventana empieza mientras la carta aún vuela:
+// 20 s para reaccionar.
+export const WINDOW_MS = { react: 20000, aplastar: 4000, gemas: 15000 };
 /** Tiempo máximo de un humano para cualquier decisión fuera de las ventanas (después juega la máquina por él). */
 export const DECIDE_MS = 15000;
 /** Ventana cuando solo deciden máquinas. */
@@ -50,6 +52,8 @@ export const dupDelay = () => between(2000, 3400) * PACE;
  * Al caer las Tinieblas, todos tienen unos segundos para memorizar su mano antes de que se den la vuelta
  * (cuenta desde que caen: incluye la animación del Entorno). Las máquinas no juegan hasta que pasa.
  */
-export const TINIEBLAS_PEEK_MS = 8000;
+export const TINIEBLAS_PEEK_MS = 12500;
+/** Lo que se ven las cartas para memorizarlas, contado desde que termina la animación del Entorno. */
+export const PEEK_VISIBLE_MS = 5000;
 /** ¿Acaban de caer las Tinieblas? (las máquinas esperan a que pase el tiempo de memorizar). */
 export const tinieblasJustFell = (s: GameState) => !!s.env.tinieblas && s.seq - (s.env.tinieblas.at ?? -99) <= 2;

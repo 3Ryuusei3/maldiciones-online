@@ -316,18 +316,32 @@ export function botDecide(s: GameState, p: number, lvl: Level, r: Rnd = Math.ran
       return ph.waiting.includes(p) ? { type: 'pick', player: p, ids: pickTied(hand, ph.picks[p].options, ph.picks[p].count, lvl, r) } : null;
     case 'iman': {
       if (ph.launcher !== p) return null;
+      // Repartir antes que descartar: cada carta que se da es una carta más que el rival tiene que soltar.
+      // Las malditas, a los rivales (primero a quien va ganando); las buenas, para mí (hasta 3);
+      // el resto, también a los rivales (hasta 3 por jugador). Solo se descarta lo que ya no cabe.
       const assign: Record<string, 'keep' | 'discard' | number> = {};
       const load: Record<number, number> = {};
       let kept = 0;
-      const rivals = s.players.filter((x) => x.id !== p && !x.out).map((x) => ({ id: x.id, k: x.hand.length + (x.hand.length <= 2 ? 0 : r() * 2) })).sort((a, b) => a.k - b.k).map((x) => x.id);
-      for (const c of ph.pool) {
-        if (isCursed(c) && lvl > 0) {
-          // Una a cada rival antes de repetir: no se las lleva todas el mismo.
-          const min = Math.min(...rivals.map((x) => load[x] ?? 0));
-          const to = min < 3 ? rivals.find((x) => (load[x] ?? 0) === min) : undefined;
-          if (to !== undefined) { assign[c.id] = to; load[to] = (load[to] ?? 0) + 1; continue; }
+      const rivals = s.players.filter((x) => x.id !== p && !x.out).map((x) => x.id);
+      // A quién dar ahora: el que menos cartas tenga (contando lo que ya se le ha dado) y aún admita alguna.
+      const giveTo = () => {
+        const open = rivals.filter((x) => (load[x] ?? 0) < 3);
+        if (!open.length) return undefined;
+        return open.sort((a, b) => s.players[a].hand.length + (load[a] ?? 0) - (s.players[b].hand.length + (load[b] ?? 0)) || r() - 0.5)[0];
+      };
+      const useful = (c: Card) => c.kind === 'antitodo' || c.kind === 'reflejo' || c.kind === 'egida' || RITUALS.includes(c.kind) || (!isGem(c) && rankOf(c) >= 3 && !isCursed(c));
+      // Primero las malditas, luego las útiles y al final lo demás.
+      const order = [...ph.pool].sort((a, b) => Number(isCursed(b)) - Number(isCursed(a)) || Number(useful(b)) - Number(useful(a)));
+      for (const c of order) {
+        if (lvl === 0) {
+          // Fácil: reparte al azar o descarta.
+          const to = r() < 0.6 ? giveTo() : undefined;
+          if (to !== undefined) { assign[c.id] = to; load[to] = (load[to] ?? 0) + 1; } else assign[c.id] = 'discard';
+          continue;
         }
-        if (c.kind === 'antitodo' && kept < 3 && hand.some((x) => x.kind === 'maldicion')) { assign[c.id] = 'keep'; kept++; continue; }
+        if (!isCursed(c) && useful(c) && kept < 3) { assign[c.id] = 'keep'; kept++; continue; }
+        const to = giveTo();
+        if (to !== undefined) { assign[c.id] = to; load[to] = (load[to] ?? 0) + 1; continue; }
         assign[c.id] = 'discard';
       }
       return { type: 'iman', player: p, assign };

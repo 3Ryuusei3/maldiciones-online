@@ -10,8 +10,8 @@ import type { RoomView } from '../game/room';
 import { Lobby, OnlineEntry, Shell } from './Online';
 import { SetupFields } from './Setup';
 import type { RoomOpts } from '../game/room';
-import { CardView, Icon, PCOL, asset, rich, toggleFullscreen } from './shared';
-import { TINIEBLAS_PEEK_MS } from '../game/timing';
+import { CardView, Icon, PCOL, asset, ink, rich, toggleFullscreen } from './shared';
+import { PEEK_VISIBLE_MS } from '../game/timing';
 
 // ───────────────────────── piezas básicas ─────────────────────────
 
@@ -195,6 +195,9 @@ export function playGroup(s: GameState): { from: Anchor; fx: Fx[]; cards: Card[]
   const fx = s.fx.filter((f) => f.card && f.to === 'pile' && f.from === star.from);
   return { from: star.from, fx, cards: fx.map((f) => f.card!) };
 }
+
+/** Lo que dura el cartel de la carta jugada. */
+const CALLOUT_MS = 3600;
 
 /** Lo que tarda una carta en deslizarse por debajo de la Pila. */
 const TUCK_MS = 700;
@@ -466,7 +469,8 @@ const SEATS: Record<number, [string, number][]> = {
 /** Fases de la entrada: cuenta atrás, se coloca la mesa (Maldiciones, Mazo, trifuerza), reparto, giro y primera carta. */
 type Intro = 'count' | 'setup' | 'deal' | 'out' | 'in' | 'pile' | null;
 /** Fases en las que cada jugador tiene su Maldición aparte, boca arriba. */
-const curseApart = (i: Intro) => i === 'setup' || i === 'deal' || i === 'out';
+// (Ya no se apartan: la Maldición inicial se queda en la mano, en su sitio del abanico.)
+const curseApart = (_i: Intro) => false;
 
 /** Estado de un asiento online: caído y esperándole, caído con una máquina jugando por él, o fuera de la partida. */
 type SeatState = 'wait' | 'auto' | 'out' | undefined;
@@ -490,6 +494,8 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
         {Array.from({ length: n }, (_, i) => (
           <img key={i} src={asset('cards/back.webp')} alt="" draggable={false} style={{ transform: `translateX(-50%) rotate(${(i - mid) * spread}deg)`, opacity: i < have ? 1 : 0 }} />
         ))}
+        {/* Égida ya usada una vez: boca arriba, al final de su abanico. */}
+        {pl.egida && <img className={`fan-egida ${egidaAir.includes(pl.egida.id) ? 'air' : ''}`} data-egida={p} src={asset('cards/egida.webp')} alt="Égida boca arriba (le queda 1 uso)" title="Égida boca arriba: le queda 1 uso" draggable={false} style={{ transform: `translateX(-50%) rotate(${(n - mid) * spread}deg)` }} />}
       </div>
       {reveal.length > 0 && (
         <div className="seat-reveal" aria-label={`${pl.name} enseña ${reveal.length} carta(s)`}>
@@ -497,12 +503,11 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
         </div>
       )}
       <div className="plate">
-        <span className="pill" style={{ background: color }}>{pl.name}<i>{shown}</i></span>
-        {s.turn === p && !intro && s.phase.t !== 'over' && <span className="turn-tag" style={{ background: color, boxShadow: `0 0 18px ${color}` }}>Su turno</span>}
+        <span className="pill" style={{ background: color, color: ink(color) }}>{pl.name}<i>{shown}</i></span>
+        {s.turn === p && !intro && s.phase.t !== 'over' && <span className="turn-tag" style={{ background: color, color: ink(color), boxShadow: `0 0 18px ${color}` }}>Su turno</span>}
         {next && s.turn !== p && !intro && <span className="next-tag" style={{ borderColor: color }}>Después</span>}
         {!intro && pl.hand.length === 1 && s.phase.t !== 'over' && <span className="last-tag">¡Última carta!</span>}
         {curseApart(intro) && shown >= 1 && <img className={`curse0 ${intro === 'out' ? 'flip-out' : ''}`} src={asset('cards/maldicion.webp')} alt="Su Maldición, boca arriba" />}
-        {pl.egida && <img className={`egida ${egidaAir.includes(pl.egida.id) ? 'air' : ''}`} data-egida={p} src={asset('cards/egida.webp')} alt="Égida boca arriba" title="Égida boca arriba: le queda 1 uso" />}
         {slapped && <span className="slapped">✋</span>}
         {state && <span className={`away-tag ${state}`} title={STATE_TAG[state][1]}>{STATE_TAG[state][0]}</span>}
         {onKick && <button className="foul" title="Anfitrión: quitarle de la partida (sus cartas van al fondo de la Pila)" onClick={(e) => { e.stopPropagation(); onKick(); }}>Quitar</button>}
@@ -631,7 +636,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     at(S0, () => { setCountText(null); setIntro('setup'); });
     // 2) Cada jugador recibe su Maldición, boca arriba, uno tras otro.
     order.forEach((p, j) => at(S0 + 250 + j * 420, () => {
-      const slot = p === ME ? document.querySelectorAll<HTMLElement>('.cards-row .hc')[0] : null;
+      const slots = document.querySelectorAll<HTMLElement>('.cards-row .hc');
+      const slot = p === ME ? slots[slots.length - 1] : null;
       const A = anchorRect('pile'), B = slot?.getBoundingClientRect() ?? anchorRect(p), w = ghostW();
       if (!A || !B) return setDealt((d) => d.map((x, i) => (i === p ? 1 : x)));
       launch(host, { src: asset('cards/maldicion.webp'), A, B, sA: scaleAt('pile', A, w), sB: slot ? slot.offsetWidth / w : scaleAt(p, B, w), ms: 620, solid: true, onLand: () => live && setDealt((d) => d.map((x, i) => (i === p ? 1 : x))) });
@@ -648,7 +654,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       for (const p of order) {
         if (round >= s.players[p].hand.length) continue;
         at(START + k++ * GAP, () => {
-          const slot = p === ME ? document.querySelectorAll<HTMLElement>('.cards-row .hc')[round] : null;
+          const slot = p === ME ? document.querySelectorAll<HTMLElement>('.cards-row .hc')[round - 1] : null;
           const A = anchorRect('deck'), B = slot?.getBoundingClientRect() ?? anchorRect(p), w = ghostW();
           if (!A || !B) return;
           launch(host, { flat: true, src: asset('cards/back.webp'), A, B, sA: scaleAt('deck', A, w), sB: slot ? slot.offsetWidth / w : scaleAt(p, B, w), ms: MS, onLand: () => live && setDealt((d) => d.map((x, i) => (i === p ? x + 1 : x))) });
@@ -768,12 +774,6 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   }, [s.color, s.seq, intro]);
   /** Las gemas para elegir color salen cuando ya ha terminado la animación de la carta. */
   const [pickReady, setPickReady] = useState(false);
-  useEffect(() => {
-    if (!(ph.t === 'tinte' && ph.player === ME)) return setPickReady(false);
-    const id = window.setTimeout(() => setPickReady(true), Math.max(250, busyUntil.current - Date.now()));
-    return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ph.t, s.seq]);
   const [callout, setCallout] = useState<Callout | null>(null);
   /** Final de la partida a cámara lenta: la última jugada y el anuncio del ganador, antes del resumen. */
   const [finale, setFinale] = useState(false);
@@ -790,6 +790,10 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ph.t]);
   const [shuffling, setShuffling] = useState(false);
+  /** Hasta cuándo se ve el cartel de la carta jugada (los demás avisos esperan a que termine). */
+  const calloutUntil = useRef(0);
+  /** Hasta cuándo dura la animación de cambio de Entorno que está en camino. */
+  const envBusyUntil = useRef(0);
   const [flash, setFlash] = useState<{ key: number; dir: 1 | -1 } | null>(null);
   const [muted, setMuted] = useState(-1);
   const prevDir = useRef(s.dir);
@@ -806,6 +810,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     const f = g ? g.fx : null;
     if (g && !s.env.mutis) {
       setCallout(describePlay(s, g.from, g.cards));
+      calloutUntil.current = Date.now() + CALLOUT_MS;
       setMuted(s.announce?.n ?? -1); // el cartel ya lo anuncia: sobra el bocadillo
     }
     // La Pila se baraja para formar un Mazo nuevo: el Mazo se agita un momento.
@@ -817,6 +822,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     s.players.forEach((pl, p) => {
       if (pl.egida && prevEgidas.current[p] !== pl.egida.id && !s.env.mutis) {
         setCallout({ key: s.seq, player: p, verb: p === ME ? 'te proteges con' : 'se protege con', cards: [pl.egida], text: HELP.egida.text, tone: 'n' });
+        calloutUntil.current = Date.now() + CALLOUT_MS;
         setMuted(s.announce?.n ?? -1);
       }
     });
@@ -829,21 +835,68 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       const key = s.seq;
       lastEnvKey.current = key;
       setTriHold((h) => h ?? before);
-      window.setTimeout(() => setEnvFx({ key, steps, before }), f ? FLY_MS + SHOW_MS + SETTLE_MS : 200);
+      // Los avisos van de uno en uno: el del Entorno espera a que termine el de la carta jugada.
+      const wait = Math.max(f ? FLY_MS + SHOW_MS + SETTLE_MS : 200, calloutUntil.current - Date.now() + 150);
+      envBusyUntil.current = Date.now() + wait + ENV_GROW + steps.length * ENV_STEP + ENV_HOLD + ENV_BACK;
+      window.setTimeout(() => setEnvFx({ key, steps, before }), wait);
     }
     if (prevDir.current !== s.dir) {
       prevDir.current = s.dir;
       // El aviso de cambio de sentido espera a que termine la presentación de la carta (el Reflejo) para no pisarse.
       const key = s.seq, dir = s.dir;
-      window.setTimeout(() => setFlash({ key, dir }), f ? FLY_MS + SHOW_MS + SETTLE_MS + 150 : 0);
+      window.setTimeout(() => setFlash({ key, dir }), Math.max(f ? FLY_MS + SHOW_MS + SETTLE_MS + 150 : 0, calloutUntil.current - Date.now() + 150));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.seq]);
   useEffect(() => {
     if (!callout) return;
-    const id = window.setTimeout(() => setCallout(null), 3600);
+    const id = window.setTimeout(() => setCallout(null), CALLOUT_MS);
     return () => clearTimeout(id);
   }, [callout]);
+  /** Al caer las Tinieblas: unos segundos con las cartas a la vista para memorizarlas antes de que se den la vuelta. */
+  const [peekUntil, setPeekUntil] = useState(0);
+  const [, peekTick] = useState(0);
+  const wasBlind = useRef(blind);
+  useEffect(() => {
+    // El tiempo de memorizar empieza cuando acaba la animación del Entorno (y el cartel de la carta), no antes.
+    if (blind && !wasBlind.current && !dealing) setPeekUntil(Math.max(Date.now(), envBusyUntil.current, calloutUntil.current) + PEEK_VISIBLE_MS);
+    if (!blind) setPeekUntil(0);
+    wasBlind.current = blind;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blind]);
+  useEffect(() => {
+    if (!peekUntil) return;
+    // Se repinta mientras dura; al acabar se conserva la hora de fin (la usan las gemas para esperar a la vuelta de las cartas).
+    const i = window.setInterval(() => { peekTick((n) => n + 1); if (Date.now() >= peekUntil + 1000) clearInterval(i); }, 250);
+    return () => clearInterval(i);
+  }, [peekUntil]);
+  const peeking = blind && peekUntil > Date.now();
+  const peekShown = peeking && Date.now() >= peekUntil - PEEK_VISIBLE_MS;
+  const peekTimer = useMemo(() => (peekShown ? { until: peekUntil, total: PEEK_VISIBLE_MS } : null), [peekShown, peekUntil]);
+  /** Cuando se acaba el tiempo de memorizar, las cartas se dan la vuelta (primero se cierran de cara, luego se abren de espaldas). */
+  const [hideFlip, setHideFlip] = useState<'out' | 'in' | null>(null);
+  const wasPeeking = useRef(false);
+  useEffect(() => {
+    if (wasPeeking.current && !peeking && blind) {
+      setHideFlip('out');
+      const a = window.setTimeout(() => setHideFlip('in'), 340);
+      const b = window.setTimeout(() => setHideFlip(null), 820);
+      wasPeeking.current = false;
+      return () => { clearTimeout(a); clearTimeout(b); };
+    }
+    wasPeeking.current = peeking;
+  }, [peeking, blind]);
+  // Las gemas para elegir color, cuando ya han terminado (por orden) la animación de la carta, su cartel y, si la hay,
+  // la del Entorno. Va después del efecto que programa esos avisos, para leer sus tiempos ya actualizados.
+  useEffect(() => {
+    if (!(ph.t === 'tinte' && ph.player === ME)) return setPickReady(false);
+    const now = Date.now();
+    // Con Tinieblas recién caídas, además, después de memorizar y de que las cartas se den la vuelta.
+    const peekEnd = blind && peekUntil ? peekUntil - now + 900 : 0;
+    const id = window.setTimeout(() => setPickReady(true), Math.max(250, busyUntil.current - now, calloutUntil.current - now, envBusyUntil.current - now + 100, peekEnd));
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ph.t, s.seq, peekUntil]);
   const envDone = useCallback((key: number) => {
     // Si ya hay otro cambio en camino, la trifuerza sigue esperando a esa animación.
     if (key !== lastEnvKey.current) return;
@@ -879,7 +932,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       return tie.count === 1 ? { run: () => send({ type: 'pick', player: ME, ids: [c.id] }) } : { run: () => toggle(c.id, tie.count) };
     }
     if (gemas) return isPlainGem(c) ? { run: () => toggle(c.id) } : null;
-    if (reacting && blind) return opts.includes('blind') ? { run: () => react({ r: 'blind', cardId: c.id }) } : null;
+    if (reacting && blind && opts.includes('blind')) return { run: () => react({ r: 'blind', cardId: c.id }), label: 'Usar en Tinieblas' };
+    // Tinieblas: fuera de mi turno puedo intentar usar cualquier carta (duplicar, Antitodo…); si no sirve, robo 1.
+    if (blind && !peeking && !myTurn && ph.t !== 'over') return { run: () => send({ type: 'guess', player: ME, cardId: c.id }), label: 'Usar en Tinieblas' };
     if (reacting && !blind) {
       const needsTarget = reacting.eff.k === 'draw' || reacting.eff.k === 'trav';
       if (c.kind === 'egida' && opts.includes('egida') && !me.egida) return { run: () => react({ r: 'egida' }), label: 'Defender' };
@@ -890,6 +945,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       if (opts.includes('gems') && cristalGem(c)) return { run: () => toggle(c.id) };
     }
     const dup = canDup(s, ME, c) ? () => send({ type: 'dup', player: ME, cardId: c.id }) : undefined;
+    // En mi turno, una carta igual a la de la Pila se duplica (no gasta el turno: luego puedo echar otra o terminar).
+    if (dup && myTurn) return { run: dup, label: 'Duplicar' };
     if (canPlay(s, ME, c)) return { run: () => send({ type: 'play', player: ME, cardId: c.id }), label: dup && 'Duplicar', alt: dup };
     if (dup) return { run: dup, label: 'Duplicar' };
     if (c.kind === 'antitodo' && !blind && canFreeAntitodo(s, ME)) return { run: () => send({ type: 'antitodo', player: ME }), label: 'Usar' };
@@ -949,7 +1006,10 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     B('Saltar', () => endDeal.current());
   } else if (tinte) {
     alert = true;
-    text = 'Has jugado la última carta incolora: elige el color con las gemas de debajo de la trifuerza.';
+    // El aviso de elegir color sale a la vez que las gemas, no antes.
+    text = pickReady && !envFx ? 'Has jugado la última carta incolora: elige el color con las gemas de debajo de la trifuerza.'
+      : peeking && Date.now() >= peekUntil - PEEK_VISIBLE_MS ? 'Cuando tus cartas se pongan boca abajo, eliges color.'
+      : blind ? 'Caen las Tinieblas…' : 'En cuanto termine la animación, eliges color.';
 
   } else if (choosing) {
     const e = choosing.pp.companion ?? choosing.pp.card;
@@ -1041,15 +1101,18 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     } else text = 'Recuperar: elige una carta de la Pila.';
   } else if (slapping) {
     alert = true;
-    text = '¡APLASTAR! Pulsa la diana antes que los demás.';
+    text = '¡APLASTAR! Pulsa la mano antes que los demás.';
   } else if (myTurn) {
-    text = ph.drawn ? 'Puedes jugar la carta robada o quedártela.' : blind ? 'Tinieblas: juega una carta a ciegas o roba 3.' : 'Encadena una carta o roba del Mazo.';
+    text = ph.drawn ? 'Puedes jugar la carta robada o quedártela.' : ph.dupd ? 'Has duplicado: encadena otra carta, roba o termina tu turno.' : blind ? 'Tinieblas: juega una carta a ciegas o roba 3.' : 'Encadena una carta o roba del Mazo.';
     if (ph.drawn) B('Quedármela', () => send({ type: 'keep', player: ME }), true);
-    else B(blind ? 'Robar 3' : 'Robar', () => send({ type: 'draw', player: ME }), true);
+    else if (ph.dupd) {
+      B('Terminar turno', () => send({ type: 'keep', player: ME }), true);
+      B(blind ? 'Robar 3' : 'Robar', () => send({ type: 'draw', player: ME }));
+    } else B(blind ? 'Robar 3' : 'Robar', () => send({ type: 'draw', player: ME }), true);
   } else if (ph.t === 'turn') text = `Turno de ${name(s.turn)}${nextUp >= 0 && nextUp !== s.turn ? ` · después ${nextUp === ME ? 'tú' : name(nextUp)}` : ''}…`;
   // Me afecta pero no puedo hacer nada: solo se informa (la ventana sigue abierta por si otro lo intercepta).
   else if (ph.t === 'react') text = effText(s, ph.eff) + (ph.eff.targets.includes(ME) ? ' No tienes con qué responder.' : '');
-  else if (ph.t === 'aplastar') text = '¡Aplastar! Todos a pulsar la diana…';
+  else if (ph.t === 'aplastar') text = '¡Aplastar! Todos a pulsar la mano…';
   else if (ph.t === 'gemas') text = `Gema Tricolor: ${ph.waiting.map(name).join(', ')} ${ph.waiting.length > 1 ? 'eligen' : 'elige'} qué Gemas descartar. Se echan todas a la vez.`;
   else if (ph.t === 'tinte') text = `${name(ph.player)} elige color…`;
   else if (ph.t === 'give') text = `${ph.waiting.map(name).join(' y ')} ${ph.waiting.length > 1 ? 'eligen' : 'elige'} qué carta(s) da a ${name(ph.target)}…`;
@@ -1126,27 +1189,12 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     ));
   }
 
-  /** Al caer las Tinieblas: unos segundos con las cartas a la vista para memorizarlas antes de que se den la vuelta. */
-  const [peekUntil, setPeekUntil] = useState(0);
-  const [, peekTick] = useState(0);
-  const wasBlind = useRef(blind);
-  useEffect(() => {
-    if (blind && !wasBlind.current && !dealing) setPeekUntil(Date.now() + TINIEBLAS_PEEK_MS);
-    if (!blind) setPeekUntil(0);
-    wasBlind.current = blind;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blind]);
-  useEffect(() => {
-    if (!peekUntil) return;
-    const i = window.setInterval(() => { peekTick((n) => n + 1); if (Date.now() >= peekUntil) setPeekUntil(0); }, 250);
-    return () => clearInterval(i);
-  }, [peekUntil]);
-  const peeking = blind && peekUntil > Date.now();
   /** Orden de mi mano al caer las Tinieblas: boca abajo cada carta sigue en su sitio (las nuevas, al final). */
   const blindOrder = useRef<string[] | null>(null);
   const sortedHand = useMemo(() => {
     // Durante el reparto las cartas van llegando de una en una, con la Maldición primero.
-    if (facedown) return [...me.hand].sort((a, b) => Number(b.kind === 'maldicion') - Number(a.kind === 'maldicion'));
+    // Durante el reparto la Maldición va a la derecha del todo (donde quedará después, con las malditas).
+    if (facedown) return [...me.hand].sort((a, b) => Number(a.kind === 'maldicion') - Number(b.kind === 'maldicion'));
     const o = (c: Card) => (c.color ? COLORS.indexOf(c.color) : KINDS[c.kind].attr === 'maldita' ? 5 : KINDS[c.kind].attr === 'sagrada' ? 4 : 3);
     const sorted = [...me.hand].sort((a, b) => o(a) - o(b) || a.kind.localeCompare(b.kind));
     if (!blind) {
@@ -1171,7 +1219,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const seats = SEATS[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
-    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME] } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
+    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
       <div className="rays" />
       <div className="shade" />
       <div className="flights" ref={flights} />
@@ -1179,7 +1227,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         <div className="brand"><img src={asset('icons/maldicion.webp')} alt="" />Maldiciones</div>
         <span className="spacer" />
         <button className="round" title="Pausa" aria-label="Pausar la partida" onClick={() => setPause('menu')}>❚❚</button>
-        <button className="round" title="Pantalla completa" aria-label="Pantalla completa" onClick={toggleFullscreen}>⛶</button>
+        <button className="round fs-only" title="Pantalla completa" aria-label="Pantalla completa" onClick={toggleFullscreen}>⛶</button>
         <button className="round" title="Compendio de cartas" onClick={() => setComp(true)}>?</button>
         <button className="round" title="Registro de la partida" onClick={() => setShowLog((v) => !v)}>≡</button>
         <button className="round" title="Salir" onClick={() => (ph.t === 'over' ? onExit() : setPause('exit'))}>×</button>
@@ -1241,7 +1289,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
               })}
             </div>
             {!dealing && <span className="now"><span className={`dot c-${s.color}`} />{COLOR_NAME[s.color]} · {KINDS[top.kind].name}</span>}
-            {ph.t === 'aplastar' && <div key={`slap${ph.win}`} className="slap-label">¡APLASTAR!<small>{slapping ? 'pulsa la diana' : 'todos a la diana'}</small></div>}
+            {ph.t === 'aplastar' && <div key={`slap${ph.win}`} className="slap-label">¡APLASTAR!<small>{slapping ? 'pulsa la mano' : 'todos a la mano'}</small></div>}
           </div>
 
           <div className={`tri ${cursed ? 'cursed' : ''} ${envFx ? 'fxing' : ''} ${stage.tri ? (dealing ? 'placed' : '') : 'unplaced'}`} title={tinte ? 'Elige color: pulsa un triángulo' : 'Indicadores de Entorno'}>
@@ -1279,9 +1327,24 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
       {/* Zona de mensajes de alto fijo: lo que ocurre (arriba) y lo que se me pide (abajo). Nunca empuja la mesa ni la mano. */}
       <div className="msgzone">
+        {/* Cartel de la carta jugada: justo encima de la zona de avisos (nunca la pisa) y del ancho del círculo central. */}
+        {/* El cartel de la carta jugada no sale mientras haya una bandeja de decisión (ocuparían el mismo sitio). */}
+        {callout && !finale && !tray && (
+          <div key={`call${callout.key}`} className={`callout c-${callout.tone}`} style={{ '--cc': colors[callout.player] } as React.CSSProperties}>
+            <small><i style={{ background: colors[callout.player] }} />{names[callout.player]} {callout.verb}</small>
+            <strong>{callout.cards.map((c, i) => <span key={c.id}>{i > 0 && <em>+</em>}<Icon kind={c.kind} size={24} />{cardName(c)}</span>)}</strong>
+            <span>{callout.text}</span>
+          </div>
+        )}
         <div className="line1">
           {!dealing && !callout && !tinte && <div className="ticker" key={s.log.length}>{rich(s.log[s.log.length - 1]?.text ?? '', names, colors)}</div>}
         </div>
+        {/* El aviso sale cuando empiezan los segundos de memorizar (tras el cartel de la carta y la animación del Entorno). */}
+        {peeking && !envFx && Date.now() >= peekUntil - PEEK_VISIBLE_MS && (
+          <div className="peek-banner" role="status">
+            🌑 Tinieblas: memoriza tus cartas · se ponen boca abajo en <b>{Math.ceil((peekUntil - Date.now()) / 1000)}</b>
+          </div>
+        )}
         {/* Cartel de lo que me toca, encima del aviso: mi turno o algo contra mí. */}
         {underAttack ? <div className="turn-sign attack">⚠ {attackText}</div>
           : s.turn === ME && !dealing && ph.t !== 'over' && (myTurn || pendingPlayers(s).includes(ME)) ? <div className="turn-sign mine">Tu turno</div>
@@ -1294,11 +1357,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         </div>
       </div>
 
-      {peeking && (
-        <div className="peek-banner" role="status">
-          🌑 Tinieblas: memoriza tus cartas · se ponen boca abajo en <b>{Math.ceil((peekUntil - Date.now()) / 1000)}</b>
-        </div>
-      )}
+
       {/* Mini historial: las últimas jugadas, encima de mi nombre. */}
       {!dealing && s.log.length > 1 && (
         <ol className="mini-log" aria-label="Últimas jugadas">
@@ -1307,8 +1366,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       )}
       <div className={`hand ${s.turn === ME && !dealing ? 'turn' : ''}`}>
         <div className="me-tag">
-          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''}`} style={{ background: colors[ME] }}>{me.name}<i>{shown(ME)}</i></span>
-          {s.turn === ME && !dealing && ph.t !== 'over' && <span className="turn-tag" style={{ background: colors[ME], boxShadow: `0 0 18px ${colors[ME]}` }}>Tu turno</span>}
+          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''}`} style={{ background: colors[ME], color: ink(colors[ME]) }}>{me.name}<i>{shown(ME)}</i></span>
+          {s.turn === ME && !dealing && ph.t !== 'over' && <span className="turn-tag" style={{ background: colors[ME], color: ink(colors[ME]), boxShadow: `0 0 18px ${colors[ME]}` }}>Tu turno</span>}
           {nextUp === ME && s.turn !== ME && !dealing && <span className="next-tag" style={{ borderColor: colors[ME] }}>Te toca después</span>}
           {!dealing && me.hand.length === 1 && ph.t !== 'over' && <span className="last-tag">¡Última carta!</span>}
           {isHost && <button className="foul" title="Anfitrión: señalarte una falta (robas 3)" onClick={() => send({ type: 'penalize', target: ME })}>+3</button>}
@@ -1322,33 +1381,34 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         <div className="cards-row" data-anchor={`p${ME}`}>
           {sortedHand.map((c, i) => {
             // Carta que aún viene de camino: ya ocupa su hueco en la mano, pero no se ve hasta que aterriza.
-            const coming = facedown ? i >= dealt[ME] : hidden.includes(c.id);
+            // En el reparto: la Maldición (a la derecha) llega primero; las demás, de izquierda a derecha.
+            const coming = facedown ? (c.kind === 'maldicion' ? dealt[ME] < 1 : i >= dealt[ME] - 1) : hidden.includes(c.id);
             const act = coming ? null : cardAction(c);
             const drawn = ph.t === 'turn' && ph.drawn === c.id;
             return (
               <div
                 key={c.id}
                 data-card={c.id}
-                className={`hc ${act ? 'playable' : ''} ${sel.includes(c.id) || myShown.includes(c.id) ? 'picked' : ''} ${myShown.includes(c.id) ? 'shown' : ''} ${intro === 'out' || intro === 'in' ? `flip-${intro}` : turning[c.id] ? `flip-${turning[c.id]}` : ''} ${coming ? 'incoming' : ''}`}
+                className={`hc ${act ? 'playable' : ''} ${sel.includes(c.id) || myShown.includes(c.id) ? 'picked' : ''} ${myShown.includes(c.id) ? 'shown' : ''} ${intro === 'out' || intro === 'in' ? `flip-${intro}` : hideFlip ? `flip-${hideFlip}` : turning[c.id] ? `flip-${turning[c.id]}` : ''} ${coming ? 'incoming' : ''} ${act?.label === 'Usar en Tinieblas' ? 'blind-use' : ''}`}
                 style={{ marginLeft: i === 0 ? 0 : `calc(var(--card-w) * ${step - 1})`, transform: `rotate(${(i - mid) * Math.min(4, 30 / Math.max(n, 1))}deg) translateY(${Math.abs(i - mid) ** 1.7 * 1.6}px)`, zIndex: i }}
                 onClick={act?.run}
               >
-                <CardView card={c} back={(blind && !peeking) || (facedown && c.kind !== 'maldicion') || turning[c.id] === 'out'} className={`${act ? '' : 'dim'} ${drawn ? 'drawn' : ''}`} badge={act?.label} onBadge={act?.alt} onInfo={setHelp} onHover={hoverHelp} />
+                <CardView card={c} back={(blind && !peeking && hideFlip !== 'out') || (facedown && c.kind !== 'maldicion') || turning[c.id] === 'out'} className={`${act ? '' : 'dim'} ${drawn ? 'drawn' : ''}`} badge={act?.label} onBadge={act?.alt} onInfo={setHelp} onHover={hoverHelp} />
               </div>
             );
           })}
+          {/* Travesura: las cartas que ya he elegido dar siguen a la vista, levantadas y marcadas, hasta que se reparten. */}
+          {ph.t === 'give' && ph.eff.given.filter((g) => g.from === ME).map((g, j) => (
+            <div key={`give${g.card.id}`} className="hc given" style={{ marginLeft: n + j === 0 ? 0 : `calc(var(--card-w) * ${step - 1})`, zIndex: n + j }}>
+              <CardView card={g.card} back={blind} badge={`Para ${name(ph.target)}`} onHover={hoverHelp} />
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Anuncio de la carta jugada: quién, qué carta y qué hace, bajo la carta que se presenta en grande sobre la Pila. */}
       {/* Si me toca elegir color, el selector ocupa el sitio del cartel de la jugada (no se pisan). */}
-      {callout && !tinte && !finale && (
-        <div key={`call${callout.key}`} className={`callout c-${callout.tone}`} style={{ '--cc': colors[callout.player] } as React.CSSProperties}>
-          <small><i style={{ background: colors[callout.player] }} />{names[callout.player]} {callout.verb}</small>
-          <strong>{callout.cards.map((c, i) => <span key={c.id}>{i > 0 && <em>+</em>}<Icon kind={c.kind} size={24} />{cardName(c)}</span>)}</strong>
-          <span>{callout.text}</span>
-        </div>
-      )}
+
       {slapSpot && ph.t === 'aplastar' && (
         <button
           key={`diana${ph.win}`}
@@ -1356,13 +1416,33 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
           style={{ left: `${slapSpot.x}%`, top: `${slapSpot.y}%` }}
           disabled={!slapping}
           onPointerDown={slapping ? () => send({ type: 'slap', player: ME }) : undefined}
-          aria-label="Diana de Aplastar: púlsala"
+          aria-label="Aplastar: púlsalo antes que nadie"
         >
-          <i /><b>✋</b>
+          <img src={asset('icons/aplastar.webp')} alt="" draggable={false} />
         </button>
       )}
       {ph.t === 'adivinar' && ph.player !== ME && <AdivinarFx key={`adiv${ph.player}`} actor={ph.player} name={name(ph.player)} n={ph.cards.length} />}
       {countText && <div key={countText} className="count-big" aria-live="assertive">{countText}</div>}
+      {/* Quién actúa sobre quién: flechas desde que empieza el efecto hasta que acaba (una por cada lanzador). */}
+      {!dealing && !finale && (() => {
+        let pairs: [number, number][] = [];
+        const to = (from: number, ts: number[]) => ts.forEach((t) => pairs.push([from, t]));
+        if (ph.t === 'react' || ph.t === 'give') {
+          const e = ph.eff;
+          if (e.k === 'trav') {
+            // Travesuras encadenadas o duplicadas: cada uno de los que dan carta, hacia quien la recibe.
+            const t = ph.t === 'give' ? ph.target : e.targets[0];
+            [...new Set(e.launchers)].forEach((l) => to(l, [t]));
+          // Quien ya se ha protegido (Égida, Gema contra Cristalizar…) deja de estar en el punto de mira.
+          } else to(e.source, ph.t === 'react' ? e.targets.filter((t) => !ph.exempt.includes(t)) : e.targets);
+        } else if (ph.t === 'codicia') to(ph.launcher, [ph.target]);
+        else if (ph.t === 'imanPick') to(ph.source, ph.targets);
+        else if (ph.t === 'iman') to(ph.launcher, s.players.filter((x) => x.id !== ph.launcher && !x.out).map((x) => x.id));
+        else if (ph.t === 'escarcha') to(ph.player, ph.targets);
+        pairs = pairs.filter(([f, t]) => f !== t && !s.players[t]?.out);
+        if (!pairs.length) return null;
+        return <ActionArrows pairs={pairs} colors={colors} />;
+      })()}
       {/* Turno de otro jugador: se ilumina el borde de la pantalla por su lado. */}
       {!dealing && ph.t !== 'over' && s.turn !== ME && (() => {
         const i = rivals.findIndex((p) => p.id === s.turn);
@@ -1385,7 +1465,11 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       )}
 
       <HelpDock kind={helpKind} art={helpArt} ping={helpPing} setKind={setHelpKind} beta={!!cfg.beta} />
-      <div className="edge"><Countdown timer={timer} /></div>
+      {/* Barra del borde inferior: el tiempo para memorizar en Tinieblas o, si no, mi reloj de decisión. */}
+      <div className={`edge ${peekTimer ? 'peek' : ''}`}><Countdown timer={peekTimer ?? timer} /></div>
+      {blind && !peeking && !dealing && ph.t !== 'over' && (
+        <div className="blind-hint" role="note">🌑 Tinieblas: puedes usar una carta en cualquier momento; si fallas, robas 1.</div>
+      )}
 
       {net && remote.status !== 'open' && <div className="net-banner" role="status">Reconectando…</div>}
       {net && rv && rv.waiting.length > 0 && ph.t !== 'over' && <WaitBox rv={rv} recvAt={remote.recvAt} isHost={isHost} decide={(p, how) => net.send({ t: 'drop', p, how })} />}
@@ -1400,7 +1484,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
                 <h2>Pausa</h2>
                 <p>{net ? 'Es una partida online: aunque tengas este menú abierto, la partida sigue.' : 'La partida está detenida: nadie juega y los tiempos no corren.'}</p>
                 <button className="primary" onClick={() => setPause(null)}>Continuar</button>
-                <button onClick={toggleFullscreen}>Pantalla completa</button>
+                <button className="fs-only" onClick={toggleFullscreen}>Pantalla completa</button>
                 <button onClick={() => { setPause(null); setComp(true); }}>Compendio</button>
                 {(!net || isHost) && (
                   <label className="check pause-check">
@@ -1462,12 +1546,12 @@ function EnvFx({ steps, before, onDone }: { steps: EnvStep[]; before: EnvState; 
     const tri = document.querySelector('.tri')?.getBoundingClientRect();
     const pile = anchorRect('pile');
     if (!el || !tri || !pile) { done.current(); return; }
-    const s = Math.max(1.4, Math.min(2.8, (window.innerHeight * 0.4) / tri.height, (window.innerWidth * 0.8) / tri.width));
-    // Centrada sobre la Pila, pero siempre entera dentro de la pantalla (con sitio para el texto debajo).
-    const hw = (tri.width * s) / 2, hh = (tri.height * s) / 2;
-    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-    const cx = clamp(pile.left + pile.width / 2, hw + 12, window.innerWidth - hw - 12);
-    const cy = clamp(pile.top + pile.height / 2, hh + 12, window.innerHeight - hh - 80);
+    // Crece en su sitio (no viaja al centro), lo justo para que se vea bien y siga entera en la pantalla.
+    const hw0 = tri.width / 2, hh0 = tri.height / 2;
+    const tcx = tri.left + hw0, tcy = tri.top + hh0;
+    const room = Math.min(tcx, window.innerWidth - tcx, tcy, window.innerHeight - tcy - 70);
+    const s = Math.max(1.2, Math.min(1.9, (room - 12) / Math.max(hw0, hh0)));
+    const cx = tcx, cy = tcy;
     Object.assign(el.style, { left: `${tri.left}px`, top: `${tri.top}px`, width: `${tri.width}px`, height: `${tri.height}px` });
     el.style.setProperty('--dx', `${cx - (tri.left + tri.width / 2)}px`);
     el.style.setProperty('--dy', `${cy - (tri.top + tri.height / 2)}px`);
@@ -1506,6 +1590,86 @@ function EnvFx({ steps, before, onDone }: { steps: EnvStep[]; before: EnvState; 
         </div>
       )}
     </>
+  );
+}
+
+// ───────────────────────── flechas de acción ─────────────────────────
+
+/**
+ * Flechas curvas del color de quien actúa, desde su sitio hasta cada jugador al que afecta su carta (`pairs`: [de, a]).
+ * Se curvan hacia el centro de la mesa; si van de un lado al otro, por arriba.
+ */
+function ActionArrows({ pairs, colors }: { pairs: [number, number][]; colors: string[] }) {
+  const [paths, setPaths] = useState<{ d: string; color: string }[]>([]);
+  const sig = pairs.map((p) => p.join('>')).join(',');
+  useLayoutEffect(() => {
+    const place = () => {
+      const pile = anchorRect('pile');
+      // Todo dentro de la pantalla (los abanicos de los lados se salen un poco por el borde).
+      const W = window.innerWidth, H = window.innerHeight, M = 36;
+      const fit = (x: number, y: number) => ({ x: Math.max(M, Math.min(W - M, x)), y: Math.max(M, Math.min(H - M, y)) });
+      const pt = (p: number) => {
+        const r = anchorRect(p);
+        if (!r) return null;
+        // Mi sitio es la fila de mi mano: la flecha sale o llega a su borde de arriba.
+        return p === ME ? fit(r.left + r.width / 2, r.top + 10) : fit(r.left + r.width / 2, r.top + r.height / 2);
+      };
+      if (!pile) return setPaths([]);
+      const cx = pile.left + pile.width / 2, cy = pile.top + pile.height / 2;
+      setPaths(pairs.map(([f, t]) => {
+        const a = pt(f), b = pt(t);
+        if (!a || !b) return null;
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy);
+        let qx: number, qy: number;
+        if (Math.abs(dx) > Math.abs(dy) * 1.5) {
+          // De un lado al otro: arco por encima de la mesa.
+          qx = mx;
+          qy = my - Math.max(140, dist * 0.42);
+          // Que el punto más alto del arco quede dentro de la pantalla (a unos 40 px del borde de arriba).
+          qy = Math.max(qy, 80 - (a.y + b.y) / 2);
+        } else {
+          // Hacia el centro de la mesa, con una curva mínima para que nunca vaya recta.
+          qx = mx + (cx - mx) * 0.55;
+          qy = my + (cy - my) * 0.55;
+          const off = Math.hypot(qx - mx, qy - my);
+          if (off < dist * 0.22) {
+            const nx = -dy / dist, ny = dx / dist;
+            qx = mx + nx * dist * 0.22;
+            qy = my + ny * dist * 0.22;
+          }
+        }
+        ({ x: qx, y: qy } = fit(qx, qy));
+        // Empieza y acaba un poco antes de los jugadores, para no taparlos.
+        const k = 0.88;
+        const sx = qx + (a.x - qx) * k, sy = qy + (a.y - qy) * k;
+        const ex = qx + (b.x - qx) * k, ey = qy + (b.y - qy) * k;
+        return { d: `M ${sx} ${sy} Q ${qx} ${qy} ${ex} ${ey}`, color: colors[f] };
+      }).filter((x): x is { d: string; color: string } => !!x));
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+  if (!paths.length) return null;
+  return (
+    <svg className="action-arrows" aria-hidden="true">
+      <defs>
+        {paths.map((p, i) => (
+          <marker key={i} id={`aa-head-${i}`} viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={p.color} stroke="#0a0e10" strokeWidth="1" />
+          </marker>
+        ))}
+      </defs>
+      {paths.map((p, i) => (
+        <g key={i}>
+          <path d={p.d} className="aa-shadow" />
+          <path d={p.d} className="aa-line" stroke={p.color} markerEnd={`url(#aa-head-${i})`} />
+        </g>
+      ))}
+    </svg>
   );
 }
 

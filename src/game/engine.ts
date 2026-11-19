@@ -20,7 +20,8 @@ export interface Player {
 }
 
 export type Effect =
-  | { k: 'draw'; source: number; targets: number[]; amount: number; aplastar: boolean }
+  /** `queue`: lanzadores de los Aplastar duplicados que aún esperan su propia ronda de diana. */
+  | { k: 'draw'; source: number; targets: number[]; amount: number; aplastar: boolean; queue?: number[] }
   /**
    * Travesura / Trastada (encadenadas o duplicadas). `launchers` tiene una entrada por cada carta que hay que dar
    * (una Trastada aporta dos). Las cartas no se apartan al lanzar: se eligen al final, cuando ya se sabe quién la recibe.
@@ -63,10 +64,12 @@ export interface Rafaga {
 }
 
 export type Phase =
-  | { t: 'turn'; drawn: string | null }
+  /** `dupd`: el jugador del turno ya ha duplicado; puede seguir jugando o terminar su turno sin robar. */
+  | { t: 'turn'; drawn: string | null; dupd?: boolean }
   | { t: 'choose'; player: number; need: 'target' | 'card' | 'gem'; options: (string | number)[]; pp: PendingPlay }
   | { t: 'react'; eff: Effect; waiting: number[]; exempt: number[]; win: number }
-  | { t: 'aplastar'; launcher: number; amount: number; players: number[]; slapped: number[]; win: number }
+  /** `queue`: cada Aplastar duplicado es otra ronda completa, que se juega cuando acaba esta (lanzada por quien duplicó). */
+  | { t: 'aplastar'; launcher: number; amount: number; players: number[]; slapped: number[]; win: number; queue?: number[] }
   | { t: 'give'; eff: TravEff; waiting: number[]; need: Record<number, number>; target: number }
   | { t: 'escarcha'; player: number; targets: number[] }
   | { t: 'rafaga' }
@@ -139,6 +142,8 @@ export type Action =
   | { type: 'penalize'; target: number }
   /** Solo el servidor: quita a un jugador de la partida (sus cartas van al fondo de la Pila). */
   | { type: 'kick'; target: number }
+  /** Tinieblas: usar una carta boca abajo en cualquier momento, probando suerte (si no sirve, se roba 1). */
+  | { type: 'guess'; player: number; cardId: string }
   | { type: 'timeout' };
 
 export interface GameOptions {
@@ -313,8 +318,9 @@ export function canPlay(s: GameState, p: number, c: Card): boolean {
   return isLegal(s, p, c);
 }
 
-export function canDup(s: GameState, p: number, c: Card): boolean {
-  if (isBlind(s)) return false;
+/** `blindOk`: en Tinieblas solo se puede duplicar probando suerte a ciegas (acción `guess`). */
+export function canDup(s: GameState, p: number, c: Card, blindOk = false): boolean {
+  if (isBlind(s) && !blindOk) return false;
   const t = s.phase.t;
   if (t === 'over') return false;
   // Quien tiene una decisión a medias (elegir objetivo, entregar carta...) la termina antes de duplicar.
@@ -325,6 +331,15 @@ export function canDup(s: GameState, p: number, c: Card): boolean {
   const attr = KINDS[c.kind].attr;
   if (attr === 'defensa' || attr === 'sagrada' || attr === 'maldita' || KINDS[c.kind].rank >= 4) return false;
   if (c.kind === 'predestinar' || c.kind === 'cristalizar') return false;
+  // Un Ataque solo se duplica mientras su efecto sigue en marcha (multiplicándolo). Una vez resuelto, ya no:
+  // otro igual que se eche después es una jugada nueva, no una duplicación.
+  if (attr === 'ataque') {
+    const ph = s.phase;
+    const live = (ph.t === 'aplastar' && c.kind === 'aplastar')
+      || (ph.t === 'react' && ph.eff.k === 'draw' && ph.eff.aplastar && c.kind === 'aplastar')
+      || (ph.t === 'react' && ph.eff.k === 'trav' && !ph.eff.noChain && c.kind === 'travesura');
+    if (!live) return false;
+  }
   if (s.phase.t === 'react' && s.phase.eff.k === 'trav' && s.phase.eff.targets.includes(p)) return false;
   return true;
 }
@@ -469,7 +484,8 @@ function beginTurn(s: GameState, p: number) {
 function finish(s: GameState) {
   s.undo = null;
   // Comprobación estable: alguien se ha quedado sin cartas.
-  // La retención del Imán solo dura mientras su lanzador reparte: al acabar, quien se ha quedado sin cartas gana.
+  // Imán: mientras su lanzador reparte, a quien se lo han quitado todo le quedan las cartas retenidas y no gana.
+  // Cuando acaba el reparto (aquí), si no le han devuelto ninguna, se ha quedado sin cartas y gana.
   for (const pl of s.players) pl.held = false;
   for (let i = 0; i < s.players.length; i++) {
     const p = (s.turn + i) % s.players.length;
@@ -601,11 +617,8 @@ function runEffect(s: GameState, pp: PendingPlay) {
       s.phase = { t: 'gemas', waiting, win: ++s.win, chosen: {} };
       return;
     }
-    case 'aplastar': {
-      dropFaceUpEgidas(s);
-      s.phase = { t: 'aplastar', launcher: L, amount: 3, players: others, slapped: [], win: ++s.win };
-      return;
-    }
+    case 'aplastar':
+      return startAplastar(s, L);
     case 'cristalizar':
       return openReact(s, { k: 'cristal', source: L, targets: pred ? [T!] : others, tone: e.tone! });
     case 'travesura':
@@ -705,6 +718,8 @@ function resolve(s: GameState, eff: Effect, exempt: number[]) {
         drawCards(s, t, n);
         log(s, `${nm(s, t)} roba ${n}.`);
       }
+      // Quedan Aplastar duplicados: empieza la siguiente ronda de diana.
+      if (eff.k === 'draw' && eff.queue?.length) return startAplastar(s, eff.queue[0], eff.queue.slice(1));
       return finish(s);
     }
     case 'trav': {
@@ -937,9 +952,9 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       return true;
     case 'egida': {
       if (pl.egida) {
+        // Segundo uso: la Égida se gasta y queda encima de la Pila (a la vista). Es incolora: su dueño elige color.
         s.undo?.spent.push({ p, card: pl.egida, from: 'up' });
-        s.pile.unshift(pl.egida);
-        fx(s, p, 'pile', 1, pl.egida);
+        putOnPile(s, p, pl.egida);
         pl.egida = null;
         log(s, `${nm(s, p)} se protege con su Égida (último uso).`);
       } else {
@@ -988,6 +1003,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       resetEnv(s);
       dropFaceUpEgidas(s);
       if (eff.k === 'cristal') eff.held = []; // las Gemas enseñadas se quedan en su mano
+      if (eff.k === 'draw') eff.queue = []; // Antitodo anula también las rondas de Aplastar pendientes
       log(s, `${nm(s, p)} usa Antitodo: el efecto queda anulado para todos.`);
       announce(s, p, '¡Antitodo!');
       if (lastCard(s, p)) return true;
@@ -1046,7 +1062,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       if (lastCard(s, p)) return true;
       const everyone = inGame(s).filter((x) => x.id !== p).map((x) => x.id);
       let ne: Effect;
-      if (eff.k === 'draw') ne = { k: 'draw', source: p, targets: [a.target!], amount: eff.amount, aplastar: false };
+      if (eff.k === 'draw') ne = { k: 'draw', source: p, targets: [a.target!], amount: eff.amount, aplastar: false, queue: eff.queue };
       else if (eff.k === 'trav') {
         // Solo se refleja la última carta de la cadena; lo acumulado antes se pierde.
         const big = eff.last === 'trastada';
@@ -1066,24 +1082,28 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
 
 // ───────────────────────── duplicar ─────────────────────────
 
-function handleDup(s: GameState, p: number, cardId: string): boolean {
+function handleDup(s: GameState, p: number, cardId: string, blindOk = false): boolean {
   const c = s.players[p].hand.find((x) => x.id === cardId);
-  if (!c || !canDup(s, p, c)) return false;
+  if (!c || !canDup(s, p, c, blindOk)) return false;
   takeFromHand(s, p, c.id);
   putOnPile(s, p, c);
   log(s, `${nm(s, p)} duplica ${cardName(c)}.`);
   announce(s, p, '¡Duplicar!');
   if (lastCard(s, p)) return true;
   const ph = s.phase;
+  // Duplicar en mi propio turno no lo termina: puedo echar otra carta o acabar el turno.
+  if (ph.t === 'turn' && s.turn === p) ph.dupd = true;
   const attr = KINDS[c.kind].attr;
   const inutil = s.env.inutilizar && c.color !== null;
   if (attr === 'entorno') toggleEnv(s, c, p);
   else if (attr === 'ataque' && !inutil) {
     if (ph.t === 'aplastar' && c.kind === 'aplastar') {
-      ph.amount += 3;
-      log(s, `Aplastar se multiplica: el último robará ${ph.amount}.`);
+      // Cada Aplastar es una ronda de diana: el duplicado se juega después de esta.
+      (ph.queue ??= []).push(p);
+      log(s, `Aplastar duplicado: después habrá otra ronda de Aplastar de ${nm(s, p)}.`);
     } else if (ph.t === 'react' && ph.eff.k === 'draw' && ph.eff.aplastar && c.kind === 'aplastar') {
-      ph.eff.amount += 3;
+      (ph.eff.queue ??= []).push(p);
+      log(s, `Aplastar duplicado: después habrá otra ronda de Aplastar de ${nm(s, p)}.`);
     } else if (ph.t === 'react' && ph.eff.k === 'trav' && !ph.eff.noChain && c.kind === 'travesura') {
       // Quien duplica también dará una carta suya al final.
       ph.eff.launchers.push(p);
@@ -1157,7 +1177,8 @@ function step(s: GameState, a: Action): boolean {
       return true;
     }
     case 'keep':
-      if (ph.t !== 'turn' || s.turn !== a.player || !ph.drawn) return false;
+      // Quedarse la carta robada, o terminar el turno tras haber duplicado.
+      if (ph.t !== 'turn' || s.turn !== a.player || !(ph.drawn || ph.dupd)) return false;
       finish(s);
       return true;
     case 'choose': {
@@ -1179,11 +1200,14 @@ function step(s: GameState, a: Action): boolean {
           s.stats.played[a.player]++;
           fx(s, a.player, 'pile', 1, c);
         }
+        // Era su última carta: gana ya, sin que se aplique el efecto.
+        if (lastCard(s, a.player)) return true;
       } else {
         const c = takeFromHand(s, a.player, a.value as string)!;
         s.pile.unshift(c);
         fx(s, a.player, 'pile', 1, c);
         log(s, `${nm(s, a.player)} descarta ${cardName(c)} debajo de su carta de Apoyo.`);
+        if (lastCard(s, a.player)) return true;
       }
       continuePlay(s, pp);
       return true;
@@ -1213,6 +1237,44 @@ function step(s: GameState, a: Action): boolean {
     }
     case 'react':
       return handleReact(s, a);
+    case 'guess': {
+      // Tinieblas: nadie ve su mano, pero cualquiera puede intentar usar una carta en cualquier momento.
+      if (!isBlind(s)) return false;
+      const p = a.player;
+      const pl = s.players[p];
+      const c = pl?.hand.find((x) => x.id === a.cardId);
+      if (!c || pl.out) return false;
+      // En mi turno: es la jugada a ciegas de siempre (si no se puede encadenar, roba 1 y pierde el turno).
+      if (ph.t === 'turn' && s.turn === p) return step(s, { type: 'play', player: p, cardId: c.id });
+      // En una ventana de reacción en la que me toca: defensa a ciegas (Égida, Reflejo, Antitodo, encadenar…).
+      if (ph.t === 'react' && ph.waiting.includes(p)) return handleReact(s, { type: 'react', player: p, r: 'blind', cardId: c.id });
+      // Igual que la de arriba de la Pila: se duplica.
+      if (canDup(s, p, c, true)) {
+        log(s, `${nm(s, p)} acierta a ciegas: duplica ${cardName(c)}.`);
+        return handleDup(s, p, c.id, true);
+      }
+      // Un Antitodo sirve siempre: fuera de turno reinicia los Entornos; en una ventana, la anula.
+      if (c.kind === 'antitodo') {
+        if (ph.t === 'react') {
+          ph.waiting.push(p);
+          return handleReact(s, { type: 'react', player: p, r: 'antitodo' }, true);
+        }
+        if (ph.t === 'turn') {
+          takeFromHand(s, p, c.id);
+          putOnPile(s, p, c);
+          resetEnv(s);
+          dropFaceUpEgidas(s);
+          log(s, `${nm(s, p)} acierta a ciegas con Antitodo: se reinician los Entornos.`);
+          announce(s, p, '¡Antitodo!');
+          if (!tryWin(s, p)) settleTinte(s);
+          return true;
+        }
+      }
+      // No sirve ahora: roba 1 aunque no sea su turno.
+      log(s, `${nm(s, p)} prueba suerte a ciegas con ${cardName(c)}: no se puede usar ahora. Roba 1.`);
+      drawCards(s, p, 1);
+      return true;
+    }
     case 'slap': {
       if (ph.t !== 'aplastar' || !ph.players.includes(a.player) || ph.slapped.includes(a.player)) return false;
       ph.slapped.push(a.player);
@@ -1515,5 +1577,11 @@ function endAplastar(s: GameState) {
   const slow = ph.players.filter((p) => !ph.slapped.includes(p));
   const loser = slow.length ? slow[Math.floor(rnd(s) * slow.length)] : ph.slapped[ph.slapped.length - 1];
   log(s, `${nm(s, loser)} es el último en poner la mano.`);
-  openReact(s, { k: 'draw', source: ph.launcher, targets: [loser], amount: ph.amount, aplastar: true });
+  openReact(s, { k: 'draw', source: ph.launcher, targets: [loser], amount: ph.amount, aplastar: true, queue: ph.queue });
+}
+
+/** Una ronda de Aplastar: todos menos su lanzador ponen la mano; el último roba 3. Descarta las Égidas boca arriba. */
+function startAplastar(s: GameState, L: number, queue: number[] = []) {
+  dropFaceUpEgidas(s);
+  s.phase = { t: 'aplastar', launcher: L, amount: 3, players: inGame(s).filter((p) => p.id !== L).map((p) => p.id), slapped: [], win: ++s.win, queue };
 }

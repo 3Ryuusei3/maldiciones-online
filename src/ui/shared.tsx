@@ -10,7 +10,15 @@ export function toggleFullscreen() {
 
 /** Color de cada jugador (asiento): se usa en su placa y en el registro. */
 /** Colores de jugador (los botones y avisos ya usan el color de cada jugador, así que el amarillo vuelve a estar libre). */
-export const PCOL = ['#ffd23f', '#2ee6c5', '#ff8fb1', '#6fd3ff', '#ff9a3d', '#b5ff7d', '#d7a6ff', '#ff6b6b', '#8c8cff'];
+// Tonos medios y saturados, en la línea de los colores de las cartas (nada pastel), para que se distingan sobre la mesa.
+export const PCOL = ['#f2b200', '#10a89a', '#e2457f', '#2f7fe6', '#ee7417', '#6aa812', '#8f55e0', '#cf3b3b', '#4b5bc4'];
+
+/** Color de texto legible sobre un color de jugador: negro sobre los claros, blanco sobre los oscuros. */
+export function ink(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#0a0e10' : '#fff';
+}
 
 export const CATS: Attr[] = ['gema', 'ataque', 'defensa', 'magia', 'apoyo', 'entorno', 'sagrada', 'maldita'];
 export const kindsOf = (a: Attr) => (Object.keys(KINDS) as Kind[]).filter((k) => KINDS[k].attr === a);

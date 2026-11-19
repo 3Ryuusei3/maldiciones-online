@@ -1293,3 +1293,130 @@ input[type='checkbox']:focus-visible { outline: 2px solid var(--gold); outline-o
 /* Las gemas para elegir color y la diana, por encima de todo lo que flota en la mesa. */
 .gem-under { z-index: 89; }
 .tri:has(.gem-under) { z-index: 89; position: relative; }
+
+/* ═════════ Colores de jugador legibles, turno visible con cualquier color, Tinieblas en tonos oscuros, móvil ═════════ */
+
+/* Texto blanco o negro según el color del jugador. */
+.game button.primary, .banner button.primary, .turn-sign.mine, .banner .btag.turn { color: var(--me-ink, #0a0e10); }
+
+/* El turno se ve aunque el color del jugador se parezca al del fondo: anillo blanco y oscuro alrededor. */
+.turn-sign.mine { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #0a0e10; }
+.pill.on { box-shadow: 0 0 0 3px #fff, 0 0 0 5px #0a0e10, 0 6px 16px rgba(0, 0, 0, 0.35); }
+@keyframes pill-glow { from { box-shadow: 0 0 0 3px #fff, 0 0 0 5px #0a0e10, 0 0 10px var(--pc); } to { box-shadow: 0 0 0 3px #fff, 0 0 0 5px #0a0e10, 0 0 30px var(--pc); } }
+.turn-tag { box-shadow: 0 0 0 2px #fff !important; }
+.hc.playable .card img { box-shadow: 0 0 0 2px #0a0e10, 0 0 0 5px var(--me), 0 0 18px var(--me); }
+
+/* Tinieblas: sin velo negro encima; el fondo y el círculo pasan a tonos oscuros del color en juego. */
+.game.dark .shade { background: transparent; }
+.game.dark.col-a { --bg1: #8d6b26; --bg2: #2e2108; --d1: #b58a32; --d2: #87661f; }
+.game.dark.col-m { --bg1: #5b3f7c; --bg2: #1d0f2e; --d1: #74559a; --d2: #523676; }
+.game.dark.col-v { --bg1: #3b7553; --bg2: #0f2a19; --d1: #4f8e66; --d2: #346e4b; }
+.game.dark .disc { box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.06), 0 12px 30px rgba(0, 0, 0, 0.35); }
+.game.dark .rays { background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(255, 255, 255, 0.05) 0deg 9deg, transparent 9deg 18deg); }
+
+/* En móvil no hay pantalla completa (muchos navegadores no la permiten). */
+@media (pointer: coarse), (max-width: 760px) { .fs-btn, .fs-only { display: none !important; } }
+.mini-log .lp, .banner .msg .lp { filter: none; text-shadow: none; }
+
+/* ═════════ Égida en el abanico, cartas de bandeja sin esquinas cortadas y carteles que no se pisan ═════════ */
+
+/* Égida boca arriba al final del abanico del rival (como una carta más, pero de cara). */
+.fanbox img.fan-egida { border-color: #7dffb8; box-shadow: 0 0 12px #7dffb8; z-index: 2; }
+.fanbox img.fan-egida.air { visibility: hidden; }
+
+/* Cartas de las bandejas (Imán, Adivinar, Recuperar, Ráfaga, Escarcha) y las enseñadas: con su filo blanco,
+   como en la mano, para que no se corten las esquinas de las cartas oscuras (Maldición). */
+.tray .card img, .esc-row .card img, .seat-reveal img { border: 2px solid #fff; box-sizing: border-box; }
+
+/* Cada cartel en su sitio, sin solaparse: el de la carta jugada por encima de la zona de avisos,
+   y el de memorizar en Tinieblas arriba, sobre la mesa. */
+.callout { bottom: calc(var(--card-w) * 1.22 + 26px + 190px); }
+.peek-banner { bottom: auto; top: 14%; }
+.tray { bottom: calc(var(--card-w) * 1.22 + 26px + 190px); }
+
+/* ═════════ Ficha de Aplastar y cartel con el título en una fila ═════════ */
+/* Aplastar: ficha redonda con el dibujo de la Embestida (en vez de una diana), algo más grande. */
+.diana { width: 150px; height: 150px; margin: -75px 0 0 -75px; background: radial-gradient(circle at 50% 38%, #fff 0%, #f1eef6 60%, #d9d4e4 100%); box-shadow: 0 0 0 6px var(--danger), 0 0 0 10px #0a0e10, 0 0 46px var(--danger), 0 12px 24px rgba(0, 0, 0, 0.4); }
+.diana img { width: 64%; height: 64%; object-fit: contain; pointer-events: none; }
+.diana b, .diana i { display: none; }
+.diana.done { opacity: 0.5; }
+
+/* Cartel de la carta jugada: si hay sitio, el título (p. ej. «Antitodo + Maldición») va en una sola fila. */
+.callout { max-width: min(94vw, 760px); }
+.callout strong { flex-wrap: nowrap; white-space: nowrap; }
+@media (max-width: 620px) { .callout strong { flex-wrap: wrap; white-space: normal; } }
+
+/* Tinieblas: el círculo con el color en juego (algo más oscuro) y el fondo del mismo color, más oscuro,
+   para que se siga sabiendo de un vistazo qué color manda. */
+.game.dark.col-a { --d1: #e8b64c; --d2: #c0902c; --bg1: #a8822f; --bg2: #3a2a0a; }
+.game.dark.col-m { --d1: #9a72bd; --d2: #74509c; --bg1: #6c4b90; --bg2: #241333; }
+.game.dark.col-v { --d1: #6cbb89; --d2: #469664; --bg1: #4a8a63; --bg2: #12301e; }
+.game.dark .disc { box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.12), 0 0 40px color-mix(in srgb, var(--d1) 45%, transparent), 0 12px 30px rgba(0, 0, 0, 0.35); }
+
+/* ═════════ Tinieblas y Entorno maldito: siempre el color en juego, en su tono oscuro ═════════ */
+/* (El Entorno maldito pintaba todo de gris: ahora fondo, rayas y círculo siguen el color en juego, oscurecido.) */
+.game.dark.col-a, .game.cursed.col-a { --d1: #d9a53a; --d2: #a87b1f; --bg1: #8f6a1e; --bg2: #2c1f05; }
+.game.dark.col-m, .game.cursed.col-m { --d1: #8e63b6; --d2: #64418c; --bg1: #5c3c80; --bg2: #1c0d2b; }
+.game.dark.col-v, .game.cursed.col-v { --d1: #5fb07e; --d2: #3b8457; --bg1: #3d7a55; --bg2: #0e2818; }
+.game.cursed, .game.dark { background: radial-gradient(circle at var(--cx) var(--cy), var(--bg1) 0%, var(--bg2) 80%); }
+.game.cursed .disc, .game.dark .disc { background: radial-gradient(circle at 50% 40%, var(--d1), var(--d2)); box-shadow: 0 0 0 8px color-mix(in srgb, var(--d1) 45%, transparent), 0 0 40px color-mix(in srgb, var(--d1) 40%, transparent), 0 12px 30px rgba(0, 0, 0, 0.35); }
+.game.cursed .rays, .game.dark .rays { background: repeating-conic-gradient(from 0deg at 50% 50%, color-mix(in srgb, var(--d1) 22%, transparent) 0deg 9deg, transparent 9deg 18deg); }
+/* Entorno maldito: además, un aro rojo alrededor del círculo para que se note el peligro. */
+.game.cursed .disc { box-shadow: 0 0 0 8px color-mix(in srgb, var(--danger) 70%, transparent), 0 0 40px color-mix(in srgb, var(--d1) 40%, transparent), 0 12px 30px rgba(0, 0, 0, 0.35); }
+
+/* Resplandor del turno de otro jugador, más fuerte. */
+.turn-edge.left { width: 340px; background: radial-gradient(ellipse 100% 50% at 0% 50%, color-mix(in srgb, var(--pc) 85%, transparent) 0%, color-mix(in srgb, var(--pc) 35%, transparent) 45%, transparent 100%); }
+.turn-edge.right { width: 340px; background: radial-gradient(ellipse 100% 50% at 100% 50%, color-mix(in srgb, var(--pc) 85%, transparent) 0%, color-mix(in srgb, var(--pc) 35%, transparent) 45%, transparent 100%); }
+.turn-edge.top { height: 280px; width: 56%; background: radial-gradient(ellipse 50% 100% at 50% 0%, color-mix(in srgb, var(--pc) 85%, transparent) 0%, color-mix(in srgb, var(--pc) 35%, transparent) 45%, transparent 100%); }
+@keyframes turn-breathe { from { opacity: 0.75; } to { opacity: 1; } }
+
+/* El cartel de «Entorno maldito» más separado del contador de Tinieblas (1/3, 2/3…). */
+.game.cursed .tri::after { top: -52px; }
+.tri .tin { top: -16px; }
+
+/* Cambio de Entorno: la trifuerza crece en su sitio, sin moverse al centro. */
+.envfx.big { transform: scale(var(--s)); }
+
+/* Travesura: carta ya elegida para dar, a la espera de que elijan los demás. */
+.hc.given .card { transform: translateY(-38px); }
+.hc.given .card img { box-shadow: 0 0 0 3px #0a0e10, 0 0 0 6px var(--me), 0 0 24px var(--me); }
+.hc.given .badge { background: var(--me); color: var(--me-ink, #0a0e10); box-shadow: none; }
+
+/* Flechas de acción: del lanzador a los afectados. Aparecen cuando la carta ya se ha posado. */
+.action-arrows { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 84; pointer-events: none; overflow: visible; animation: fade-in 0.5s 1.2s both; }
+.action-arrows .aa-line { fill: none; stroke-width: 6; stroke-linecap: round; stroke-dasharray: 14 10; animation: aa-flow 0.8s linear infinite; }
+.action-arrows .aa-shadow { fill: none; stroke: rgba(10, 14, 16, 0.55); stroke-width: 10; stroke-linecap: round; }
+@keyframes aa-flow { to { stroke-dashoffset: -24; } }
+/* Las flechas salen en cuanto empieza el efecto. */
+.action-arrows { animation: fade-in 0.3s both; }
+
+/* Flechas algo más transparentes. */
+.action-arrows { opacity: 0.72; }
+
+/* Cartel de la carta jugada más compacto y algo más abajo, para que no tape el Mazo ni la Pila. */
+.callout { bottom: calc(var(--card-w) * 1.22 + 26px + 168px); padding: 10px 18px 8px; gap: 1px; max-width: min(94vw, 640px); }
+.callout small { font-size: 13px; }
+.callout strong { font-size: clamp(17px, 2.6vh, 23px); }
+.callout span { font-size: 14.5px; line-height: 1.3; }
+/* El cartel de la carta jugada va dentro de la zona de avisos, colgando por encima: nunca la pisa, y es estrecho
+   (del ancho del círculo) para no tapar el Mazo ni la trifuerza. */
+.msgzone .callout { position: absolute; left: 50%; bottom: calc(100% + 6px); max-width: min(92vw, clamp(300px, calc(var(--table-card) * 2.9), 460px)); width: max-content; }
+.msgzone .callout strong { white-space: normal; flex-wrap: wrap; }
+/* En escritorio la línea de «lo último que ha pasado» no se muestra (está en el historial): sin hueco reservado. */
+@media (min-width: 1000px) { .line1 { height: 0; } }
+.msgzone { min-height: 96px; }
+
+/* Sin la etiqueta «Color · Carta» bajo la Pila (el color ya lo da el círculo). */
+.now { display: none !important; }
+
+/* Tinieblas: aviso arriba de que se puede probar suerte con una carta, y «Usar en Tinieblas» solo al pasar el ratón. */
+.blind-hint { position: absolute; z-index: 60; top: 62px; left: 50%; transform: translateX(-50%); max-width: min(92vw, 680px); background: #1d1f24; color: #fff; font-size: 13.5px; line-height: 1.35; padding: 7px 14px; text-align: center; pointer-events: none; animation: fade-in 0.4s; }
+.hc.blind-use .badge { opacity: 0; transition: opacity 0.15s; }
+.hc.blind-use:hover .badge { opacity: 1; }
+/* La barra del borde inferior, en morado mientras se memoriza la mano en Tinieblas. */
+.edge.peek .countdown > div { background: #b98af0; }
+
+/* Cuenta atrás de Tinieblas: dentro de la zona de avisos, justo encima del «Turno de…». */
+.msgzone .peek-banner { position: static; transform: none; top: auto; bottom: auto; padding: 6px 14px; font-size: 15px; white-space: nowrap; }
+/* Aviso de Tinieblas: una línea pegada al borde de abajo, por encima de las cartas, sin impedir pulsarlas. */
+.blind-hint { top: auto; bottom: 14px; z-index: 75; white-space: nowrap; font-size: 13px; padding: 5px 12px; max-width: 94vw; overflow: hidden; text-overflow: ellipsis; background: rgba(29, 31, 36, 0.9); }
