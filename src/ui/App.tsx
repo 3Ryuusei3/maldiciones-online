@@ -82,15 +82,39 @@ function GemPicker({ onPick, size = 68 }: { onPick: (c: Color) => void; size?: n
   );
 }
 
+const hash = (id: string) => { let h = 7; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0; return Math.abs(h); };
+/** Giro con el que queda una carta arriba de la Pila (el vuelo termina ya con ese giro: sin saltos al posarse). */
+const topRot = (id: string) => (hash(id) % 9) - 4;
+/** Giro de una carta de mi mano en el abanico (para que la carta que llega vuele ya con ese giro). */
+/** Giro total en pantalla de un elemento (el suyo y el de sus contenedores, p. ej. el abanico girado de un lateral). */
+const screenRot = (el: Element | null) => {
+  let r = 0;
+  for (let e = el; e && !e.classList.contains('game'); e = e.parentElement) {
+    const t = getComputedStyle(e).transform;
+    const m = t && t !== 'none' ? t.match(/matrix\(([^,]+),\s*([^,]+)/) : null;
+    if (m) r += (Math.atan2(+m[2], +m[1]) * 180) / Math.PI;
+  }
+  return r;
+};
+/** Hueco libre `k` (0 = el primero) del abanico de un rival: dónde, a qué tamaño y con qué giro llega allí una carta. */
+const fanSlot = (p: number, k = 0, w = ghostW()) => {
+  const imgs = [...document.querySelectorAll<HTMLImageElement>(`[data-anchor="p${p}"] img:not(.fan-egida)`)];
+  const empty = imgs.filter((im) => im.style.opacity === '0');
+  const el = empty[Math.min(k, empty.length - 1)] ?? imgs[imgs.length - 1];
+  if (!el) return null;
+  return { rect: el.getBoundingClientRect(), s: el.offsetWidth / w, rot: screenRot(el) };
+};
+const elRot = (el?: HTMLElement | null) => parseFloat(el?.style.transform.match(/rotate\((-?[\d.]+)deg/)?.[1] ?? '0') || 0;
+
 /** Duración del vuelo de una carta y de su presentación en grande sobre la Pila. */
 const FLY_MS = 1060;
 const SHOW_MS = 940;
-const SETTLE_MS = 360;
+const SETTLE_MS = 520;
 /** Lo que tarda una mano en abrir hueco antes de que salga la carta que va a ocuparlo. */
 const ROOM_MS = 300;
 
 /** `flipFrom`: la carta sale con esta cara y se da la vuelta a mitad de camino (cartas jugadas a ciegas). */
-interface FlyOpt { flat?: boolean; src: string; A: DOMRect; B: DOMRect; sA: number; sB: number; delay?: number; ms?: number; show?: number; showDx?: number; showMs?: number; solid?: boolean; flipFrom?: string; onStart?: () => void; onLand?: () => void }
+interface FlyOpt { /** Giro final (grados) con el que se posa. */ rotB?: number; flat?: boolean; src: string; A: DOMRect; B: DOMRect; sA: number; sB: number; delay?: number; ms?: number; show?: number; showDx?: number; showMs?: number; solid?: boolean; flipFrom?: string; onStart?: () => void; onLand?: () => void }
 
 /**
  * Lanza una carta "fantasma" de A a B. El desplazamiento horizontal y el vertical llevan curvas Bézier distintas,
@@ -128,16 +152,17 @@ function launch(host: HTMLElement, o: FlyOpt): number {
   img.style.transition = `transform ${ms}ms cubic-bezier(0.4, 0, 0.2, 1) ${delay}ms, opacity 160ms linear ${delay}ms`;
   gx.style.transform = `translateX(${cx(o.B) + (o.show ? o.showDx ?? 0 : 0)}px)`;
   gy.style.transform = `translateY(${cy(o.B)}px)`;
-  img.style.transform = pose(o.show ?? o.sB, 0);
+  img.style.transform = pose(o.show ?? o.sB, o.show ? 0 : o.rotB ?? 0);
   img.style.opacity = '1';
   if (o.onStart) window.setTimeout(o.onStart, delay);
   let total = delay + ms;
   if (o.show) {
     window.setTimeout(() => {
-      img.style.transition = `transform ${SETTLE_MS}ms cubic-bezier(0.5, 0, 0.3, 1.3)`;
-      img.style.transform = pose(o.sB, 0);
+      // Se posa sin rebote, girando suavemente hasta su ángulo en la Pila.
+      img.style.transition = `transform ${SETTLE_MS}ms cubic-bezier(0.35, 0, 0.15, 1)`;
+      img.style.transform = pose(o.sB, o.rotB ?? 0);
       if (o.showDx) {
-        gx.style.transition = `transform ${SETTLE_MS}ms cubic-bezier(0.5, 0, 0.3, 1)`;
+        gx.style.transition = `transform ${SETTLE_MS}ms cubic-bezier(0.35, 0, 0.15, 1)`;
         gx.style.transform = `translateX(${cx(o.B)}px)`;
       }
     }, total + (o.showMs ?? SHOW_MS));
@@ -263,6 +288,8 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
     const BACK = asset('cards/back.webp');
     /** Retraso extra para lo que viene después de una carta probada a ciegas que vuelve a la mano. */
     let extra = 0;
+    /** Cartas que van ya volando a cada rival (cada una a su propio hueco del abanico). */
+    const toCount: Record<number, number> = {};
     // Imán: antes de volar, las cartas atraídas se levantan y se marcan sobre cada jugador (las tuyas, boca arriba).
     const takes = s.phase.t === 'iman' ? s.fx.filter((f) => f.card && typeof f.from === 'number' && typeof f.to === 'number') : [];
     if (takes.length) reveal(host, takes, w, isBlind(s));
@@ -296,13 +323,14 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
         const src = faceUp ? asset(cardImage(f.card!)) : BACK;
         // Jugada a ciegas (desde una mano boca abajo hacia la Pila): se da la vuelta por el camino.
         const flipFrom = blindNow && f.card && f.to === 'pile' && typeof f.from === 'number' ? BACK : undefined;
-        const go = (B2: DOMRect, sB: number, delay: number) =>
+        const go = (B2: DOMRect, sB: number, delay: number, rot?: number) =>
           launch(host, {
             // Las cartas que pasan de una mano a otra van boca abajo (salvo las mías).
             src,
             A, B: under ? new DOMRect(B2.left + side, B2.top, B2.width, B2.height) : B2,
             sA: mine ? Math.min(A.width, w * 1.4) / w : scaleAt(f.from, A, w),
             sB,
+            rotB: rot ?? (id && !under && f.card && s.pile[s.pile.length - 1]?.id === f.card.id ? topRot(f.card.id) : 0),
             delay,
             flipFrom,
             ms: slow ? FLY_MS * 2.6 : undefined,
@@ -340,8 +368,15 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
           // Mi mano ya ha hecho hueco a la carta (invisible): se espera a que termine de abrirse y la carta vuela a su sitio exacto.
           window.setTimeout(() => {
             const el = document.querySelector<HTMLElement>(`[data-card="${got}"]`);
-            go(el?.getBoundingClientRect() ?? B, el ? el.offsetWidth / w : scaleAt(f.to, B, w), 0);
+            go(el?.getBoundingClientRect() ?? B, el ? el.offsetWidth / w : scaleAt(f.to, B, w), 0, elRot(el));
           }, ROOM_MS + k * gap + extra);
+        } else if (to !== null && !under) {
+          // A un rival: cuando su abanico ya ha abierto hueco, vuela a ese hueco con su tamaño y su giro.
+          const nth = (toCount[to] = (toCount[to] ?? -1) + 1);
+          window.setTimeout(() => {
+            const fs = fanSlot(to, nth, w);
+            go(fs?.rect ?? B, fs?.s ?? scaleAt(f.to, B, w), 0, fs?.rot);
+          }, k * gap + extra + ROOM_MS);
         } else go(B, scaleAt(f.to, B, w), k * gap + extra + (to !== null ? ROOM_MS : 0));
         // Tras una carta que vuelve a la mano, lo siguiente (la carta que roba) espera a que termine.
         if (f.bounce) extra += FLY_MS + (isStar ? SHOW_MS + SETTLE_MS : 0) + 900;
@@ -485,7 +520,6 @@ function describePlay(s: GameState, from: Anchor, cards: Card[]): Callout {
 /** Color que se elige con cada triángulo de la trifuerza. */
 const TRI_COLOR: ['tinieblas' | 'mutis' | 'inutilizar', Color][] = [['tinieblas', 'a'], ['mutis', 'v'], ['inutilizar', 'm']];
 
-const hash = (id: string) => { let h = 7; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0; return Math.abs(h); };
 
 /** Dónde se sienta cada rival: borde izquierdo, arriba (con su posición horizontal) o borde derecho, en sentido horario. */
 const SEATS: Record<number, [string, number][]> = {
@@ -649,6 +683,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   // se giran las manos y por último se descubre la primera carta de la Pila.
   const endDeal = useRef<() => void>(() => {});
   const skipDeal = useRef(intro === null);
+  /** Maldiciones que quedan en el montón del centro al empezar. */
+  const [curseStack, setCurseStack] = useState(0);
   useEffect(() => {
     const host = flights.current;
     if (!host || skipDeal.current) return;
@@ -656,26 +692,26 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     const timers: number[] = [];
     let live = true;
     const at = (ms: number, fn: () => void) => timers.push(window.setTimeout(() => live && fn(), ms));
-    endDeal.current = () => { live = false; timers.forEach(clearTimeout); host.replaceChildren(); setCountText(null); setStage({ deck: true, tri: true }); setIntro(null); };
-    setIntro('count');
+    endDeal.current = () => { live = false; timers.forEach(clearTimeout); host.replaceChildren(); setCurseStack(0); setStage({ deck: true, tri: true }); setIntro(null); };
+    setIntro('setup');
     setDealt(Array(n).fill(0));
     setStage({ deck: false, tri: false });
     const order = Array.from({ length: n }, (_, i) => (n - i) % n); // antihorario, empezando por mí
-    // 1) Cuenta atrás.
-    const CD = ['3', '2', '1', '¡A JUGAR!'];
-    CD.forEach((t, i) => at(i * 800, () => setCountText(t)));
-    const S0 = CD.length * 800;
-    at(S0, () => { setCountText(null); setIntro('setup'); });
-    // 2) Cada jugador recibe su Maldición, boca arriba, uno tras otro.
-    order.forEach((p, j) => at(S0 + 250 + j * 420, () => {
+    // 1) Aparecen en el centro las Maldiciones que se van a repartir, una sobre otra.
+    setCurseStack(n);
+    const S0 = 700 + n * 90;
+    // 2) Salen del montón hacia cada jugador, boca arriba, uno tras otro.
+    order.forEach((p, j) => at(S0 + j * 420, () => {
+      setCurseStack((c) => Math.max(0, c - 1));
       const slots = document.querySelectorAll<HTMLElement>('.cards-row .hc');
       const slot = p === ME ? slots[slots.length - 1] : null;
-      const A = anchorRect('pile'), B = slot?.getBoundingClientRect() ?? anchorRect(p), w = ghostW();
+      const fs = p === ME ? null : fanSlot(p);
+      const A = anchorRect('pile'), B = slot?.getBoundingClientRect() ?? fs?.rect ?? anchorRect(p), w = ghostW();
       if (!A || !B) return setDealt((d) => d.map((x, i) => (i === p ? 1 : x)));
-      launch(host, { src: asset('cards/maldicion.webp'), A, B, sA: scaleAt('pile', A, w), sB: slot ? slot.offsetWidth / w : scaleAt(p, B, w), ms: 620, solid: true, onLand: () => live && setDealt((d) => d.map((x, i) => (i === p ? 1 : x))) });
+      launch(host, { src: asset('cards/maldicion.webp'), A, B, sA: scaleAt('pile', A, w), sB: slot ? slot.offsetWidth / w : fs?.s ?? scaleAt(p, B, w), rotB: slot ? elRot(slot) : fs?.rot ?? 0, ms: 900, solid: true, onLand: () => live && setDealt((d) => d.map((x, i) => (i === p ? 1 : x))) });
     }));
     // 3) Se coloca el Mazo y después la trifuerza.
-    const S1 = S0 + 250 + n * 420 + 500;
+    const S1 = S0 + n * 420 + 500;
     at(S1, () => setStage((v) => ({ ...v, deck: true })));
     at(S1 + 550, () => setStage({ deck: true, tri: true }));
     at(S1 + 1100, () => setIntro('deal'));
@@ -687,9 +723,10 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         if (round >= s.players[p].hand.length) continue;
         at(START + k++ * GAP, () => {
           const slot = p === ME ? document.querySelectorAll<HTMLElement>('.cards-row .hc')[round - 1] : null;
-          const A = anchorRect('deck'), B = slot?.getBoundingClientRect() ?? anchorRect(p), w = ghostW();
+          const fs = p === ME ? null : fanSlot(p);
+          const A = anchorRect('deck'), B = slot?.getBoundingClientRect() ?? fs?.rect ?? anchorRect(p), w = ghostW();
           if (!A || !B) return;
-          launch(host, { flat: true, src: asset('cards/back.webp'), A, B, sA: scaleAt('deck', A, w), sB: slot ? slot.offsetWidth / w : scaleAt(p, B, w), ms: MS, onLand: () => live && setDealt((d) => d.map((x, i) => (i === p ? x + 1 : x))) });
+          launch(host, { flat: true, src: asset('cards/back.webp'), A, B, sA: scaleAt('deck', A, w), sB: slot ? slot.offsetWidth / w : fs?.s ?? scaleAt(p, B, w), rotB: slot ? elRot(slot) : fs?.rot ?? 0, ms: MS, onLand: () => live && setDealt((d) => d.map((x, i) => (i === p ? x + 1 : x))) });
         });
       }
     const done = START + k * GAP + MS + 350;
@@ -698,7 +735,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     at(done + 800, () => {
       setIntro('pile');
       const A = anchorRect('deck'), B = anchorRect('pile'), w = ghostW();
-      if (A && B) launch(host, { src: asset(cardImage(s.pile[s.pile.length - 1])), A, B, sA: scaleAt('deck', A, w), sB: scaleAt('pile', B, w), ms: 900, show: (B.width * 1.36) / w });
+      if (A && B) launch(host, { src: asset(cardImage(s.pile[s.pile.length - 1])), A, B, sA: scaleAt('deck', A, w), sB: scaleAt('pile', B, w), rotB: topRot(s.pile[s.pile.length - 1].id), ms: 900, show: (B.width * 1.36) / w });
     });
     at(done + 800 + 900 + SHOW_MS + SETTLE_MS, () => setIntro(null));
     return () => { live = false; timers.forEach(clearTimeout); host.replaceChildren(); };
@@ -1012,7 +1049,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     const dup = canDup(s, ME, c) ? () => send({ type: 'dup', player: ME, cardId: c.id }) : undefined;
     // En mi turno, una carta igual a la de la Pila se duplica (no gasta el turno: luego puedo echar otra o terminar).
     if (dup && myTurn) return { run: dup, label: 'Duplicar' };
-    if (canPlay(s, ME, c)) return { run: () => send({ type: 'play', player: ME, cardId: c.id }), label: dup && 'Duplicar', alt: dup };
+    if (canPlay(s, ME, c)) return { run: () => send({ type: 'play', player: ME, cardId: c.id }), label: dup ? 'Duplicar' : 'Jugar', alt: dup };
     if (dup) return { run: dup, label: 'Duplicar' };
     if (c.kind === 'antitodo' && !blind && canFreeAntitodo(s, ME)) return { run: () => send({ type: 'antitodo', player: ME }), label: 'Usar' };
     return null;
@@ -1072,7 +1109,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   } else if (tinte) {
     alert = true;
     // El aviso de elegir color sale a la vez que las gemas, no antes.
-    text = pickReady && !envFx ? 'Has jugado la última carta incolora: elige el color con las gemas de debajo de la trifuerza.'
+    text = pickReady && !envFx ? 'Última carta incolora: elige color con las gemas de la trifuerza.'
       : peeking && Date.now() >= peekUntil - PEEK_VISIBLE_MS ? 'Cuando tus cartas se pongan boca abajo, eliges color.'
       : blind ? 'Caen las Tinieblas…' : 'A continuación, elige el siguiente color.';
 
@@ -1286,6 +1323,23 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     return order.map((id) => byId.get(id)!);
   }, [me.hand, blind, facedown]);
   const n = sortedHand.length;
+  /** Grupos de cartas que se pueden echar a la vez (con un botón «Jugar juntas» entre ellas). */
+  const joinGroups: { ids: string[]; run: () => void }[] = [];
+  if (!blind && !dealing && !finale) {
+    for (let i = 0; i < sortedHand.length; ) {
+      const c = sortedHand[i];
+      let j = i + 1;
+      if (!isCursed(c)) while (j < sortedHand.length && sortedHand[j].kind === c.kind && sortedHand[j].color === c.color) j++;
+      const ids = sortedHand.slice(i, j).map((x) => x.id);
+      if (ids.length > 1 && !ids.some((id) => hidden.includes(id))) {
+        if (myTurn && canPlay(s, ME, c)) joinGroups.push({ ids, run: () => send({ type: 'play', player: ME, cardId: ids[0], with: ids.slice(1) }) });
+        else if (canDup(s, ME, c)) joinGroups.push({ ids, run: () => send({ type: 'dup', player: ME, cardId: ids[0], with: ids.slice(1) }) });
+      }
+      const nx = sortedHand[j];
+      if (c.kind === 'antitodo' && nx?.kind === 'maldicion' && myTurn && canPlay(s, ME, c)) joinGroups.push({ ids: [c.id, nx.id], run: () => send({ type: 'play', player: ME, cardId: c.id, with: [nx.id] }) });
+      i = j;
+    }
+  }
   const step = Math.min(0.5, 4.6 / Math.max(n, 1)); // fracción del ancho de carta entre una carta y la siguiente
   const mid = (n - 1) / 2;
 
@@ -1295,7 +1349,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const seats = SEATS[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
-    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
+    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${dealing ? 'dealing' : ''} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
       <div className="rays" />
       <div className="shade" />
       <div className="flights" ref={flights} />
@@ -1353,12 +1407,17 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             </svg>
             <div className={`pile ${onPile ? 'hot' : ''} ${tucks.length ? 'tucking' : ''}`} data-anchor="pile" onClick={onPile ?? undefined}>
               {/* Cartas que entran por debajo: van antes en el DOM, así quedan por detrás de la carta superior. */}
+              {dealing && curseStack > 0 && Array.from({ length: curseStack }, (_, i) => (
+                <div key={`cs${i}`} className="pc curse-stack" style={{ '--i': i, transform: `rotate(${((i * 37) % 13) - 6}deg) translate(${((i * 53) % 9) - 4}px, ${-i * 2}px)` } as React.CSSProperties}>
+                  <img src={asset('cards/maldicion.webp')} alt="" />
+                </div>
+              ))}
               {tucks.map((t) => <div key={`t${t.key}`} className="pc tuck" style={{ '--sx': `${t.side}px` } as React.CSSProperties}><img src={t.src} alt="" /></div>)}
               {!dealing && s.pile.slice(-5).map((c, i, a) => {
                 const h = hash(c.id);
                 const isTop = i === a.length - 1;
                 return (
-                  <div key={c.id} className={`pc ${isTop ? 'top' : ''} ${flying.includes(c.id) ? 'air' : ''}`} style={{ transform: isTop ? `rotate(${(h % 9) - 4}deg)` : `rotate(${(h % 25) - 12}deg) translate(${((h >> 4) % 11) - 5}px, ${((h >> 8) % 9) - 4}px)` }}>
+                  <div key={c.id} className={`pc ${isTop ? 'top' : ''} ${flying.includes(c.id) ? 'air' : ''}`} style={{ transform: isTop ? `rotate(${topRot(c.id)}deg)` : `rotate(${(h % 25) - 12}deg) translate(${((h >> 4) % 11) - 5}px, ${((h >> 8) % 9) - 4}px)` }}>
                     <CardView card={c} onInfo={isTop ? setHelp : undefined} onHover={isTop ? hoverHelp : undefined} />
                   </div>
                 );
@@ -1421,16 +1480,16 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             🌑 Tinieblas: memoriza tus cartas · se ponen boca abajo en <b>{Math.ceil((peekUntil - Date.now()) / 1000)}</b>
           </div>
         )}
-        {/* Cartel de lo que me toca, encima del aviso: mi turno o algo contra mí. */}
-        {underAttack ? <div className="turn-sign attack">⚠ {attackText}</div>
-          : s.turn === ME && !dealing && ph.t !== 'over' && (myTurn || pendingPlayers(s).includes(ME)) ? <div className="turn-sign mine">Tu turno</div>
-          : actionNeeded ? <div className="turn-sign act">Te toca decidir</div> : null}
         <div className={`banner ${alert ? 'alert' : ''} ${s.turn === ME && !dealing ? 'mine' : ''} ${underAttack ? 'attack' : myTurn && !dealing ? 'myturn' : ''}`}>
           {s.announce?.n !== muted && s.announce?.player === ME && <span key={s.announce.n} className="say">{s.announce.text}</span>}
           {/* El texto va en su propio span: dentro de la caja (flex) se perderían los espacios junto a los nombres. */}
           <span className="msg"><span>{rich(text, names, colors, true)}</span></span>
           {btns}
         </div>
+        {/* Cartel de lo que me toca, debajo del aviso (sobre mis cartas): mi turno o algo contra mí. */}
+        {underAttack ? <div className="turn-sign attack">⚠ {attackText}</div>
+          : s.turn === ME && !dealing && ph.t !== 'over' && (myTurn || pendingPlayers(s).includes(ME)) ? <div className="turn-sign mine">Tu turno</div>
+          : actionNeeded ? <div className="turn-sign act">Te toca decidir</div> : null}
       </div>
 
 
@@ -1465,7 +1524,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
               <div
                 key={c.id}
                 data-card={c.id}
-                className={`hc ${act ? 'playable' : ''} ${sel.includes(c.id) || myShown.includes(c.id) ? 'picked' : ''} ${myShown.includes(c.id) ? 'shown' : ''} ${intro === 'out' || intro === 'in' ? `flip-${intro}` : hideFlip ? `flip-${hideFlip}` : turning[c.id] ? `flip-${turning[c.id]}` : ''} ${coming ? 'incoming' : ''} ${act?.label === 'Usar en Tinieblas' ? 'blind-use' : ''}`}
+                className={`hc ${act ? 'playable' : ''} ${sel.includes(c.id) || myShown.includes(c.id) ? 'picked' : ''} ${myShown.includes(c.id) ? 'shown' : ''} ${(intro === 'out' || intro === 'in') && c.kind !== 'maldicion' ? `flip-${intro}` : intro === 'out' || intro === 'in' ? '' : hideFlip ? `flip-${hideFlip}` : turning[c.id] ? `flip-${turning[c.id]}` : ''} ${coming ? 'incoming' : ''} ${act?.label === 'Usar en Tinieblas' ? 'blind-use' : ''}`}
                 style={{ marginLeft: i === 0 ? 0 : `calc(var(--card-w) * ${step - 1})`, transform: `rotate(${(i - mid) * Math.min(4, 30 / Math.max(n, 1))}deg) translateY(${Math.abs(i - mid) ** 1.7 * 1.6}px)`, zIndex: i }}
                 onClick={act?.run}
               >
@@ -1473,6 +1532,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
               </div>
             );
           })}
+          {/* Jugar juntas: copias idénticas seguidas, o Antitodo + Maldición en mi turno. */}
+          {joinGroups.length > 0 && <JoinButtons groups={joinGroups} />}
           {/* Travesura: las cartas que ya he elegido dar siguen a la vista, levantadas y marcadas, hasta que se reparten. */}
           {ph.t === 'give' && ph.eff.given.filter((g) => g.from === ME).map((g, j) => (
             <div key={`give${g.card.id}`} className="hc given" style={{ marginLeft: n + j === 0 ? 0 : `calc(var(--card-w) * ${step - 1})`, zIndex: n + j }}>
@@ -1639,7 +1700,7 @@ function EnvFx({ steps, before, onDone }: { steps: EnvStep[]; before: EnvState; 
     const hw0 = tri.width / 2, hh0 = tri.height / 2;
     const tcx = tri.left + hw0, tcy = tri.top + hh0;
     const room = Math.min(tcx, window.innerWidth - tcx, tcy, window.innerHeight - tcy - 70);
-    const s = Math.max(1.2, Math.min(1.9, (room - 12) / Math.max(hw0, hh0)));
+    const s = Math.max(1.12, Math.min(1.45, (room - 12) / Math.max(hw0, hh0)));
     const cx = tcx, cy = tcy;
     Object.assign(el.style, { left: `${tri.left}px`, top: `${tri.top}px`, width: `${tri.width}px`, height: `${tri.height}px` });
     el.style.setProperty('--dx', `${cx - (tri.left + tri.width / 2)}px`);
@@ -1705,6 +1766,7 @@ function ActionArrows({ pairs, colors }: { pairs: [number, number][]; colors: st
       };
       if (!pile) return setPaths([]);
       const cx = pile.left + pile.width / 2, cy = pile.top + pile.height / 2;
+      const disc = document.querySelector('.disc')?.getBoundingClientRect();
       setPaths(pairs.map(([f, t]) => {
         const a = pt(f), b = pt(t);
         if (!a || !b) return null;
@@ -1730,10 +1792,50 @@ function ActionArrows({ pairs, colors }: { pairs: [number, number][]; colors: st
           }
         }
         ({ x: qx, y: qy } = fit(qx, qy));
+        // Si la curva pasaría por detrás del círculo central (p. ej. de mi mano al jugador de arriba), lo rodea:
+        // tramo recto tangente, arco pegado al círculo por el lado con más hueco y tramo recto hasta el destino.
+        if (disc) {
+          const C = { x: disc.left + disc.width / 2, y: disc.top + disc.height / 2 }, R = disc.width / 2;
+          const hits = Array.from({ length: 17 }, (_, i) => (i + 2) / 20).some((t) => {
+            const x = (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * qx + t * t * b.x;
+            const y = (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * qy + t * t * b.y;
+            return Math.hypot(x - C.x, y - C.y) < R + 6;
+          });
+          const R2 = R + 30, da = Math.hypot(a.x - C.x, a.y - C.y);
+          // El destino demasiado cerca del círculo (pantallas bajas): se aleja un poco hacia fuera.
+          let db = Math.hypot(b.x - C.x, b.y - C.y);
+          if (hits && db < R2 + 50) {
+            const dirx = db ? (b.x - C.x) / db : 0, diry = db ? (b.y - C.y) / db : -1;
+            const side0 = Math.abs(dirx) < 0.2 ? (window.innerWidth - C.x > C.x ? 1 : -1) : Math.sign(dirx);
+            // Se lleva hacia el lado por el que va a rodear, a la altura del destino.
+            b.x = C.x + side0 * Math.sqrt(Math.max(0, (R2 + 60) ** 2 - (b.y - C.y) ** 2));
+            void diry;
+            db = Math.hypot(b.x - C.x, b.y - C.y);
+          }
+          if (hits && da > R2 + 20 && db > R2 + 20) {
+            const side = b.x - C.x > 8 ? 1 : b.x - C.x < -8 ? -1 : (window.innerWidth - C.x) > C.x ? 1 : -1;
+            const ta = Math.atan2(a.y - C.y, a.x - C.x), tb = Math.atan2(b.y - C.y, b.x - C.x);
+            const fa = Math.acos(R2 / da), fb = Math.acos(R2 / db);
+            // Por la derecha se recorre en sentido antihorario (ángulos decrecientes); por la izquierda, al revés.
+            const t1 = side > 0 ? ta - fa : ta + fa, t2 = side > 0 ? tb + fb : tb - fb;
+            const P = (t: number) => ({ x: C.x + R2 * Math.cos(t), y: C.y + R2 * Math.sin(t) });
+            const T1 = P(t1), T2 = P(t2);
+            const TAU = Math.PI * 2;
+            const span = (((side > 0 ? t1 - t2 : t2 - t1) % TAU) + TAU) % TAU;
+            const sx = a.x + (T1.x - a.x) * 0.12, sy = a.y + (T1.y - a.y) * 0.12;
+            const L = Math.hypot(b.x - T2.x, b.y - T2.y) || 1;
+            const cut = Math.min(L * 0.6, 70 + L * 0.12);
+            const ex = b.x + ((T2.x - b.x) / L) * cut, ey = b.y + ((T2.y - b.y) / L) * cut;
+            const f2 = (n: number) => n.toFixed(1);
+            return { d: `M ${f2(sx)} ${f2(sy)} L ${f2(T1.x)} ${f2(T1.y)} A ${R2} ${R2} 0 ${span > Math.PI ? 1 : 0} ${side > 0 ? 0 : 1} ${f2(T2.x)} ${f2(T2.y)} L ${f2(ex)} ${f2(ey)}`, color: colors[f] };
+          }
+        }
         // Empieza y acaba un poco antes de los jugadores, para no taparlos.
         const k = 0.88;
         const sx = qx + (a.x - qx) * k, sy = qy + (a.y - qy) * k;
-        const ex = qx + (b.x - qx) * k, ey = qy + (b.y - qy) * k;
+        // Al destino no llega tan pegada: se queda unos 70 px antes.
+        const ke = Math.max(0.45, k - 70 / (Math.hypot(b.x - qx, b.y - qy) || 1));
+        const ex = qx + (b.x - qx) * ke, ey = qy + (b.y - qy) * ke;
         return { d: `M ${sx} ${sy} Q ${qx} ${qy} ${ex} ${ey}`, color: colors[f] };
       }).filter((x): x is { d: string; color: string } => !!x));
     };
@@ -1747,14 +1849,15 @@ function ActionArrows({ pairs, colors }: { pairs: [number, number][]; colors: st
     <svg className="action-arrows" aria-hidden="true">
       <defs>
         {paths.map((p, i) => (
-          <marker key={i} id={`aa-head-${i}`} viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill={p.color} stroke="#0a0e10" strokeWidth="1" />
+          <marker key={i} id={`aa-head-${i}`} viewBox="-2 -2 14 14" refX="3" refY="5" markerWidth="5.6" markerHeight="5.6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={p.color} className="aa-head" />
           </marker>
         ))}
       </defs>
       {paths.map((p, i) => (
         <g key={i}>
-          <path d={p.d} className="aa-shadow" />
+          {/* Guía tenue del mismo color, por debajo de los trazos que avanzan (en vez de un fondo negro). */}
+          <path d={p.d} className="aa-track" stroke={p.color} />
           <path d={p.d} className="aa-line" stroke={p.color} markerEnd={`url(#aa-head-${i})`} />
         </g>
       ))}
@@ -1773,7 +1876,7 @@ function PickArrow() {
       const row = document.querySelector('.gem-under .gem-pick')?.getBoundingClientRect() ?? gems;
       const sx = hand.left + hand.width / 2, sy = hand.top + 6;
       // Llega al lado izquierdo de la fila de gemas, a media altura.
-      const ex = row.left - 10, ey = row.top + row.height / 2;
+      const ex = row.left - 30, ey = row.top + row.height / 2 + 12;
       // Curva: sube primero y entra hacia las gemas por la izquierda.
       const qx = Math.min(sx, ex) + (Math.abs(ex - sx)) * 0.35, qy = ey + (sy - ey) * 0.15;
       setD(`M ${sx} ${sy} Q ${qx} ${qy} ${ex} ${ey}`);
@@ -1790,13 +1893,55 @@ function PickArrow() {
         <linearGradient id="pick-g" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0" stopColor="#f5c767" /><stop offset="0.5" stopColor="#946cab" /><stop offset="1" stopColor="#72bf8c" />
         </linearGradient>
-        <marker id="pick-head" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#72bf8c" stroke="#0a0e10" strokeWidth="1" />
+        <marker id="pick-head" viewBox="-2 -2 14 14" refX="3" refY="5" markerWidth="5.6" markerHeight="5.6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#72bf8c" className="aa-head" />
         </marker>
       </defs>
-      <path d={d} className="aa-shadow" />
+      <path d={d} className="aa-track" stroke="url(#pick-g)" />
       <path d={d} className="aa-line" stroke="url(#pick-g)" markerEnd="url(#pick-head)" />
     </svg>
+  );
+}
+
+// ───────────────────────── jugar juntas ─────────────────────────
+
+/**
+ * Botones «Jugar juntas» en medio de cada grupo de cartas de mi mano que se puede echar a la vez. Al pasar el
+ * ratón se levantan las cartas del grupo; si se pulsa una carta en vez del botón, se echa sola.
+ */
+function JoinButtons({ groups }: { groups: { ids: string[]; run: () => void }[] }) {
+  const [pos, setPos] = useState<{ x: number; y: number }[]>([]);
+  const sig = groups.map((g) => g.ids.join('+')).join(',');
+  useLayoutEffect(() => {
+    const place = () => {
+      const row = document.querySelector('.cards-row')?.getBoundingClientRect();
+      if (!row) return;
+      setPos(groups.map((g) => {
+        const rs = g.ids.map((id) => document.querySelector(`[data-card="${id}"]`)?.getBoundingClientRect()).filter((r): r is DOMRect => !!r);
+        if (!rs.length) return { x: -9999, y: 0 };
+        const left = Math.min(...rs.map((r) => r.left)), right = Math.max(...rs.map((r) => r.right));
+        const top = Math.min(...rs.map((r) => r.top)), bottom = Math.min(window.innerHeight, Math.max(...rs.map((r) => r.bottom)));
+        return { x: (left + right) / 2 - row.left, y: (top + bottom) / 2 - row.top };
+      }));
+    };
+    // El abanico se recoloca con una transición: se mide al empezar y cuando ha terminado.
+    place();
+    const id = window.setTimeout(place, 320);
+    window.addEventListener('resize', place);
+    return () => { clearTimeout(id); window.removeEventListener('resize', place); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+  const lift = (ids: string[], on: boolean) => ids.forEach((id) => document.querySelector(`[data-card="${id}"]`)?.classList.toggle('join-lift', on));
+  return (
+    <>
+      {groups.map((g, i) => pos[i] && (
+        <button key={g.ids.join('+')} className="join-btn" style={{ left: pos[i].x, top: pos[i].y }}
+          onMouseEnter={() => lift(g.ids, true)} onMouseLeave={() => lift(g.ids, false)}
+          onClick={(e) => { e.stopPropagation(); lift(g.ids, false); g.run(); }}>
+          Jugar juntas
+        </button>
+      ))}
+    </>
   );
 }
 

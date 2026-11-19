@@ -81,7 +81,7 @@ export function CardView({ card, back, className = '', onClick, badge, onBadge, 
       <img src={asset(hidden ? 'cards/back.webp' : cardImage(card!))} alt={hidden ? 'Carta' : cardName(card!)} draggable={false} />
       {badge && (onBadge
         ? <button className="badge" onClick={(e) => { e.stopPropagation(); onBadge(); }}>{badge}</button>
-        : <span className="badge">{badge}</span>)}
+        : <span className={`badge ${badge === 'Jugar' ? 'on-hover' : ''}`}>{badge}</span>)}
       {onInfo && !hidden && <button className="info" aria-label={`Ayuda: ${cardName(card!)}`} onClick={(e) => { e.stopPropagation(); onInfo(card!); }}>?</button>}
     </div>
   );

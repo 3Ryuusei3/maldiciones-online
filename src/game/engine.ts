@@ -126,11 +126,12 @@ export interface GameState {
 export type ReactKind = 'pass' | 'egida' | 'antitodo' | 'reflejo' | 'chain' | 'gem' | 'gems' | 'blind';
 
 export type Action =
-  | { type: 'play'; player: number; cardId: string }
+  /** `with`: cartas que se echan a la vez (copias idénticas, o la Maldición junto al Antitodo). */
+  | { type: 'play'; player: number; cardId: string; with?: string[] }
   | { type: 'draw'; player: number }
   | { type: 'keep'; player: number }
   | { type: 'choose'; player: number; value: string | number | null }
-  | { type: 'dup'; player: number; cardId: string }
+  | { type: 'dup'; player: number; cardId: string; with?: string[] }
   | { type: 'antitodo'; player: number }
   | { type: 'color'; player: number; color: Color }
   | { type: 'react'; player: number; r: ReactKind; cardId?: string; ids?: string[]; color?: Color; target?: number }
@@ -523,12 +524,13 @@ function finish(s: GameState) {
 
 // ───────────────────────── jugar una carta ─────────────────────────
 
-function startPlay(s: GameState, p: number, card: Card) {
+function startPlay(s: GameState, p: number, card: Card, withIds: string[] = []) {
   takeFromHand(s, p, card.id);
   putOnPile(s, p, card);
   const pp: PendingPlay = { player: p, card, companion: null, target: null, noTarget: false, gemAsked: false };
   if (card.kind === 'antitodo') {
-    const curse = s.players[p].hand.find((c) => c.kind === 'maldicion');
+    // La Maldición solo se va con el Antitodo si se echan juntas (las máquinas siempre lo hacen).
+    const curse = s.players[p].hand.find((c) => c.kind === 'maldicion' && (withIds.includes(c.id) || s.players[p].bot));
     if (curse) {
       takeFromHand(s, p, curse.id);
       s.pile.unshift(curse);
@@ -1171,6 +1173,15 @@ export function apply(prev: GameState, a: Action): GameState {
   return s;
 }
 
+/** Copias idénticas echadas a la vez que la primera: se duplican una tras otra (si alguna ya no se puede, se para). */
+function dupMore(s: GameState, p: number, first: Card, ids?: string[]) {
+  for (const id of ids ?? []) {
+    const c = s.players[p].hand.find((x) => x.id === id);
+    if (!c || c.kind !== first.kind || c.color !== first.color) continue;
+    if (s.phase.t === 'over' || !handleDup(s, p, id)) break;
+  }
+}
+
 function step(s: GameState, a: Action): boolean {
   const ph = s.phase;
   switch (a.type) {
@@ -1186,7 +1197,8 @@ function step(s: GameState, a: Action): boolean {
         finish(s);
         return true;
       }
-      startPlay(s, a.player, c);
+      startPlay(s, a.player, c, a.with ?? []);
+      dupMore(s, a.player, c, a.with);
       return true;
     }
     case 'draw': {
@@ -1247,8 +1259,12 @@ function step(s: GameState, a: Action): boolean {
       else finish(s);
       return true;
     }
-    case 'dup':
-      return handleDup(s, a.player, a.cardId);
+    case 'dup': {
+      const c = s.players[a.player].hand.find((x) => x.id === a.cardId);
+      if (!handleDup(s, a.player, a.cardId)) return false;
+      if (c) dupMore(s, a.player, c, a.with);
+      return true;
+    }
     case 'antitodo': {
       if (!canFreeAntitodo(s, a.player)) return false;
       const c = s.players[a.player].hand.find((x) => x.kind === 'antitodo')!;
