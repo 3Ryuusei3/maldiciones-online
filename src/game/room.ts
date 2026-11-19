@@ -3,6 +3,7 @@
 // Funciona igual que el anfitrión local (useGame), pero aquí también juegan "en piloto automático"
 // los humanos que se desconectan o tardan demasiado en su turno.
 
+import { BugReport, GameRecord, Recording, buildRecord, recordAction, startRecording, isUuid } from './record';
 import { Level, botDecide, botDup } from './bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from './engine';
 import { BOT_WINDOW_MS, DECIDE_MS, TINIEBLAS_PEEK_MS, WINDOW_MS, botDelay, dupDelay, pickNames, tinieblasJustFell } from './timing';
@@ -27,6 +28,8 @@ export interface Seat {
   left?: boolean;
   /** Color elegido (índice de la paleta de jugadores). */
   color?: number;
+  /** Identificador público del jugador (invitado: el de su navegador), para su histórico. */
+  pid?: string;
 }
 
 /** Colores de jugador disponibles (índices de la paleta PCOL de la interfaz). */
@@ -62,6 +65,8 @@ export interface RoomData {
   drops?: Record<number, Drop>;
   /** Desde cuándo está detenida la partida (esperando a alguien). */
   pausedAt?: number | null;
+  /** Registro de la partida en curso (estado inicial y acciones) para guardarla al acabar. */
+  rec?: Recording | null;
 }
 
 export interface Drop { mode: 'wait' | 'auto' | 'kick'; until: number }
@@ -111,7 +116,7 @@ export const seatOf = (r: RoomData, token: string) => r.seats.findIndex((x) => x
 // ───────────────────────── mensajes ─────────────────────────
 
 export type ClientMsg =
-  | { t: 'hello'; name: string; token: string }
+  | { t: 'hello'; name: string; token: string; pid?: string }
   | { t: 'opts'; opts: Partial<RoomOpts> }
   | { t: 'start' }
   | { t: 'ready' }
@@ -122,7 +127,9 @@ export type ClientMsg =
   /** Anfitrión: qué hacer con un jugador caído (esperar más, que juegue una máquina o quitarlo). */
   | { t: 'drop'; p: number; how: Drop['mode'] }
   /** Elegir mi color (en la sala de espera). */
-  | { t: 'color'; c: number };
+  | { t: 'color'; c: number }
+  /** Reportar un fallo (la sala añade el estado de la partida y las últimas jugadas). */
+  | { t: 'bug'; text: string; ua?: string; build?: string };
 
 /** `state` de un asiento en partida: `wait` (caído, se le espera), `auto` (caído, juega una máquina), `out` (fuera). */
 export interface SeatInfo { name: string; bot: boolean; online: boolean; host: boolean; color: number; state?: 'wait' | 'auto' | 'out' }
@@ -157,8 +164,15 @@ const fail = (msg: string, fatal = false): Result => ({ ok: false, msg, fatal })
 const cleanName = (n: unknown) => (typeof n === 'string' ? n.replace(/\s+/g, ' ').trim().slice(0, MAX_NAME) : '') || 'Jugador';
 
 /** Un jugador entra (o vuelve) a la sala. */
-export function hello(r: RoomData, token: string, name: string, online: Set<string> = new Set()): Result {
+export function hello(r: RoomData, token: string, name: string, online: Set<string> = new Set(), pid?: string): Result {
   if (typeof token !== 'string' || token.length < 16) return fail('Identificador no válido.', true);
+  const res = helloSeat(r, token, name, online);
+  const i = seatOf(r, token);
+  if (res.ok && i >= 0 && isUuid(pid)) r.seats[i].pid = pid;
+  return res;
+}
+
+function helloSeat(r: RoomData, token: string, name: string, online: Set<string>): Result {
   let i = seatOf(r, token);
   if (i < 0 && r.game) {
     // Quien cerró la pestaña vuelve con otro identificador: recupera su asiento si entra con el mismo nombre
@@ -248,6 +262,7 @@ export function start(r: RoomData, token: string, now: number, online: Set<strin
     beta: r.opts.beta,
   });
   r.round++;
+  r.rec = startRecording(crypto.randomUUID(), r.game, now);
   r.sched = { ...freshSched(), startAt: now + INTRO_MAX_MS };
   r.drops = {};
   r.pausedAt = null;
@@ -329,6 +344,7 @@ export function act(r: RoomData, token: string, a: Action, online: Set<string>, 
   }
   if (next === s) return fail('Ahora no se puede.');
   r.game = next;
+  recordAction(r.rec, a, now);
   tick(r, online, now);
   return ok;
 }
@@ -425,9 +441,11 @@ export function tick(r: RoomData, online: Set<string>, now: number): boolean {
     // Quitar a un jugador solo se puede entre jugadas (mientras tanto, juega una máquina por él).
     const kick = Object.entries(r.drops ?? {}).find(([, d]) => d.mode === 'kick');
     if (kick) {
-      const next = apply(s, { type: 'kick', target: +kick[0] });
+      const ka: Action = { type: 'kick', target: +kick[0] };
+      const next = apply(s, ka);
       if (next !== s) {
         r.game = next;
+        recordAction(r.rec, ka, now);
         delete r.drops![+kick[0]];
         changed = true;
         continue;
@@ -465,6 +483,7 @@ export function tick(r: RoomData, online: Set<string>, now: number): boolean {
     const next = apply(s, a);
     if (next !== s) {
       r.game = next;
+      recordAction(r.rec, a, now);
       changed = true;
     }
   }
@@ -523,5 +542,24 @@ export function roomView(r: RoomData, token: string | null, online: Set<string>,
     timer,
     waiting: r.pausedAt ? Object.entries(r.drops ?? {}).filter(([, d]) => d.mode === 'wait').map(([p, d]) => ({ p: +p, until: d.until })) : [],
     now,
+  };
+}
+
+/** La partida de la sala lista para guardar (o null si no hay nada que guardar). */
+export function roomRecord(r: RoomData, now: number): GameRecord | null {
+  if (!r.game || !r.rec) return null;
+  return buildRecord(r.rec, r.game, {
+    mode: 'online', room: r.code, now, options: { ...r.opts },
+    seats: r.seats.map((x) => ({ playerId: x.pid ?? null, color: x.color ?? null, botLevel: x.token ? null : r.opts.level, left: !!x.left })),
+  });
+}
+
+/** Reporte de fallo enviado desde la sala: con el estado completo y las últimas jugadas. */
+export function roomBug(r: RoomData, token: string, text: string, ua?: string, build?: string): BugReport | null {
+  const i = seatOf(r, token);
+  if (i < 0 || typeof text !== 'string' || !text.trim()) return null;
+  return {
+    playerId: r.seats[i].pid ?? null, gameId: r.rec?.id ?? null, mode: 'online', room: r.code,
+    description: text.trim(), userAgent: ua, build, state: r.game ?? undefined, recentActions: r.rec?.actions.slice(-60),
   };
 }

@@ -6,7 +6,7 @@ import { Level } from '../game/bot';
 import { Compendium, CompendioButton, HelpDock } from './Compendium';
 import { TutorGate, TutorOverlay, useTutor } from './Tutorial';
 import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
-import { NetClient, useNet } from '../net/client';
+import { BUILD, NetClient, playerId, sendLocalBug, useNet } from '../net/client';
 import type { RoomView } from '../game/room';
 import { Lobby, OnlineEntry, Shell } from './Online';
 import { SetupFields } from './Setup';
@@ -600,7 +600,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   /** El compendio abierto en mitad de la partida también la detiene. */
   const [comp, setComp] = useState(false);
   /** Pausa (y su menú, que también sirve para confirmar la salida). */
-  const [pause, setPause] = useState<null | 'menu' | 'exit'>(null);
+  const [pause, setPause] = useState<null | 'menu' | 'exit' | 'bug'>(null);
   // En local la partida la aloja este navegador; online, el servidor (aquí solo se muestra y se envían acciones).
   /** Tiempo máximo de 15 s: en local se puede cambiar desde la pausa; online lo cambia el anfitrión (opción de la sala). */
   const [localTimer, setLocalTimer] = useState(cfg.timer !== false);
@@ -1655,13 +1655,20 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
                   </label>
                 )}
                 {net && !isHost && <small className="pause-note">Tiempo máximo de 15 s: {timerOn ? 'activado' : 'desactivado'} (lo cambia el anfitrión).</small>}
+                <button onClick={() => setPause('bug')}>Reportar un fallo</button>
                 <button onClick={() => setPause('exit')}>Salir de la partida</button>
               </>
+            ) : pause === 'bug' ? (
+              <BugForm onDone={() => setPause(null)} onSend={async (text) => {
+                if (net) { net.bug(text); return true; }
+                const r = local.recording.current;
+                return sendLocalBug({ playerId: playerId(), gameId: r?.id ?? null, mode: 'local', room: null, description: text, userAgent: navigator.userAgent, build: BUILD, state: s, recentActions: r?.actions.slice(-60) });
+              }} />
             ) : (
               <>
                 <h2>¿Salir de la partida?</h2>
                 <p>{net ? 'Una máquina jugará por ti el resto de la partida.' : 'Se perderá la partida en curso.'}</p>
-                <button className="danger" onClick={onExit}>Sí, salir</button>
+                <button className="danger" onClick={() => { if (!net) local.abandon(); onExit(); }}>Sí, salir</button>
                 <button onClick={() => setPause(null)}>Seguir jugando</button>
               </>
             )}
@@ -1670,6 +1677,29 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       )}
       {comp && <div className="over-page"><Compendium tab="jugar" onClose={() => setComp(false)} /></div>}
     </div>
+  );
+}
+
+/** Reportar un fallo: qué ha pasado, contado por el jugador. Se envía junto con el estado de la partida y sus últimas jugadas. */
+function BugForm({ onSend, onDone }: { onSend: (text: string) => Promise<boolean>; onDone: () => void }) {
+  const [text, setText] = useState('');
+  const [st, setSt] = useState<'edit' | 'sending' | 'ok' | 'fail'>('edit');
+  if (st === 'ok') return (
+    <>
+      <h2>¡Gracias!</h2>
+      <p>Hemos recibido tu reporte junto con el estado de la partida y las últimas jugadas.</p>
+      <button className="primary" onClick={onDone}>Volver a la partida</button>
+    </>
+  );
+  return (
+    <>
+      <h2>Reportar un fallo</h2>
+      <p>Cuéntanos qué ha pasado (qué esperabas y qué ha ocurrido). Se enviará también el estado de la partida y las últimas jugadas.</p>
+      <textarea className="bug-text" value={text} onChange={(e) => setText(e.target.value)} maxLength={4000} rows={5} placeholder="Por ejemplo: he jugado un Reflejo contra una Codicia y…" autoFocus />
+      {st === 'fail' && <small className="pause-note">No se ha podido enviar. Inténtalo de nuevo en un momento.</small>}
+      <button className="primary" disabled={!text.trim() || st === 'sending'} onClick={async () => { setSt('sending'); setSt((await onSend(text.trim())) ? 'ok' : 'fail'); }}>{st === 'sending' ? 'Enviando…' : 'Enviar'}</button>
+      <button onClick={onDone}>Cancelar</button>
+    </>
   );
 }
 
@@ -2394,7 +2424,7 @@ export default function App() {
     // ?demo=5 arranca directamente una partida de 5 jugadores (útil para probar).
     const demo = Number(q.get('demo'));
     if (q.has('tutorial')) return { k: 'local', n: 0, cfg: tutorialCfg() };
-    if (demo >= 3 && demo <= 6) return { k: 'local', n: 0, cfg: { name: 'Tú', players: demo, level: 1, extraCurses: false, condena: true, debugHand: q.get('mano')?.split(','), debugSolo: q.has('solo'), debugBot: q.get('bot')?.split(','), beta: q.has('beta') } };
+    if (demo >= 3 && demo <= 6) return { k: 'local', n: 0, cfg: { name: 'Tú', players: demo, level: 1, extraCurses: false, condena: true, debugHand: q.get('mano')?.split(','), debugSolo: q.has('solo'), debugBot: q.get('bot')?.split(','), beta: q.has('beta'), debug: true } };
     return { k: 'home' };
   });
   const home = useCallback(() => {

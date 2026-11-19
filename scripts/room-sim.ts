@@ -3,9 +3,11 @@
 // que la vista de cada jugador no contiene cartas ajenas ocultas ni la semilla.
 //   npx tsx scripts/room-sim.ts 200
 
+import { apply } from '../src/game/engine';
 import { decideDrop, hello, newRoom, nextWake, ready, roomView, setOpts, start, tick } from '../src/game/room';
 
 const N = Number(process.argv[2] ?? 100);
+let replayed = 0, badReplay = 0;
 let ended = 0, leaks = 0, stuck = 0, steps = 0, paused = 0, kicked = 0, resumed = 0;
 const t0 = Date.now();
 
@@ -53,6 +55,13 @@ for (let g = 0; g < N; g++) {
   if (s1 >= 0 && r.game!.players[s1].out) kicked++;
   else if (guard > 31 && !r.pausedAt) resumed++;
   if (r.game!.phase.t === 'over') ended++;
+  // El registro (estado inicial + acciones) tiene que reproducir la partida exactamente.
+  if (r.rec) {
+    let x = r.rec.initial;
+    for (const { a } of r.rec.actions) x = apply(x, a);
+    const key = (g: typeof x) => JSON.stringify([g.winner, g.phase.t, g.players.map((p) => p.hand.map((c) => c.id)), g.pile.map((c) => c.id), g.seq]);
+    if (key(x) === key(r.game!)) replayed++; else badReplay++;
+  }
   else {
     stuck++;
     if (stuck <= 3) console.log('Atascada en', r.game!.phase.t, JSON.stringify(r.game!.phase).slice(0, 300));
@@ -68,5 +77,6 @@ function isShown(full: import('../src/game/engine').GameState, id: string, me: n
 }
 
 console.log(`${N} partidas: ${ended} terminadas, ${stuck} atascadas, ${leaks} fugas de información, ${steps} pasos, ${Date.now() - t0} ms`);
+console.log(`Registro: ${replayed} partidas reproducidas exactamente, ${badReplay} distintas.`);
 console.log(`Caídas: ${paused} detuvieron la partida, ${kicked} acabaron con el jugador fuera, ${resumed} siguieron (volvió o jugó la máquina).`);
-if (stuck || leaks) process.exit(1);
+if (stuck || leaks || badReplay) process.exit(1);

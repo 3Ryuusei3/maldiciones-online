@@ -13,5 +13,8 @@
     "typescript": "^5.9.3",
     "wrangler": "^4.86.0",
     "ws": "^8.23.0"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.1"
   }
 }

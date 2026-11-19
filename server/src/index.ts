@@ -5,16 +5,29 @@
 //   POST /api/salas            -> crea una sala y devuelve { code }
 //   GET  /api/salas/:code      -> { exists, playing, seats, size } (para comprobar un código)
 //   GET  /api/salas/:code/ws   -> WebSocket de la sala
+//   POST /api/partidas         -> guarda una partida local (las online las guarda la propia sala al acabar)
+//   POST /api/fallos           -> guarda un reporte de fallo de una partida local
 
 import { DurableObject } from 'cloudflare:workers';
 import {
   ABANDON_MS, ClientMsg, Result, RoomData, ServerMsg,
-  act, decideDrop, hello, setColor, leave, newRoom, nextWake, ready, roomView, setOpts, start, tick, toLobby,
+  act, decideDrop, hello, setColor, leave, newRoom, nextWake, ready, roomBug, roomRecord, roomView, setOpts, start, tick, toLobby,
 } from '../../src/game/room';
+import { BugReport } from '../../src/game/record';
+import { saveBug, saveGame, validRecord } from './db';
 
 interface Env {
   SALAS: DurableObjectNamespace<Sala>;
   ASSETS: Fetcher;
+  /** Conexión a Neon (secreto: `wrangler secret put DATABASE_URL`; en local, en server/.dev.vars). */
+  DATABASE_URL?: string;
+}
+
+/** Cuerpo JSON de una petición, con un tamaño máximo. */
+async function body(req: Request, max: number): Promise<unknown> {
+  const t = await req.text();
+  if (t.length > max) throw new Error('too big');
+  return JSON.parse(t);
 }
 
 interface Att { token: string | null }
@@ -40,6 +53,22 @@ export default {
         if (await env.SALAS.getByName(code).init(code)) return json({ code });
       }
       return json({ error: 'No se ha podido crear la sala.' }, 503);
+    }
+
+    if (url.pathname === '/api/partidas' && req.method === 'POST') {
+      if (!env.DATABASE_URL) return json({ error: 'Sin base de datos.' }, 503);
+      let g: unknown;
+      try { g = await body(req, 3_000_000); } catch { return json({ error: 'Partida no válida.' }, 400); }
+      if (!validRecord(g) || g.mode !== 'local') return json({ error: 'Partida no válida.' }, 400);
+      await saveGame(env.DATABASE_URL, g);
+      return json({ ok: true });
+    }
+    if (url.pathname === '/api/fallos' && req.method === 'POST') {
+      if (!env.DATABASE_URL) return json({ error: 'Sin base de datos.' }, 503);
+      let b: BugReport;
+      try { b = (await body(req, 2_000_000)) as BugReport; } catch { return json({ error: 'Reporte no válido.' }, 400); }
+      if (!b || typeof b.description !== 'string' || !b.description.trim()) return json({ error: 'Cuenta qué ha pasado.' }, 400);
+      return json({ ok: true, id: await saveBug(env.DATABASE_URL, { ...b, mode: 'local' }) });
     }
 
     const m = url.pathname.match(/^\/api\/salas\/([A-Za-z]{4})(\/ws)?$/);
@@ -120,7 +149,7 @@ export class Sala extends DurableObject<Env> {
     let token = (ws.deserializeAttachment() as Att | null)?.token ?? null;
     let res: Result;
     if (m.t === 'hello') {
-      res = hello(r, m.token, m.name, this.online(ws));
+      res = hello(r, m.token, m.name, this.online(ws), m.pid);
       if (res.ok) {
         token = m.token;
         ws.serializeAttachment({ token } satisfies Att);
@@ -137,6 +166,11 @@ export class Sala extends DurableObject<Env> {
         case 'lobby': res = toLobby(r, token); break;
         case 'ready': ready(r, token, online, now); res = { ok: true }; break;
         case 'act': res = act(r, token, m.a, online, now); break;
+        case 'bug': {
+          const b = roomBug(r, token, m.text, m.ua, m.build);
+          if (b && this.env.DATABASE_URL) this.ctx.waitUntil(saveBug(this.env.DATABASE_URL, b).then(() => {}, () => {}));
+          return;
+        }
         case 'leave':
           res = leave(r, token);
           ws.serializeAttachment({ token: null } satisfies Att);
@@ -182,7 +216,9 @@ export class Sala extends DurableObject<Env> {
     const now = Date.now();
     const online = this.online();
     if (!online.size && now - r.seenAt >= ABANDON_MS) {
-      // Sala abandonada: se borra entera.
+      // Sala abandonada: si había una partida a medias, se guarda como sin terminar; después se borra entera.
+      const g = r.rec && !r.rec.saved ? roomRecord(r, now) : null;
+      if (g && this.env.DATABASE_URL) await saveGame(this.env.DATABASE_URL, g).catch(() => {});
       await this.ctx.storage.deleteAll();
       this.room = null;
       return;
@@ -195,6 +231,15 @@ export class Sala extends DurableObject<Env> {
   /** Guarda la sala y programa el siguiente despertar (relojes, máquinas o limpieza). */
   private async commit(r: RoomData, online: Set<string>, now: number) {
     if (online.size) r.seenAt = now;
+    // Partida terminada: la sala la guarda una sola vez (es quien tiene la partida completa; nadie puede falsearla).
+    if (r.game?.phase.t === 'over' && r.rec && !r.rec.saved) {
+      const g = roomRecord(r, now);
+      r.rec.saved = true;
+      if (g && this.env.DATABASE_URL) {
+        const url = this.env.DATABASE_URL;
+        this.ctx.waitUntil(saveGame(url, g).catch(() => { /* sin base de datos: la partida no se guarda */ }));
+      }
+    }
     await this.ctx.storage.put('room', r);
     const wake = nextWake(r, online, now);
     if (wake !== null) await this.ctx.storage.setAlarm(wake);

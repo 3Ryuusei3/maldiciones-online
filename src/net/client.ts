@@ -32,6 +32,41 @@ function token(): string {
   return t;
 }
 
+/**
+ * Identificador público de este jugador (invitado): se genera una vez y se guarda en el navegador. Sirve para
+ * su histórico de partidas; cuando haya registro, se enlazará con la cuenta.
+ */
+export function playerId(): string {
+  const KEY = 'maldiciones:pid';
+  try {
+    const t = localStorage.getItem(KEY);
+    if (t && /^[0-9a-f-]{36}$/i.test(t)) return t;
+  } catch { /* sin almacenamiento */ }
+  const id = crypto.randomUUID();
+  try { localStorage.setItem(KEY, id); } catch { /* idem */ }
+  return id;
+}
+
+/** Momento de compilación de esta versión de la web (para los reportes de fallos). */
+export const BUILD = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
+
+/** Guarda una partida local (sin esperar respuesta; si no hay servidor, se pierde sin más). */
+export function saveLocalGame(record: unknown) {
+  try {
+    void fetch(httpUrl('/api/partidas'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(record), keepalive: true }).catch(() => {});
+  } catch { /* nada */ }
+}
+
+/** Envía un reporte de fallo de una partida local. */
+export async function sendLocalBug(report: unknown): Promise<boolean> {
+  try {
+    const r = await fetch(httpUrl('/api/fallos'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(report) });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function createRoom(): Promise<string> {
   const r = await fetch(httpUrl('/api/salas'), { method: 'POST' });
   const j = await r.json().catch(() => ({}));
@@ -81,7 +116,7 @@ export class NetClient {
     ws.onopen = () => {
       this.retry = 0;
       this.set({ status: 'open' });
-      ws.send(JSON.stringify({ t: 'hello', name: this.name, token: this.token } satisfies ClientMsg));
+      ws.send(JSON.stringify({ t: 'hello', name: this.name, token: this.token, pid: playerId() } satisfies ClientMsg));
       clearInterval(this.ping);
       this.ping = window.setInterval(() => ws.readyState === WebSocket.OPEN && ws.send('ping'), 25000);
     };
@@ -101,6 +136,11 @@ export class NetClient {
       // Reintento con espera creciente (máx. 5 s).
       window.setTimeout(() => this.connect(), Math.min(5000, 500 * 2 ** this.retry++));
     };
+  }
+
+  /** Reporta un fallo: la sala añade el estado de la partida y las últimas jugadas. */
+  bug(text: string) {
+    this.send({ t: 'bug', text, ua: navigator.userAgent, build: BUILD });
   }
 
   send(m: ClientMsg) {

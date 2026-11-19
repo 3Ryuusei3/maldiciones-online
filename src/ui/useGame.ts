@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { botDecide, botDup, Level } from '../game/bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from '../game/engine';
 import { newTutorial, tutorBot } from '../game/tutorial';
+import { Recording, buildRecord, recordAction, startRecording } from '../game/record';
+import { playerId, saveLocalGame } from '../net/client';
 import type { TutorGate } from './Tutorial';
 import { BOT_WINDOW_MS, DECIDE_MS, TINIEBLAS_PEEK_MS, WINDOW_MS, botDelay, dupDelay, pickNames, tinieblasJustFell } from '../game/timing';
 
@@ -27,6 +29,8 @@ export interface GameConfig {
   debugSolo?: boolean;
   /** Tutorial: partida preparada y máquinas con jugadas fijas. */
   tutorial?: boolean;
+  /** Partidas de prueba (?demo): no se guardan. */
+  debug?: boolean;
   /** Solo para pruebas (?bot=aplastar): cartas que empiezan en la mano de la primera máquina, y empieza ella. */
   debugBot?: string[];
 }
@@ -73,6 +77,23 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
   });
   const ref = useRef(state);
   ref.current = state;
+  /** Registro de la partida (estado inicial y acciones) para guardarla al acabar. El tutorial y las pruebas no se guardan. */
+  const rec = useRef<Recording | null>(null);
+  if (rec.current === null && enabled && !cfg.tutorial && !cfg.debug && !cfg.debugHand && !cfg.debugBot) rec.current = startRecording(crypto.randomUUID(), state, Date.now());
+  const save = useCallback((s: GameState) => {
+    const r = rec.current;
+    if (!r || r.saved || !r.actions.length) return;
+    r.saved = true;
+    saveLocalGame(buildRecord(r, s, {
+      mode: 'local', now: Date.now(),
+      options: { size: cfg.players, level: cfg.level, extraCurses: cfg.extraCurses, condena: cfg.condena, beta: !!cfg.beta, timer: cfg.timer !== false },
+      seats: s.players.map((p, i) => ({ playerId: i === ME ? playerId() : null, color: i === ME ? cfg.color ?? 0 : null, botLevel: p.bot ? cfg.level : null })),
+    }));
+  }, [cfg]);
+  // Al acabar la partida se guarda (una sola vez).
+  useEffect(() => { if (state.phase.t === 'over') save(state); }, [state, save]);
+  /** El jugador sale a mitad de partida: se guarda como «sin terminar». */
+  const abandon = useCallback(() => { if (ref.current.phase.t !== 'over') save(ref.current); }, [save]);
   /** Reloj visible: el de una ventana (`w<n>`) o el de mi decisión pendiente (`s<seq>`). */
   const [timer, setTimer] = useState<(Timer & { key: string }) | null>(null);
   /** Momentos ya planificados para cada máquina dentro de una ventana. */
@@ -95,7 +116,15 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paused]);
 
-  const dispatch = useCallback((a: Action) => setState((prev) => apply(prev, a)), []);
+  // La acción se aplica fuera del actualizador de React (que en desarrollo se ejecuta dos veces) para anotarla una sola vez.
+  const dispatch = useCallback((a: Action) => {
+    const prev = ref.current;
+    const next = apply(prev, a);
+    if (next === prev) return;
+    recordAction(rec.current, a, Date.now());
+    ref.current = next;
+    setState(next);
+  }, []);
 
   useEffect(() => {
     const s = state;
@@ -200,5 +229,5 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
   const ph = state.phase;
   const windowed = ph.t === 'react' || ph.t === 'aplastar' || ph.t === 'gemas';
   const activeTimer = timer && (windowed ? 'win' in ph && timer.key === `w${ph.win}` : timer.key === `s${state.seq}` && pendingPlayers(state).includes(ME) && cfg.timer !== false) ? timer : null;
-  return { state, dispatch, timer: activeTimer as Timer | null };
+  return { state, dispatch, timer: activeTimer as Timer | null, abandon, recording: rec };
 }
