@@ -7409,3 +7409,27 @@ input[type="checkbox"]:focus-visible {
 .home-panel .account-bar .guest-av { width: 30px; height: 30px; background: #3a3746; color: #fff; font-weight: 800; }
 .home-panel .account-bar button.account-exit { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; background: transparent; border: 1px solid rgba(255, 255, 255, 0.45); color: #fff; cursor: pointer; }
 .home-panel .account-bar button.account-exit:hover:not(:disabled) { background: #fff; color: #0a0e10; border-color: #fff; }
+
+/* ═════════ Ruleta del principio: quién empieza y en qué sentido ═════════ */
+/* Mientras gira, no se adelanta de quién es el turno. */
+.game.spinning .turn-tag, .game.spinning .next-tag, .game.spinning .turn-sign, .game.spinning .turn-edge, .game.spinning .msgzone .banner, .game.spinning .hand.turn::before, .game.spinning .action-arrows { visibility: hidden; }
+.pill.spin-glow { box-shadow: 0 0 0 3px #fff, 0 0 26px 6px var(--gc); transform: scale(1.12); transition: transform 0.12s, box-shadow 0.12s; z-index: 5; position: relative; }
+.spin-box { position: fixed; left: 50%; top: 40%; translate: -50% -50%; z-index: 300; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 28px 20px; background: rgba(10, 14, 16, 0.92); box-shadow: 0 0 0 2px var(--sc), 0 20px 50px rgba(0, 0, 0, 0.5); pointer-events: none; animation: spin-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; transition: box-shadow 0.15s; }
+.spin-box small { color: #cfcbdc; font-size: 12px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; }
+.spin-box b { font-size: 26px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; padding: 6px 18px; animation: spin-pop 0.16s ease-out; }
+.spin-box.done b { animation: spin-win 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4); box-shadow: 0 0 30px var(--sc); }
+.spin-box .spin-dir { color: #fff; font-size: 15px; font-weight: 700; letter-spacing: 0.08em; animation: spin-in 0.4s 0.25s both; }
+@keyframes spin-in { from { opacity: 0; scale: 0.9; } to { opacity: 1; scale: 1; } }
+@keyframes spin-pop { from { scale: 0.85; } to { scale: 1; } }
+@keyframes spin-win { 0% { scale: 0.8; } 60% { scale: 1.18; } 100% { scale: 1; } }
+/* Al pararse, las flechas del centro destacan para que se vea el sentido. */
+.game.spin-dir-on .flow { filter: drop-shadow(0 0 14px #fff) drop-shadow(0 3px 0 rgba(0, 0, 0, 0.3)); animation-duration: 3s; }
+/* Tragaperras: ventana de tamaño fijo con una tira de nombres que baja y frena hasta el jugador que empieza. */
+.spin-box { --rh: 48px; width: 300px; box-sizing: border-box; }
+.spin-box .reel-win { position: relative; width: 100%; height: var(--rh); overflow: hidden; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.18); }
+.spin-box .reel-win::before, .spin-box .reel-win::after { content: ''; position: absolute; left: 0; right: 0; height: 12px; z-index: 2; pointer-events: none; }
+.spin-box .reel-win::before { top: 0; background: linear-gradient(rgba(10, 14, 16, 0.75), transparent); }
+.spin-box .reel-win::after { bottom: 0; background: linear-gradient(transparent, rgba(10, 14, 16, 0.75)); }
+.spin-box .reel { display: flex; flex-direction: column; transition-property: transform; transition-timing-function: cubic-bezier(0.1, 0.55, 0.12, 1.02); will-change: transform; }
+.spin-box .reel b { flex: none; height: var(--rh); display: flex; align-items: center; justify-content: center; padding: 0 12px; font-size: 24px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: none; }
+.spin-box.done .reel-win { box-shadow: 0 0 0 2px #fff, 0 0 30px var(--sc); animation: spin-win 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4); }

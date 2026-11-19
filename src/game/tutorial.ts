@@ -44,6 +44,7 @@ export function newTutorial(name: string): GameState {
   s.pile = [first];
   s.color = 'v';
   s.turn = 0;
+  s.dir = 1;
   s.phase = { t: 'turn', drawn: null };
   s.log = [{ n: 1, text: `Comienza la partida. Carta inicial: ${cardName(first)}.` }];
   return s;

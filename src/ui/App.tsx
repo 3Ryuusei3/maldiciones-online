@@ -256,6 +256,8 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
   const [adj, setAdj] = useState<Record<number, number>>({});
   /** Cartas que ya son mías pero todavía vienen volando: no se pintan en la mano hasta que aterrizan. */
   const [hidden, setHidden] = useState<string[]>([]);
+  /** Cartas que me llegan más tarde (tras otra animación): ni siquiera tienen hueco en la mano todavía. */
+  const [deferred, setDeferred] = useState<string[]>([]);
   /** Huecos que se abren en el abanico de cada rival para las cartas que le están llegando. */
   const [room, setRoom] = useState<Record<number, number>>({});
   /** Cartas recién robadas que se están dando la vuelta en mi mano (como en el reparto). */
@@ -286,6 +288,7 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
     const slow = s.phase.t === 'over';
     const added: string[] = [];
     const hide: string[] = [];
+    const defer: string[] = [];
     let k = 0;
     const blindNow = isBlind(s);
     const BACK = asset('cards/back.webp');
@@ -309,6 +312,8 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
         const to = typeof f.to === 'number' && f.to !== ME ? f.to : null;
         const got = f.to === ME ? fresh.shift() : undefined;
         if (from !== null) bump(from, 1);
+        // Mi carta probada a ciegas que no sirve: mientras va y vuelve, no se ve también en la mano.
+        if (f.bounce && f.from === ME && f.card) hide.push(f.card.id);
         if (to !== null) { bump(to, -1); gapFor(to, 1); }
         if (got) hide.push(got);
         const si = stars.indexOf(f);
@@ -346,7 +351,9 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
               if (f.bounce && typeof f.from === 'number') {
                 // No servía: vuelve a la mano de quien la probó y se da la vuelta otra vez.
                 const back = f.from === ME ? document.querySelector<HTMLElement>('.cards-row')?.getBoundingClientRect() : anchorRect(f.from);
-                if (back) launch(host, { src: BACK, flipFrom: src, A: B, B: back, sA: scaleAt('pile', B, w), sB: scaleAt(f.from, back, w), ms: 700, solid: true, onLand: () => { if (id) setFlying((v) => v.filter((x) => x !== id)); } });
+                const mineBack = f.from === ME && f.card ? f.card.id : null;
+                if (back) launch(host, { src: BACK, flipFrom: src, A: B, B: back, sA: scaleAt('pile', B, w), sB: scaleAt(f.from, back, w), ms: 700, solid: true, onLand: () => { if (id) setFlying((v) => v.filter((x) => x !== id)); if (mineBack) setHidden((v) => v.filter((x) => x !== mineBack)); } });
+                else if (mineBack) setHidden((v) => v.filter((x) => x !== mineBack));
                 return;
               }
               if (under) {
@@ -369,10 +376,18 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
           });
         if (got) {
           // Mi mano ya ha hecho hueco a la carta (invisible): se espera a que termine de abrirse y la carta vuela a su sitio exacto.
-          window.setTimeout(() => {
+          const fly = () => {
             const el = document.querySelector<HTMLElement>(`[data-card="${got}"]`);
             go(el?.getBoundingClientRect() ?? B, el ? el.offsetWidth / w : scaleAt(f.to, B, w), 0, elRot(el));
-          }, ROOM_MS + k * gap + extra);
+          };
+          if (extra > 0) {
+            // Llega después de otra animación (p. ej. la carta probada a ciegas que vuelve): hasta entonces no ocupa hueco.
+            defer.push(got);
+            window.setTimeout(() => {
+              setDeferred((v) => v.filter((x) => x !== got));
+              window.setTimeout(fly, ROOM_MS);
+            }, k * gap + extra);
+          } else window.setTimeout(fly, ROOM_MS + k * gap);
         } else if (to !== null && !under) {
           // A un rival: cuando su abanico ya ha abierto hueco, vuela a ese hueco con su tamaño y su giro.
           const nth = (toCount[to] = (toCount[to] ?? -1) + 1);
@@ -387,6 +402,7 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
     }
     if (added.length) setFlying((v) => [...v, ...added]);
     if (hide.length) setHidden((v) => [...v, ...hide]);
+    if (defer.length) setDeferred((v) => [...v, ...defer]);
     origins.current = {};
     // Égida recién usada: se ve en grande sobre la Pila y después vuela, pequeña, junto a su dueño.
     s.players.forEach((pl, p) => {
@@ -410,7 +426,7 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
       prevEgida.current[p] = id;
     });
   }, [s.seq, s.fx, s.phase.t, s.players, origins]);
-  return { layer, flying, adj, hidden, room, turning, tucks, egidaAir };
+  return { layer, flying, adj, hidden, room, turning, tucks, egidaAir, deferred };
 }
 
 // ───────────────────────── portada ─────────────────────────
@@ -553,7 +569,7 @@ const STATE_TAG: Record<'wait' | 'auto' | 'out', [string, string]> = {
   out: ['fuera', 'Ha quedado fuera de la partida'],
 };
 
-function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, state, onKick, egidaAir, color, next }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; state?: SeatState; onKick?: () => void; egidaAir: string[]; color: string; next: boolean }) {
+function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, state, onKick, egidaAir, color, next, glow }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; state?: SeatState; onKick?: () => void; egidaAir: string[]; color: string; next: boolean; glow?: boolean }) {
   const pl = s.players[p];
   // Durante el reparto su Maldición está aparte, boca arriba, así que no cuenta en el abanico.
   const have = Math.max(0, Math.min(shown - (curseApart(intro) ? 1 : 0), 14));
@@ -576,7 +592,7 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
         </div>
       )}
       <div className="plate">
-        <span className="pill" style={{ background: color, color: ink(color) }}>{pl.name}<i>{shown}</i></span>
+        <span className={`pill ${glow ? 'spin-glow' : ''}`} style={{ background: color, color: ink(color), '--gc': color } as React.CSSProperties}>{pl.name}<i>{shown}</i></span>
         {s.turn === p && !intro && s.phase.t !== 'over' && <span className="turn-tag" style={{ background: color, color: ink(color), boxShadow: `0 0 18px ${color}` }}>Su turno</span>}
         {next && s.turn !== p && !intro && <span className="next-tag" style={{ borderColor: color }}>Después</span>}
         {!intro && pl.hand.length === 1 && s.phase.t !== 'over' && <span className="last-tag">¡Última carta!</span>}
@@ -613,7 +629,12 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const [localTimer, setLocalTimer] = useState(cfg.timer !== false);
   /** Tutorial: qué pueden hacer las máquinas en el paso actual (lo fija el tutorial, más abajo). */
   const [tgate, setTgate] = useState<TutorGate>({ bots: 'off', autoPass: true });
-  const local = useGame(useMemo(() => ({ ...cfg, timer: localTimer }), [cfg, localTimer]), intro === null, pause !== null || comp, !net, cfg.tutorial ? tgate : undefined);
+  /** Ruleta del principio (quién empieza y en qué sentido): `wait` hasta que acaba el reparto, `run` mientras gira. */
+  const [spinPhase, setSpinPhase] = useState<'wait' | 'run' | 'off'>(() => (intro === null || cfg.tutorial ? 'off' : 'wait'));
+  const [spin, setSpin] = useState<{ cur: number; done: boolean; reel: number[]; go: boolean } | null>(null);
+  const spinStarted = useRef(false);
+  const spinTimers = useRef<number[]>([]);
+  const local = useGame(useMemo(() => ({ ...cfg, timer: localTimer }), [cfg, localTimer]), intro === null && spinPhase === 'off', pause !== null || comp, !net, cfg.tutorial ? tgate : undefined);
   const remote = useNet(net ?? null);
   const rv = remote.view;
   const s = net && rv?.game ? rv.game : local.state;
@@ -639,7 +660,25 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const timerOn = net ? rv?.opts.timer !== false : localTimer;
   const seatState = (p: number): SeatState => (net && rv ? rv.seats[p]?.state : s.players[p].out ? 'out' : undefined);
   // Online: se avisa al servidor cuando ya se ha visto el reparto, para que empiece a correr el juego.
-  useEffect(() => { if (net && intro === null) net.send({ t: 'ready' }); }, [net, intro]);
+  useEffect(() => { if (net && intro === null && spinPhase === 'off') net.send({ t: 'ready' }); }, [net, intro, spinPhase]);
+  // Ruleta: va pasando por los jugadores, cada vez más despacio, hasta pararse en quien empieza; luego se ve el sentido.
+  useEffect(() => {
+    if (intro !== null || spinPhase !== 'wait' || spinStarted.current) return;
+    spinStarted.current = true;
+    setSpinPhase('run');
+    // Tragaperras: una tira con los jugadores (varias vueltas, en el sentido de juego) que baja hasta pararse en quien empieza.
+    const n = s.players.length, dir = s.dir, start = Math.floor(Math.random() * n);
+    const total = n * 4 + ((((s.turn - start) * dir) % n) + n) % n;
+    const seq = Array.from({ length: total + 1 }, (_, i) => (((start + i * dir) % n) + n) % n);
+    const timers: number[] = [];
+    setSpin({ cur: s.turn, done: false, reel: seq, go: false });
+    timers.push(window.setTimeout(() => setSpin((v) => v && { ...v, go: true }), 120));
+    timers.push(window.setTimeout(() => setSpin((v) => v && { ...v, done: true }), 120 + REEL_MS));
+    timers.push(window.setTimeout(() => { setSpin(null); setSpinPhase('off'); }, 120 + REEL_MS + 2600));
+    spinTimers.current = timers;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intro, spinPhase]);
+  useEffect(() => () => spinTimers.current.forEach(clearTimeout), []);
   const startedAt = useRef(Date.now());
   const origins = useRef<Record<string, DOMRect>>({});
   const tutor = useTutor(!!cfg.tutorial, s, intro);
@@ -672,7 +711,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const name = (p: number) => s.players[p].name;
   /** A quién le toca después del turno en curso (si nadie cambia el sentido ni concede el turno). */
   const nextUp = ph.t === 'over' ? -1 : s.after?.turnTo ?? nextPlayer(s, s.turn);
-  const { layer: flights, flying, adj, hidden, room, turning, tucks, egidaAir } = useFlights(s, origins);
+  const { layer: flights, flying, adj, hidden, room, turning, tucks, egidaAir, deferred } = useFlights(s, origins);
 
   // Los rayos del fondo giran en el sentido de la partida (horario o antihorario). Se invierte la animación
   // en marcha (playbackRate), así el cambio no da saltos.
@@ -1324,21 +1363,22 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const sortedHand = useMemo(() => {
     // Durante el reparto las cartas van llegando de una en una, con la Maldición primero.
     // Durante el reparto la Maldición va a la derecha del todo (donde quedará después, con las malditas).
-    if (facedown) return [...me.hand].sort((a, b) => Number(a.kind === 'maldicion') - Number(b.kind === 'maldicion'));
+    const handNow = me.hand.filter((c) => !deferred.includes(c.id));
+    if (facedown) return [...handNow].sort((a, b) => Number(a.kind === 'maldicion') - Number(b.kind === 'maldicion'));
     const o = (c: Card) => (c.color ? COLORS.indexOf(c.color) : KINDS[c.kind].attr === 'maldita' ? 5 : KINDS[c.kind].attr === 'sagrada' ? 4 : 3);
-    const sorted = [...me.hand].sort((a, b) => o(a) - o(b) || a.kind.localeCompare(b.kind));
+    const sorted = [...handNow].sort((a, b) => o(a) - o(b) || a.kind.localeCompare(b.kind));
     if (!blind) {
       blindOrder.current = null;
       return sorted;
     }
     // Se fija el orden visible justo antes de darse la vuelta y se mantiene mientras duren.
     const prev = blindOrder.current ?? sorted.map((c) => c.id);
-    const byId = new Map(me.hand.map((c) => [c.id, c]));
+    const byId = new Map(handNow.map((c) => [c.id, c]));
     const kept = prev.filter((id) => byId.has(id));
-    const order = [...kept, ...me.hand.map((c) => c.id).filter((id) => !kept.includes(id))];
+    const order = [...kept, ...handNow.map((c) => c.id).filter((id) => !kept.includes(id))];
     blindOrder.current = order;
     return order.map((id) => byId.get(id)!);
-  }, [me.hand, blind, facedown]);
+  }, [me.hand, blind, facedown, deferred]);
   const n = sortedHand.length;
   /** Grupos de cartas que se pueden echar a la vez (con un botón «Jugar juntas» entre ellas). */
   const joinGroups: { ids: string[]; run: () => void }[] = [];
@@ -1347,7 +1387,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     for (let i = 0; i < sortedHand.length; ) {
       const c = sortedHand[i];
       let j = i + 1;
-      if (!isCursed(c)) while (j < sortedHand.length && sortedHand[j].kind === c.kind && sortedHand[j].color === c.color) j++;
+      // (Predestinar no: la carta que lo acompaña queda encima y la copia ya no se podría duplicar.)
+      if (!isCursed(c) && c.kind !== 'predestinar') while (j < sortedHand.length && sortedHand[j].kind === c.kind && sortedHand[j].color === c.color) j++;
       const ids = sortedHand.slice(i, j).map((x) => x.id);
       if (ids.length > 1 && !ids.some((id) => hidden.includes(id))) {
         if (myTurn && canPlay(s, ME, c)) joinGroups.push({ ids, run: () => send({ type: 'play', player: ME, cardId: ids[0], with: ids.slice(1) }) });
@@ -1367,7 +1408,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const seats = SEATS[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
-    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${dealing ? 'dealing' : ''} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
+    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${dealing ? 'dealing' : ''} ${spinPhase === 'run' ? 'spinning' : ''} ${spin?.done ? 'spin-dir-on' : ''} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
       <div className="rays" />
       <div className="shade" />
       <div className="flights" ref={flights} />
@@ -1403,6 +1444,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             intro={intro}
             say={s.announce?.n !== muted}
             room={facedown ? p.hand.length - shown(p.id) : room[p.id] ?? 0}
+            glow={!!spin?.done && spin.cur === p.id}
           />
         ))}
 
@@ -1519,7 +1561,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       )}
       <div className={`hand ${s.turn === ME && !dealing ? 'turn' : ''}`}>
         <div className="me-tag">
-          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''}`} style={{ background: colors[ME], color: ink(colors[ME]) }}>{me.name}<i>{shown(ME)}</i></span>
+          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''} ${spin?.done && spin.cur === ME ? 'spin-glow' : ''}`} style={{ background: colors[ME], color: ink(colors[ME]), '--gc': colors[ME] } as React.CSSProperties}>{me.name}<i>{shown(ME)}</i></span>
           {s.turn === ME && !dealing && ph.t !== 'over' && <span className="turn-tag" style={{ background: colors[ME], color: ink(colors[ME]), boxShadow: `0 0 18px ${colors[ME]}` }}>Tu turno</span>}
           {nextUp === ME && s.turn !== ME && !dealing && <span className="next-tag" style={{ borderColor: colors[ME] }}>Te toca después</span>}
           {!dealing && me.hand.length === 1 && ph.t !== 'over' && <span className="last-tag">¡Última carta!</span>}
@@ -1642,6 +1684,20 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {net && remote.status !== 'open' && <div className="net-banner" role="status">Reconectando…</div>}
       {net && rv && rv.waiting.length > 0 && ph.t !== 'over' && <WaitBox rv={rv} recvAt={remote.recvAt} isHost={isHost} decide={(p, how) => net.send({ t: 'drop', p, how })} />}
       {net && rv && rv.you >= 0 && rv.seats[rv.you]?.state === 'out' && ph.t !== 'over' && <div className="net-banner" role="status">Has quedado fuera de la partida: puedes seguir mirando.</div>}
+      {spin && (
+        <div className={`spin-box ${spin.done ? 'done' : ''}`} style={{ '--sc': colors[spin.cur], '--n': spin.reel.length } as React.CSSProperties} aria-live="polite">
+          <small>{spin.done ? 'Empieza' : '¿Quién empieza?'}</small>
+          {/* Ventana de la tragaperras (tamaño fijo): la tira baja y se para en quien empieza. */}
+          <div className="reel-win" aria-label={spin.done ? `Empieza ${spin.cur === ME ? 'tú' : name(spin.cur)}` : undefined}>
+            <div className="reel" style={{ transform: `translateY(${spin.go ? 0 : `calc(var(--rh) * ${-(spin.reel.length - 1)})`})`, transitionDuration: spin.go ? `${REEL_MS}ms` : '0ms' }}>
+              {[...spin.reel].reverse().map((p, i) => (
+                <b key={i} style={{ background: colors[p], color: ink(colors[p]) }}>{p === ME ? 'Tú' : name(p)}</b>
+              ))}
+            </div>
+          </div>
+          <span className="spin-dir" style={{ visibility: spin.done ? 'visible' : 'hidden' }}>{s.dir === 1 ? '↻' : '↺'} Sentido {s.dir === 1 ? 'horario' : 'antihorario'}</span>
+        </div>
+      )}
       {finale && s.winner !== null && <Finale name={s.winner === ME ? '¡Has ganado!' : `¡Gana ${name(s.winner)}!`} why={s.log.some((l) => l.text.includes('3 Rituales')) ? 'Reúne los 3 Rituales' : s.log.some((l) => l.text.includes('único que queda')) ? 'Es el único que queda' : 'Última carta'} color={colors[s.winner]} />}
       {ph.t === 'over' && !finale && !cfg.tutorial && <GameOver s={s} colors={colors} startedAt={startedAt.current} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
       {tutor.view && !finale && <TutorOverlay view={tutor.view} finished={ph.t === 'over'} onExit={onExit} />}
@@ -2201,6 +2257,8 @@ function SlapArms({ spot, slapping, slapped, players, colors, live = false, endi
 
 /** Lo que dura el final a cámara lenta antes de que salga el resumen de la partida. */
 const FINALE_MS = 6200;
+/** Lo que tarda en pararse la tragaperras del principio. */
+const REEL_MS = 3800;
 
 /** Final épico: bandas de cine, la mesa se oscurece y aparece el ganador. */
 function Finale({ name, why, color }: { name: string; why: string; color: string }) {

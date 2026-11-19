@@ -117,6 +117,8 @@ export interface GameState {
   /** Para el resumen final: cartas echadas y robadas por jugador, y turnos jugados. */
   stats: { played: number[]; drawn: number[]; turns: number; maxCurses: number[]; maxHand: number[]; minHand: number[] };
   after: { turnTo: number | null } | null;
+  /** «Jugar juntas»: copias idénticas que se duplicarán en cuanto se pueda (cuando acabe la decisión de la primera). */
+  joinQ?: { player: number; ids: string[] } | null;
   totalCurses: number;
   winner: number | null;
   log: { n: number; text: string }[];
@@ -322,9 +324,15 @@ export function isLegal(s: GameState, p: number, c: Card): boolean {
 /** ¿Puede este jugador jugar esta carta ahora mismo como jugada de turno? */
 export function canPlay(s: GameState, p: number, c: Card): boolean {
   if (s.phase.t !== 'turn' || s.turn !== p) return false;
-  if (s.phase.drawn && s.phase.drawn !== c.id) return false;
+  if (s.phase.drawn && s.phase.drawn !== c.id && !predWithDrawn(s, p, c)) return false;
   if (isBlind(s)) return true;
   return isLegal(s, p, c);
+}
+
+/** Tras robar, se puede jugar Predestinar si lo acompaña precisamente la carta robada. */
+function predWithDrawn(s: GameState, p: number, c: Card): boolean {
+  const ph = s.phase;
+  return ph.t === 'turn' && !!ph.drawn && c.kind === 'predestinar' && companions(s, p, c.id).some((x) => x.id === ph.drawn);
 }
 
 /** `blindOk`: en Tinieblas solo se puede duplicar probando suerte a ciegas (acción `guess`). */
@@ -471,6 +479,8 @@ export function newGame(o: GameOptions): GameState {
   s.pile.push(first);
   s.color = first.color!;
   log(s, `Comienza la partida. Carta inicial: ${cardName(first)}.`);
+  // Se sortea quién empieza y en qué sentido se juega.
+  s.dir = rnd(s) < 0.5 ? 1 : -1;
   beginTurn(s, Math.floor(rnd(s) * s.players.length));
   return s;
 }
@@ -1155,6 +1165,7 @@ export function apply(prev: GameState, a: Action): GameState {
   s.seq++;
   s.fx = [];
   if (!step(s, a)) return prev;
+  if (s.joinQ) drainJoin(s);
   // Récords para el resumen final.
   s.players.forEach((pl, i) => {
     const n = pl.hand.length;
@@ -1178,10 +1189,25 @@ export function apply(prev: GameState, a: Action): GameState {
 
 /** Copias idénticas echadas a la vez que la primera: se duplican una tras otra (si alguna ya no se puede, se para). */
 function dupMore(s: GameState, p: number, first: Card, ids?: string[]) {
-  for (const id of ids ?? []) {
-    const c = s.players[p].hand.find((x) => x.id === id);
-    if (!c || c.kind !== first.kind || c.color !== first.color) continue;
-    if (s.phase.t === 'over' || !handleDup(s, p, id)) break;
+  const same = (ids ?? []).filter((id) => { const c = s.players[p].hand.find((x) => x.id === id); return !!c && c.kind === first.kind && c.color === first.color; });
+  s.joinQ = same.length ? { player: p, ids: same } : null;
+  drainJoin(s);
+}
+
+/**
+ * Duplica las copias pendientes de «Jugar juntas» en cuanto se puede (si la primera abrió una decisión —elegir
+ * objetivo, recuperar…—, al terminarla). Si la carta de arriba de la Pila ya no es idéntica, se desiste.
+ */
+function drainJoin(s: GameState) {
+  for (let guard = 0; guard < 10 && s.joinQ && s.phase.t !== 'over'; guard++) {
+    const q = s.joinQ;
+    const c = s.players[q.player].hand.find((x) => x.id === q.ids[0]);
+    const top = topCard(s);
+    if (!c || top.kind !== c.kind || top.color !== c.color) { s.joinQ = null; return; }
+    if (!canDup(s, q.player, c)) return;
+    q.ids.shift();
+    if (!q.ids.length) s.joinQ = null;
+    handleDup(s, q.player, c.id);
   }
 }
 
@@ -1191,7 +1217,8 @@ function step(s: GameState, a: Action): boolean {
     case 'play': {
       if (ph.t !== 'turn' || s.turn !== a.player) return false;
       const c = s.players[a.player].hand.find((x) => x.id === a.cardId);
-      if (!c || (ph.drawn && ph.drawn !== c.id)) return false;
+      const drawnId = ph.drawn;
+      if (!c || (drawnId && drawnId !== c.id && !predWithDrawn(s, a.player, c))) return false;
       if (!isLegal(s, a.player, c)) {
         if (!isBlind(s)) return false;
         log(s, `${nm(s, a.player)} juega a ciegas ${cardName(c)}: no se puede encadenar. Roba 1 y pierde el turno.`);
@@ -1201,6 +1228,8 @@ function step(s: GameState, a: Action): boolean {
         return true;
       }
       startPlay(s, a.player, c, a.with ?? []);
+      // Predestinar tras robar: la carta que lo acompaña es la robada.
+      if (drawnId && drawnId !== c.id && s.phase.t === 'choose' && s.phase.need === 'card') s.phase.options = s.phase.options.filter((o) => o === drawnId);
       dupMore(s, a.player, c, a.with);
       return true;
     }
@@ -1214,7 +1243,10 @@ function step(s: GameState, a: Action): boolean {
       }
       const [c] = drawCards(s, a.player, 1);
       log(s, `${nm(s, a.player)} roba una carta.`);
-      if (c && isLegal(s, a.player, c)) ph.drawn = c.id;
+      // Se puede jugar la robada si encadena, o si un Predestinar de la mano puede ir acompañado de ella.
+      const pd = c ? s.players[a.player].hand.find((x) => x.kind === 'predestinar' && x.id !== c.id) : undefined;
+      const viaPred = !!c && !!pd && isLegal(s, a.player, pd) && companions(s, a.player, pd.id).some((x) => x.id === c.id);
+      if (c && (isLegal(s, a.player, c) || viaPred)) ph.drawn = c.id;
       else finish(s);
       return true;
     }
