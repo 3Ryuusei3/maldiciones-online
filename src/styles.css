@@ -7366,7 +7366,7 @@ input[type="checkbox"]:focus-visible {
 /* ═════════ Cuenta ═════════ */
 .entry-menu { display: flex; flex-direction: column; align-items: stretch; gap: 10px; width: min(320px, 100%); margin: 6px auto 0; }
 .entry-menu .play { width: 100%; }
-.entry-menu .play.ghost { background: transparent; color: #fff; box-shadow: inset 0 0 0 2px #fff; }
+
 .entry-or { display: flex; align-items: center; gap: 10px; color: #b9b5c8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; margin: 4px 0; }
 .entry-or::before, .entry-or::after { content: ''; flex: 1; height: 1px; background: #ffffff33; }
 .entry-guest { background: none; border: 0; color: #e6e3f0; text-decoration: underline; font-size: 14px; cursor: pointer; padding: 6px; }
@@ -7392,3 +7392,20 @@ input[type="checkbox"]:focus-visible {
 /* Los iconos de las cartas son oscuros: sobre fondo claro se ven todos (el elegido, sobre el color del jugador). */
 .icon-pick button { background: #e9e7ef; }
 .icon-pick button.on { border-color: #fff; box-shadow: 0 0 0 2px #0a0e10 inset; }
+
+/* Pantalla de entrada: botones con el estilo de la portada. («ghost» ya lo usan las cartas que vuelan: otro nombre.) */
+.home-panel .entry-menu .play.outline { background: transparent; color: #fff; border-color: #fff; box-shadow: inset 0 0 0 2px #fff; }
+.home-panel .entry-menu .play.outline:hover:not(:disabled) { background: var(--gold); border-color: var(--gold); color: #0a0e10; box-shadow: none; }
+.home-panel button.google { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; background: #fff; color: #1f1f1f; border-color: #fff; font-weight: 600; font-size: 14px; letter-spacing: 0.02em; text-transform: none; padding: 12px 16px; }
+.home-panel button.google:hover:not(:disabled) { background: #f1f1f1; }
+.home-panel button.entry-guest { background: none; border: 0; color: #e6e3f0; text-decoration: underline; text-transform: none; letter-spacing: 0.02em; font-size: 14px; }
+.home-panel button.entry-guest:hover:not(:disabled) { background: none; color: #fff; }
+/* Barra de la cuenta en la portada: yo (lleva a «Mi cuenta») arriba a la izquierda, salir arriba a la derecha. */
+.home-panel .account-bar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.home-panel .account-bar button.account-me { display: flex; align-items: center; gap: 10px; background: none; border: 0; padding: 4px 6px 4px 0; color: #fff; font-size: 14px; letter-spacing: 0.04em; text-transform: none; cursor: pointer; }
+.home-panel .account-bar button.account-me:hover:not(:disabled) { background: none; }
+.home-panel .account-bar button.account-me:hover b { text-decoration: underline; }
+.home-panel .account-bar button.account-me.guest { color: #cfcbdc; }
+.home-panel .account-bar .guest-av { width: 30px; height: 30px; background: #3a3746; color: #fff; font-weight: 800; }
+.home-panel .account-bar button.account-exit { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; background: transparent; border: 1px solid rgba(255, 255, 255, 0.45); color: #fff; cursor: pointer; }
+.home-panel .account-bar button.account-exit:hover:not(:disabled) { background: #fff; color: #0a0e10; border-color: #fff; }

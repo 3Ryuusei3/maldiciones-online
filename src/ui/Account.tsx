@@ -67,7 +67,7 @@ export function EntryScreen() {
       <p className="tagline">El juego de cartas maldito</p>
       <div className="entry-menu">
         <button className="play" onClick={() => setMode('login')}>Iniciar sesión</button>
-        <button className="play ghost" onClick={() => setMode('signup')}>Crear cuenta</button>
+        <button className="play outline" onClick={() => setMode('signup')}>Crear cuenta</button>
         {google}
         <div className="entry-or"><span>o</span></div>
         <button className="entry-guest" onClick={playAsGuest}>Jugar como invitado</button>
@@ -138,21 +138,31 @@ export function ProfileScreen({ first, onDone }: { first?: boolean; onDone?: () 
   );
 }
 
-/** En la portada: quién eres (con sesión) o la invitación a entrar (invitado). */
+/** Icono de salir (puerta con flecha). */
+const ExitIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" />
+  </svg>
+);
+
+/** En la portada, arriba: quién eres (pulsando, «Mi cuenta») a la izquierda y salir a la derecha; o, como invitado, entrar. */
 export function AccountChip({ onAccount }: { onAccount: () => void }) {
   const acc = useAccount();
   if (acc.status === 'in' && acc.profile) return (
-    <div className="account-chip">
-      <Avatar p={acc.profile} size={30} />
-      <b>{acc.profile.nickname}</b>
-      <button onClick={onAccount}>Mi cuenta</button>
-      <button onClick={signOut}>Salir</button>
+    <div className="account-bar">
+      <button className="account-me" onClick={onAccount} title="Mi cuenta: nickname, color e icono">
+        <Avatar p={acc.profile} size={30} />
+        <b>{acc.profile.nickname}</b>
+      </button>
+      <button className="account-exit" onClick={signOut} title="Cerrar sesión" aria-label="Cerrar sesión"><ExitIcon /></button>
     </div>
   );
   if (acc.status === 'guest') return (
-    <div className="account-chip guest">
-      <span>Juegas como invitado</span>
-      <button onClick={toEntry}>Iniciar sesión o crear cuenta</button>
+    <div className="account-bar">
+      <button className="account-me guest" onClick={toEntry} title="Iniciar sesión o crear cuenta">
+        <span className="avatar guest-av">?</span>
+        <span>Invitado · <u>Entrar</u></span>
+      </button>
     </div>
   );
   return null;
