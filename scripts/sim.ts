@@ -51,7 +51,9 @@ for (let g = 0; g < games; g++) {
     if (next === s) {
       const who = pendingPlayers(s);
       const p = who[Math.floor(r() * who.length)];
-      const a = r() < 0.03 && ['react', 'aplastar', 'gemas'].includes(s.phase.t) ? ({ type: 'timeout' } as const) : botDecide(s, p, levels[p], r);
+      const windowed = ['react', 'aplastar', 'gemas'].includes(s.phase.t);
+      // En una ventana, una máquina puede no hacer nada (p. ej. no caer en un Aplastar inutilizado): se acaba el tiempo.
+      const a = (r() < 0.03 && windowed ? ({ type: 'timeout' } as const) : botDecide(s, p, levels[p], r)) ?? (windowed ? ({ type: 'timeout' } as const) : null);
       if (!a) throw new Error(`Partida ${g}: sin acción para ${p} en fase ${s.phase.t}`);
       next = apply(s, a);
       if (next === s) throw new Error(`Partida ${g}: acción rechazada ${JSON.stringify(a)} en fase ${s.phase.t}\n${s.log.slice(-6).map((l) => l.text).join('\n')}`);

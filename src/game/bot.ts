@@ -264,7 +264,13 @@ export function botDecide(s: GameState, p: number, lvl: Level, r: Rnd = Math.ran
     case 'react':
       return ph.waiting.includes(p) ? reactChoice(s, p, lvl, r) : null;
     case 'aplastar':
-      return ph.players.includes(p) && !ph.slapped.includes(p) ? { type: 'slap', player: p } : null;
+      if (!ph.players.includes(p) || ph.slapped.includes(p)) return null;
+      // Aplastar inutilizado: las máquinas a veces se despistan y ponen la mano (más en fácil).
+      if (ph.fake) return r() < [0.45, 0.2, 0.06][lvl] ? { type: 'slap', player: p } : null;
+      return { type: 'slap', player: p };
+    case 'inutil':
+      // Con Inutilizar, a veces se olvidan y «empiezan el efecto» de su carta de color (y roban).
+      return ph.player === p ? { type: 'inutil', player: p, use: r() < [0.35, 0.15, 0.05][lvl] } : null;
     case 'give': {
       if (!ph.waiting.includes(p)) return null;
       const n = ph.need[p];

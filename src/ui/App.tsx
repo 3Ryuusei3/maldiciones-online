@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Card, Color, COLORS, COLOR_NAME, HELP, KINDS, Kind, cardImage, cardName, isCursed, isPlainGem } from '../game/cards';
-import { Action, Anchor, Effect, Fx, GameState, canDup, canFreeAntitodo, canPlay, isBlind, isCursedEnv, nextPlayer, pendingPlayers, predTargets, reactOptions, topCard } from '../game/engine';
+import { Action, Anchor, Effect, Fx, GameState, canDup, canFreeAntitodo, canPlay, isBlind, isCursedEnv, nextPlayer, pendingPlayers, predTargets, reactOptions, reactOptionsFor, topCard } from '../game/engine';
 import { Level } from '../game/bot';
 import { Compendium, CompendioButton, HelpDock } from './Compendium';
 import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
@@ -89,7 +89,8 @@ const SETTLE_MS = 360;
 /** Lo que tarda una mano en abrir hueco antes de que salga la carta que va a ocuparlo. */
 const ROOM_MS = 300;
 
-interface FlyOpt { flat?: boolean; src: string; A: DOMRect; B: DOMRect; sA: number; sB: number; delay?: number; ms?: number; show?: number; showDx?: number; showMs?: number; solid?: boolean; onStart?: () => void; onLand?: () => void }
+/** `flipFrom`: la carta sale con esta cara y se da la vuelta a mitad de camino (cartas jugadas a ciegas). */
+interface FlyOpt { flat?: boolean; src: string; A: DOMRect; B: DOMRect; sA: number; sB: number; delay?: number; ms?: number; show?: number; showDx?: number; showMs?: number; solid?: boolean; flipFrom?: string; onStart?: () => void; onLand?: () => void }
 
 /**
  * Lanza una carta "fantasma" de A a B. El desplazamiento horizontal y el vertical llevan curvas Bézier distintas,
@@ -102,8 +103,15 @@ function launch(host: HTMLElement, o: FlyOpt): number {
   const mk = (cls: string) => { const d = document.createElement('div'); d.className = cls; return d; };
   const gx = mk('gx'), gy = mk('gy'), gl = mk('gl');
   const img = document.createElement('img');
-  img.src = o.src;
+  img.src = o.flipFrom ?? o.src;
   img.className = 'ghost';
+  if (o.flipFrom) {
+    // A mitad de camino se estrecha, cambia de cara y se vuelve a abrir.
+    window.setTimeout(() => {
+      img.classList.add('gflip');
+      window.setTimeout(() => { img.src = o.src; }, 160);
+    }, delay + ms * 0.4);
+  }
   gl.appendChild(img); gy.appendChild(gl); gx.appendChild(gy);
   const cx = (r: DOMRect) => r.left + r.width / 2;
   const cy = (r: DOMRect) => r.top + r.height / 2;
@@ -148,7 +156,7 @@ const scaleAt = (a: Anchor, r: DOMRect, w: number) => (a === 'pile' || a === 'de
 /** Imán: lo que se quedan las cartas atraídas levantadas sobre cada jugador antes de volar (más pausado). */
 const REVEAL_MS = 2600;
 /** Muestra levantadas y marcadas las cartas que se van a llevar de cada jugador y después las hace volar a su destino. */
-function reveal(host: HTMLElement, takes: Fx[], w: number) {
+function reveal(host: HTMLElement, takes: Fx[], w: number, blind = false) {
   const bySrc = new Map<number, Fx[]>();
   for (const f of takes) bySrc.set(f.from as number, [...(bySrc.get(f.from as number) ?? []), f]);
   let k = 0;
@@ -161,7 +169,8 @@ function reveal(host: HTMLElement, takes: Fx[], w: number) {
     row.style.top = `${p === ME ? A.top : A.top + A.height / 2}px`;
     const imgs = fs.map((f) => {
       const img = document.createElement('img');
-      img.src = asset(p === ME ? cardImage(f.card!) : 'cards/back.webp');
+      // Las mías se ven, salvo en Tinieblas (ahí todo va boca abajo).
+      img.src = asset(p === ME && !blind ? cardImage(f.card!) : 'cards/back.webp');
       row.appendChild(img);
       return img;
     });
@@ -192,7 +201,10 @@ export function playGroup(s: GameState): { from: Anchor; fx: Fx[]; cards: Card[]
     const comp = top?.kind === 'predestinar' && below ? s.fx.find((f) => f.card?.id === below.id && f.to === 'pile' && typeof f.from === 'number') : undefined;
     return comp ? { from: comp.from, fx: [comp], cards: [top, below] } : null;
   }
-  const fx = s.fx.filter((f) => f.card && f.to === 'pile' && f.from === star.from);
+  const fx = s.fx.filter((f) => f.card && f.to === 'pile' && f.from === star.from && !f.bounce);
+  // La carta que acompaña a un Predestinar (queda encima): el cartel dice «Predestinar + carta».
+  const below = s.pile[s.pile.length - 2];
+  if (below?.kind === 'predestinar' && s.log.some((l) => l.n === s.seq && l.text.includes('acompaña Predestinar'))) return { from: star.from, fx, cards: [below, ...fx.map((f) => f.card!)] };
   return { from: star.from, fx, cards: fx.map((f) => f.card!) };
 }
 
@@ -247,9 +259,13 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
     const added: string[] = [];
     const hide: string[] = [];
     let k = 0;
+    const blindNow = isBlind(s);
+    const BACK = asset('cards/back.webp');
+    /** Retraso extra para lo que viene después de una carta probada a ciegas que vuelve a la mano. */
+    let extra = 0;
     // Imán: antes de volar, las cartas atraídas se levantan y se marcan sobre cada jugador (las tuyas, boca arriba).
     const takes = s.phase.t === 'iman' ? s.fx.filter((f) => f.card && typeof f.from === 'number' && typeof f.to === 'number') : [];
-    if (takes.length) reveal(host, takes, w);
+    if (takes.length) reveal(host, takes, w, isBlind(s));
     for (const f of s.fx) {
       if (takes.includes(f)) continue;
       const B = anchorRect(f.to);
@@ -274,7 +290,12 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
         const pileIdx = f.card ? s.pile.findIndex((c) => c.id === f.card!.id) : -1;
         const under = f.to === 'pile' && (!f.card || (pileIdx >= 0 && pileIdx < s.pile.length - 1));
         const side = under ? (k % 2 ? 1 : -1) * B.width * 0.95 : 0;
-        const src = asset(f.card && !(typeof f.to === 'number' && f.from !== ME) ? cardImage(f.card) : 'cards/back.webp');
+        // Boca arriba: lo que va a la Pila, las cartas malditas que se entregan y, fuera de Tinieblas, lo mío.
+        // En Tinieblas, lo que entra o sale de mi mano (sin ir a la Pila) viaja boca abajo.
+        const faceUp = !!f.card && (f.to === 'pile' || isCursed(f.card) || (!blindNow && !(typeof f.to === 'number' && f.from !== ME)));
+        const src = faceUp ? asset(cardImage(f.card!)) : BACK;
+        // Jugada a ciegas (desde una mano boca abajo hacia la Pila): se da la vuelta por el camino.
+        const flipFrom = blindNow && f.card && f.to === 'pile' && typeof f.from === 'number' ? BACK : undefined;
         const go = (B2: DOMRect, sB: number, delay: number) =>
           launch(host, {
             // Las cartas que pasan de una mano a otra van boca abajo (salvo las mías).
@@ -283,6 +304,7 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
             sA: mine ? Math.min(A.width, w * 1.4) / w : scaleAt(f.from, A, w),
             sB,
             delay,
+            flipFrom,
             ms: slow ? FLY_MS * 2.6 : undefined,
             showMs: slow ? SHOW_MS * 2.6 : undefined,
             solid: !!mine,
@@ -290,6 +312,12 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
             showDx: dx - side,
             onStart: from !== null ? () => bump(from, -1) : undefined,
             onLand: () => {
+              if (f.bounce && typeof f.from === 'number') {
+                // No servía: vuelve a la mano de quien la probó y se da la vuelta otra vez.
+                const back = f.from === ME ? document.querySelector<HTMLElement>('.cards-row')?.getBoundingClientRect() : anchorRect(f.from);
+                if (back) launch(host, { src: BACK, flipFrom: src, A: B, B: back, sA: scaleAt('pile', B, w), sB: scaleAt(f.from, back, w), ms: 700, solid: true, onLand: () => { if (id) setFlying((v) => v.filter((x) => x !== id)); } });
+                return;
+              }
               if (under) {
                 const key = ++tuckSeq;
                 setTucks((v) => [...v, { key, src, side }]);
@@ -300,7 +328,7 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
               } else if (id) setFlying((v) => v.filter((x) => x !== id));
               if (to !== null) { bump(to, 1); gapFor(to, -1); }
               if (got) setHidden((v) => v.filter((x) => x !== got));
-              if (got && fromDeck) {
+              if (got && fromDeck && !blindNow) {
                 // Llega boca abajo y se da la vuelta en la mano.
                 setTurning((v) => ({ ...v, [got]: 'out' }));
                 window.setTimeout(() => setTurning((v) => ({ ...v, [got]: 'in' })), 340);
@@ -313,8 +341,10 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
           window.setTimeout(() => {
             const el = document.querySelector<HTMLElement>(`[data-card="${got}"]`);
             go(el?.getBoundingClientRect() ?? B, el ? el.offsetWidth / w : scaleAt(f.to, B, w), 0);
-          }, ROOM_MS + k * gap);
-        } else go(B, scaleAt(f.to, B, w), k * gap + (to !== null ? ROOM_MS : 0));
+          }, ROOM_MS + k * gap + extra);
+        } else go(B, scaleAt(f.to, B, w), k * gap + extra + (to !== null ? ROOM_MS : 0));
+        // Tras una carta que vuelve a la mano, lo siguiente (la carta que roba) espera a que termine.
+        if (f.bounce) extra += FLY_MS + (isStar ? SHOW_MS + SETTLE_MS : 0) + 900;
       }
     }
     if (added.length) setFlying((v) => [...v, ...added]);
@@ -521,7 +551,7 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
 
 type Assign = Record<string, 'keep' | 'discard' | number>;
 type Fate = 'back' | 'keep' | 'discard';
-const FATE_LABEL: Record<Fate, string> = { back: 'Al Mazo', keep: 'Me la quedo', discard: 'Descartar' };
+const FATE_LABEL: Record<Fate, string> = { back: 'Al Mazo', keep: 'A la mano', discard: 'Descartar' };
 
 function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => void; onRematch?: () => void; net?: NetClient }) {
   /** Entrada de la partida: cada jugador tiene su Maldición boca arriba y recibe 6 cartas boca abajo; luego se giran. */
@@ -552,11 +582,13 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   }, [net, local.timer, rv, remote.recvAt]);
   const isHost = !net || !!rv?.host;
   /** Color de cada jugador: online, el que eligió en la sala; en local, el de su asiento. */
+  /** Orden al azar de la paleta para las máquinas (se sortea una vez por partida). */
+  const botColors = useRef(PCOL.map((_, i) => i).sort(() => Math.random() - 0.5));
   const colors = useMemo(() => {
     if (net) return s.players.map((_, p) => PCOL[rv?.seats[p]?.color ?? p % PCOL.length] ?? PCOL[p % PCOL.length]);
-    // En local: el mío, el que elegí; las máquinas, los que quedan, por orden.
+    // En local: el mío, el que elegí; las máquinas, al azar entre los que quedan (fijos durante la partida).
     const mine = cfg.color ?? 0;
-    const rest = PCOL.filter((_, i) => i !== mine);
+    const rest = botColors.current.filter((i) => i !== mine).map((i) => PCOL[i]);
     return s.players.map((_, p) => (p === ME ? PCOL[mine] : rest[(p - 1 + rest.length) % rest.length]));
   }, [net, rv?.seats, s.players.length, cfg.color]);
   const timerOn = net ? rv?.opts.timer !== false : localTimer;
@@ -702,8 +734,10 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     : ph.t === 'imanPick' && ph.waiting.includes(ME) ? { options: ph.picks[ME].options, count: ph.picks[ME].count, from: ph.source, what: 'Imán' }
     : null;
   const gemas = ph.t === 'gemas' && ph.waiting.includes(ME);
+  /** Defensas que aún sirven mientras se resuelve un Imán o una Codicia (antes del intercambio). */
+  const lateOpts = (ph.t === 'imanPick' || ph.t === 'codicia') && ph.eff ? reactOptionsFor(s, ME, ph.eff).filter((o) => o === 'antitodo' || o === 'egida' || o === 'reflejo') : [];
   /** Algo va contra mí y me toca responder (distinto de que sea mi turno). */
-  const underAttack = !!(reacting && reacting.eff.targets.includes(ME)) || !!tie || (ph.t === 'aplastar' && ph.players.includes(ME) && !ph.slapped.includes(ME));
+  const underAttack = !!(reacting && reacting.eff.targets.includes(ME)) || !!tie || (ph.t === 'aplastar' && ph.players.includes(ME) && !ph.slapped.includes(ME)) || (ph.t === 'inutil' && !!ph.receive && ph.player === ME);
   const condena = ph.t === 'condena' && ph.player === ME ? ph : null;
   const iman = ph.t === 'iman' && ph.launcher === ME ? ph : null;
   const adivinar = ph.t === 'adivinar' && ph.player === ME ? ph : null;
@@ -831,7 +865,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     prevEnv.current = envNow;
     // Primero los Indicadores de los lados y, después, el central.
     const steps = (['tinieblas', 'mutis', 'inutilizar', 'centro'] as const).filter((k) => envNow[k] !== before[k]).map((k) => ({ k, on: envNow[k] }));
-    if (steps.length) {
+    // Si la partida acaba con esta jugada (Antitodo, un Entorno…), la trifuerza cambia sin animación grande.
+    if (steps.length && s.phase.t === 'over') { setTriHold(null); setEnvFx(null); }
+    else if (steps.length) {
       const key = s.seq;
       lastEnvKey.current = key;
       setTriHold((h) => h ?? before);
@@ -913,10 +949,33 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
   // Aplastar: aparece una diana en un sitio al azar de la mesa (el mismo para todos, sale de la ventana de la jugada)
   // y hay que pulsarla antes que los demás.
+  /** Última ronda de Aplastar (para dejar los brazos un momento cuando acaba). */
+  const lastSlap = useRef<{ spot: { x: number; y: number }; slapped: number[]; players: number[]; win: number } | null>(null);
+  // Se calcula durante el render (no en un efecto): así el componente de los brazos no llega a desmontarse
+  // entre el final de la ronda y la despedida, y conserva dónde estaba cada mano.
+  const lingerRef = useRef<(NonNullable<typeof lastSlap.current> & { until: number }) | null>(null);
+  if (ph.t === 'aplastar') lingerRef.current = null;
+  else if (lastSlap.current) {
+    // Quien cerró la ronda no llegó a verse: ponen la mano todos menos el último (lo dice el registro).
+    const last = s.log.slice(-6).map((l) => l.text).find((t) => t.includes('es el último en poner la mano'));
+    const loser = last ? s.players.findIndex((p) => last.startsWith(p.name)) : -1;
+    const ls = lastSlap.current;
+    lingerRef.current = { ...(loser >= 0 ? { ...ls, slapped: [...ls.slapped, ...ls.players.filter((p) => p !== loser && !ls.slapped.includes(p))] } : ls), until: Date.now() + 1700 };
+    lastSlap.current = null;
+  }
+  const slapLinger = lingerRef.current && Date.now() < lingerRef.current.until ? lingerRef.current : null;
+  const [, bumpLinger] = useState(0);
+  const lingerUntil = lingerRef.current?.until ?? 0;
+  useEffect(() => {
+    if (!lingerUntil) return;
+    const id = window.setTimeout(() => bumpLinger((n) => n + 1), Math.max(0, lingerUntil - Date.now()) + 30);
+    return () => clearTimeout(id);
+  }, [lingerUntil]);
   const slapSpot = ph.t === 'aplastar' ? (() => {
     const h = hash(`aplastar:${ph.win}:${ph.launcher}`);
     return { x: 14 + (h % 7200) / 100, y: 16 + ((h >> 13) % 4400) / 100 };
   })() : null;
+  if (ph.t === 'aplastar' && slapSpot) lastSlap.current = { spot: slapSpot, slapped: [...ph.slapped], players: ph.players, win: ph.win };
 
   // ── qué hace cada carta de mi mano al pulsarla
   function cardAction(c: Card): { run: () => void; label?: string; alt?: () => void } | null {
@@ -927,6 +986,12 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     if (givingCod) return { run: () => send({ type: 'give', player: ME, cardId: c.id }) };
     if (escarcha) return { run: () => setEscGive(escGive?.cardId === c.id ? null : { cardId: c.id, to: null }), label: escGive?.cardId === c.id ? (escGive.to === null ? 'Elige a quién' : `→ ${name(escGive.to)}`) : undefined };
     if (rafaga) return rafaga.own ? { run: () => setTrayPick(trayPick === c.id ? null : c.id), label: trayPick === c.id ? 'Elige a quién' : undefined } : null;
+    // Imán o Codicia aún sin resolver: se pueden parar con una carta de defensa (o Antitodo).
+    if (lateOpts.length && !blind) {
+      if (c.kind === 'antitodo' && lateOpts.includes('antitodo')) return { run: () => react({ r: 'antitodo' }), label: 'Anular' };
+      if (c.kind === 'egida' && lateOpts.includes('egida') && !me.egida) return { run: () => react({ r: 'egida' }), label: 'Defender' };
+      if (c.kind === 'reflejo' && lateOpts.includes('reflejo')) return { run: () => react({ r: 'reflejo' }), label: 'Reflejar' };
+    }
     if (tie) {
       if (!tie.options.includes(c.id)) return null;
       return tie.count === 1 ? { run: () => send({ type: 'pick', player: ME, ids: [c.id] }) } : { run: () => toggle(c.id, tie.count) };
@@ -1009,7 +1074,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     // El aviso de elegir color sale a la vez que las gemas, no antes.
     text = pickReady && !envFx ? 'Has jugado la última carta incolora: elige el color con las gemas de debajo de la trifuerza.'
       : peeking && Date.now() >= peekUntil - PEEK_VISIBLE_MS ? 'Cuando tus cartas se pongan boca abajo, eliges color.'
-      : blind ? 'Caen las Tinieblas…' : 'En cuanto termine la animación, eliges color.';
+      : blind ? 'Caen las Tinieblas…' : 'A continuación, elige el siguiente color.';
 
   } else if (choosing) {
     const e = choosing.pp.companion ?? choosing.pp.card;
@@ -1048,6 +1113,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     alert = true;
     text = `${tie.what} de ${name(tie.from)}: tienes varias cartas de la misma Jerarquía. Elige ${tie.count === 1 ? 'cuál entregas' : `${tie.count} para entregar`}.`;
     if (tie.count > 1) B(`Entregar ${sel.length}/${tie.count}`, () => send({ type: 'pick', player: ME, ids: sel }), true, sel.length !== tie.count);
+    if (lateOpts.includes('egida') && me.egida) B('Usar Égida (último uso)', () => react({ r: 'egida' }));
+    if (lateOpts.length) text += ' Aún puedes pararlo con una carta resaltada.';
   } else if (gemas) {
     alert = true;
     text = 'Gema Tricolor: marca en tu mano las Gemas que quieres descartar.';
@@ -1102,6 +1169,12 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   } else if (slapping) {
     alert = true;
     text = '¡APLASTAR! Pulsa la mano antes que los demás.';
+  } else if (ph.t === 'inutil' && ph.player === ME) {
+    // Con Inutilizar activo la carta de color no tiene efecto: si se «empieza» igualmente, se roban 3.
+    alert = true;
+    text = ph.receive ? `Te llega ${cardName(ph.card)}: ¿recibir el efecto?` : `¿Empezar el efecto de ${cardName(ph.card)}?`;
+    B(ph.receive ? 'Recibir el efecto' : 'Empezar el efecto', () => send({ type: 'inutil', player: ME, use: true }));
+    B('Cancelar', () => send({ type: 'inutil', player: ME, use: false }));
   } else if (myTurn) {
     text = ph.drawn ? 'Puedes jugar la carta robada o quedártela.' : ph.dupd ? 'Has duplicado: encadena otra carta, roba o termina tu turno.' : blind ? 'Tinieblas: juega una carta a ciegas o roba 3.' : 'Encadena una carta o roba del Mazo.';
     if (ph.drawn) B('Quedármela', () => send({ type: 'keep', player: ME }), true);
@@ -1115,12 +1188,14 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   else if (ph.t === 'aplastar') text = '¡Aplastar! Todos a pulsar la mano…';
   else if (ph.t === 'gemas') text = `Gema Tricolor: ${ph.waiting.map(name).join(', ')} ${ph.waiting.length > 1 ? 'eligen' : 'elige'} qué Gemas descartar. Se echan todas a la vez.`;
   else if (ph.t === 'tinte') text = `${name(ph.player)} elige color…`;
+  else if (ph.t === 'inutil') text = ph.receive ? `${name(ph.player)} decide si recibe el efecto de ${cardName(ph.card)}…` : `${name(ph.player)} decide si empieza el efecto de ${cardName(ph.card)}…`;
   else if (ph.t === 'give') text = `${ph.waiting.map(name).join(' y ')} ${ph.waiting.length > 1 ? 'eligen' : 'elige'} qué carta(s) da a ${name(ph.target)}…`;
   else if (ph.t === 'escarcha') text = `${name(ph.player)} congela el tiempo y mueve cartas entre las manos…`;
   else if (ph.t === 'rafaga') text = `Ráfaga de ${name(s.rafaga?.player ?? s.turn)}: está eligiendo qué cartas jugar…`;
   else {
     const who = pendingPlayers(s)[0] ?? s.turn;
     text = who === ME ? 'Estás resolviendo tu carta…' : ph.t === 'adivinar' ? `${name(who)} está adivinando el futuro…` : `${name(who)} está resolviendo su carta…`;
+    if (lateOpts.length) { text += ' Aún puedes pararlo con una carta resaltada.'; alert = true; }
   }
 
   // ── cartas apartadas que se muestran sobre mi mano (Imán, Adivinar, Recuperar)
@@ -1130,7 +1205,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       const d = assign[c.id] ?? 'discard';
       return (
         <div className="slot" key={c.id}>
-          <CardView card={c} className={`small ${trayPick === c.id ? 'selected' : ''}`} onClick={() => setTrayPick(trayPick === c.id ? null : c.id)} onInfo={setHelp} onHover={hoverHelp} />
+          <CardView card={c} back={blind} className={`small ${trayPick === c.id ? 'selected' : ''}`} onClick={() => setTrayPick(trayPick === c.id ? null : c.id)} onInfo={setHelp} onHover={hoverHelp} />
           <span className={`dest ${d === 'discard' ? '' : 'on'}`}>{d === 'keep' ? 'Para mí' : d === 'discard' ? 'Bajo la Pila' : `→ ${name(d)}`}</span>
         </div>
       );
@@ -1143,6 +1218,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       const f = fate[id] ?? 'back';
       return (
         <div className="slot" key={id}>
+          {/* Adivinar: las cartas se miran (también en Tinieblas); al pasar a la mano ya van boca abajo. */}
           <CardView card={c} className={`small ${f === 'back' ? '' : 'dim'}`} onInfo={setHelp} onHover={hoverHelp} />
           <div className="arrows">
             <button onClick={() => move(i, -1)} disabled={i === 0} aria-label="Mover a la izquierda">◀</button>
@@ -1154,7 +1230,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     });
   } else if (rafaga) {
     tray = rafaga.pool.map((c) => (
-      <CardView key={c.id} card={c} className={`small ${trayPick === c.id ? 'selected' : trayPick ? 'dim' : ''}`} onInfo={setHelp} onHover={hoverHelp}
+      <CardView key={c.id} card={c} back={blind} className={`small ${trayPick === c.id ? 'selected' : trayPick ? 'dim' : ''}`} onInfo={setHelp} onHover={hoverHelp}
         onClick={() => setTrayPick(trayPick === c.id ? null : c.id)} />
     ));
   } else if (escarcha) {
@@ -1178,7 +1254,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         <div>
           {(esc[x] ?? []).map((id) => {
             const moved = !s.players[x].hand.some((c) => c.id === id);
-            return <CardView key={id} card={all[id]} className={`small ${escPick === id ? 'selected' : ''} ${moved ? 'moved' : ''}`} onClick={() => swap(id)} onInfo={setHelp} onHover={hoverHelp} />;
+            return <CardView key={id} card={all[id]} back={blind} className={`small ${escPick === id ? 'selected' : ''} ${moved ? 'moved' : ''}`} onClick={() => swap(id)} onInfo={setHelp} onHover={hoverHelp} />;
           })}
         </div>
       </div>
@@ -1219,7 +1295,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const seats = SEATS[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
-    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
+    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
       <div className="rays" />
       <div className="shade" />
       <div className="flights" ref={flights} />
@@ -1331,7 +1407,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         {/* El cartel de la carta jugada no sale mientras haya una bandeja de decisión (ocuparían el mismo sitio). */}
         {callout && !finale && !tray && (
           <div key={`call${callout.key}`} className={`callout c-${callout.tone}`} style={{ '--cc': colors[callout.player] } as React.CSSProperties}>
-            <small><i style={{ background: colors[callout.player] }} />{names[callout.player]} {callout.verb}</small>
+            <small><i style={{ background: colors[callout.player] }} /><b className="cname">{names[callout.player]}</b> {callout.verb}</small>
             <strong>{callout.cards.map((c, i) => <span key={c.id}>{i > 0 && <em>+</em>}<Icon kind={c.kind} size={24} />{cardName(c)}</span>)}</strong>
             <span>{callout.text}</span>
           </div>
@@ -1409,13 +1485,23 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {/* Anuncio de la carta jugada: quién, qué carta y qué hace, bajo la carta que se presenta en grande sobre la Pila. */}
       {/* Si me toca elegir color, el selector ocupa el sitio del cartel de la jugada (no se pisan). */}
 
+      {/* Es el mismo componente durante la ronda y al acabar (misma clave): los brazos se quedan donde estaban
+          (el que pierde, a medio camino) y se desvanecen juntos. */}
+      {slapSpot && ph.t === 'aplastar'
+        ? <SlapArms key={`slap${ph.win}`} live seed={ph.win} spot={slapSpot} slapping={slapping} slapped={ph.slapped} players={ph.players} colors={colors} />
+        : slapLinger && <SlapArms key={`slap${slapLinger.win}`} live ending seed={slapLinger.win} spot={slapLinger.spot} slapping={false} slapped={slapLinger.slapped} players={slapLinger.players} colors={colors} />}
+      {/* Al acabar la ronda, los brazos se quedan un momento sobre la ficha. */}
       {slapSpot && ph.t === 'aplastar' && (
         <button
           key={`diana${ph.win}`}
           className={`diana ${slapping ? 'hot' : 'done'}`}
           style={{ left: `${slapSpot.x}%`, top: `${slapSpot.y}%` }}
           disabled={!slapping}
-          onPointerDown={slapping ? () => send({ type: 'slap', player: ME }) : undefined}
+          tabIndex={-1}
+          // Solo con el ratón o el dedo: ni Espacio ni Intro sirven para librarse.
+          onPointerDown={slapping ? (e) => { if (e.isTrusted && e.button === 0) send({ type: 'slap', player: ME }); } : undefined}
+          onKeyDown={(e) => e.preventDefault()}
+          onClick={(e) => e.preventDefault()}
           aria-label="Aplastar: púlsalo antes que nadie"
         >
           <img src={asset('icons/aplastar.webp')} alt="" draggable={false} />
@@ -1423,6 +1509,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       )}
       {ph.t === 'adivinar' && ph.player !== ME && <AdivinarFx key={`adiv${ph.player}`} actor={ph.player} name={name(ph.player)} n={ph.cards.length} />}
       {countText && <div key={countText} className="count-big" aria-live="assertive">{countText}</div>}
+      {/* Elegir color: flecha de los tres colores desde mi mano hasta las gemas, como un efecto dirigido. */}
+      {tinte && !envFx && pickReady && <PickArrow />}
       {/* Quién actúa sobre quién: flechas desde que empieza el efecto hasta que acaba (una por cada lanzador). */}
       {!dealing && !finale && (() => {
         let pairs: [number, number][] = [];
@@ -1439,6 +1527,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         else if (ph.t === 'imanPick') to(ph.source, ph.targets);
         else if (ph.t === 'iman') to(ph.launcher, s.players.filter((x) => x.id !== ph.launcher && !x.out).map((x) => x.id));
         else if (ph.t === 'escarcha') to(ph.player, ph.targets);
+        else if (ph.t === 'inutil' && ph.receive) to(s.turn, [ph.player]);
         pairs = pairs.filter(([f, t]) => f !== t && !s.players[t]?.out);
         if (!pairs.length) return null;
         return <ActionArrows pairs={pairs} colors={colors} />;
@@ -1468,7 +1557,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {/* Barra del borde inferior: el tiempo para memorizar en Tinieblas o, si no, mi reloj de decisión. */}
       <div className={`edge ${peekTimer ? 'peek' : ''}`}><Countdown timer={peekTimer ?? timer} /></div>
       {blind && !peeking && !dealing && ph.t !== 'over' && (
-        <div className="blind-hint" role="note">🌑 Tinieblas: puedes usar una carta en cualquier momento; si fallas, robas 1.</div>
+        <div className="blind-hint" role="note"><Icon kind="tinieblas" size={16} /> Tinieblas: puedes usar una carta en cualquier momento; si fallas, robas 1.</div>
       )}
 
       {net && remote.status !== 'open' && <div className="net-banner" role="status">Reconectando…</div>}
@@ -1673,6 +1762,234 @@ function ActionArrows({ pairs, colors }: { pairs: [number, number][]; colors: st
   );
 }
 
+/** Flecha curva (amarillo, morado y verde) desde mi mano hasta las gemas para elegir color. */
+function PickArrow() {
+  const [d, setD] = useState('');
+  useLayoutEffect(() => {
+    const place = () => {
+      const hand = document.querySelector('.cards-row')?.getBoundingClientRect();
+      const gems = document.querySelector('.gem-under')?.getBoundingClientRect();
+      if (!hand || !gems) return setD('');
+      const row = document.querySelector('.gem-under .gem-pick')?.getBoundingClientRect() ?? gems;
+      const sx = hand.left + hand.width / 2, sy = hand.top + 6;
+      // Llega al lado izquierdo de la fila de gemas, a media altura.
+      const ex = row.left - 10, ey = row.top + row.height / 2;
+      // Curva: sube primero y entra hacia las gemas por la izquierda.
+      const qx = Math.min(sx, ex) + (Math.abs(ex - sx)) * 0.35, qy = ey + (sy - ey) * 0.15;
+      setD(`M ${sx} ${sy} Q ${qx} ${qy} ${ex} ${ey}`);
+    };
+    // Las gemas entran con una animación: se mide cuando ha terminado.
+    const id = window.setTimeout(place, 450);
+    window.addEventListener('resize', place);
+    return () => { clearTimeout(id); window.removeEventListener('resize', place); };
+  }, []);
+  if (!d) return null;
+  return (
+    <svg className="action-arrows pick-arrow" aria-hidden="true">
+      <defs>
+        <linearGradient id="pick-g" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stopColor="#f5c767" /><stop offset="0.5" stopColor="#946cab" /><stop offset="1" stopColor="#72bf8c" />
+        </linearGradient>
+        <marker id="pick-head" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#72bf8c" stroke="#0a0e10" strokeWidth="1" />
+        </marker>
+      </defs>
+      <path d={d} className="aa-shadow" />
+      <path d={d} className="aa-line" stroke="url(#pick-g)" markerEnd="url(#pick-head)" />
+    </svg>
+  );
+}
+
+// ───────────────────────── brazos de Aplastar ─────────────────────────
+
+/** Mano vectorizada (zona de piel calcada del dibujo de Aplastar, 96×96); el borde negro lo pone el trazo, por fuera. */
+const HAND_PATH = 'M40.5 4.9L42.3 4.4L44.3 5.8L50 36.1L51 36.2L51.2 35.8L59.7 9.8L60.8 8.6L63.2 8.6L64 9L64.5 10.3L58.6 39.8L58.9 40.4L60 40L75.8 24.6L77.8 24.2L78.9 25.1L79.1 26L64.7 48.3L63.4 59.3L60.5 67.8L60.6 69.8L70.2 94.9L69.8 95.3L68.3 95.4L48.9 95.3L47.8 93.2L46.9 89.8L43.5 74.8L42.3 72.9L37.1 66.7L22.6 60.1L14.9 50L14.9 49L15.9 47.5L16.9 46.7L18.3 46.6L19 46.9L23.8 51.5L29.3 54.6L30.3 54.1L33.6 48.8L33.4 47.3L22.2 18.3L22.4 16.8L23.8 15.5L26.2 15.9L39.7 39.1L40.5 39.1L40.4 30.3L38.9 6.9Z';
+/** Medidas del dibujo: muñeca en (59.5, 95), ancho de muñeca ≈ 30 de 96 y el antebrazo entra inclinado ~18°. */
+const WRIST = { x: 59.5, y: 96 }, WRIST_W = 29.5 / 96, HAND_ANG = (Math.atan2(-20, -6.5) * 180) / Math.PI;
+const HAND_PX = 170;
+/** Grosor del brazo a lo largo (0 = hombro, 1 = muñeca), en múltiplos del ancho de la muñeca. */
+const ARM_PROFILE: [number, number][] = [[0, 2.3], [0.55, 1.9], [0.9, 1.22], [1, 1]];
+const armWidth = (u: number) => {
+  for (let i = 1; i < ARM_PROFILE.length; i++) {
+    const [a, wa] = ARM_PROFILE[i - 1], [b, wb] = ARM_PROFILE[i];
+    if (u <= b) return wa + ((wb - wa) * (u - a)) / (b - a);
+  }
+  return 1;
+};
+type Pt = { x: number; y: number };
+/** Silueta del brazo: línea central redondeada en el codo y grosor variable; `tip` px finales entran en la muñeca. */
+function armShape(o: Pt, e: Pt, w: Pt, W: number, tip: number) {
+  const L = (p: Pt, q: Pt, k: number) => ({ x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k });
+  const a = L(o, e, 0.86), b = L(e, w, 0.14);
+  const pts: Pt[] = [];
+  const N = 14;
+  for (let i = 0; i <= N; i++) pts.push(L(o, a, i / N));
+  for (let i = 1; i < N; i++) { const k = i / N; pts.push(L(L(a, e, k), L(e, b, k), k)); }
+  for (let i = 0; i <= N; i++) pts.push(L(b, w, i / N));
+  const acc = [0];
+  for (let i = 1; i < pts.length; i++) acc.push(acc[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  const tot = acc[acc.length - 1] || 1;
+  const left: Pt[] = [], right: Pt[] = [];
+  pts.forEach((p, i) => {
+    const q0 = pts[Math.max(0, i - 1)], q1 = pts[Math.min(pts.length - 1, i + 1)];
+    const dx = q1.x - q0.x, dy = q1.y - q0.y, l = Math.hypot(dx, dy) || 1;
+    const toEnd = tot - acc[i];
+    const k = toEnd < tip ? 0.8 + 0.2 * (toEnd / tip) : 1;
+    const hw = (W * k * armWidth(Math.min(1, acc[i] / Math.max(1, tot - tip)))) / 2;
+    left.push({ x: p.x - (dy / l) * hw, y: p.y + (dx / l) * hw });
+    right.push({ x: p.x + (dy / l) * hw, y: p.y - (dx / l) * hw });
+  });
+  const f = (p: Pt) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
+  return { fill: `M ${left.map(f).join(' L ')} L ${[...right].reverse().map(f).join(' L ')} Z` };
+}
+
+/**
+ * Un brazo con su mano, del color del jugador y con borde negro, desde `o` (su lado de la pantalla) hasta que la
+ * palma cae en `t`, con un codo que gira un poco hacia un lado.
+ */
+function Arm({ o, t, color, slam, side = 1 }: { o: Pt; t: Pt; color: string; slam?: boolean; side?: 1 | -1 }) {
+  const H = HAND_PX, B = (H * 2.5) / 96, W = WRIST_W * H - 2 * B;
+  const dx = t.x - o.x, dy = t.y - o.y, len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len, ny = dx / len;
+  const bend = Math.min(90, len * 0.16) * side;
+  const e = { x: o.x + dx * 0.55 + nx * bend, y: o.y + dy * 0.55 + ny * bend };
+  const fl = Math.hypot(t.x - e.x, t.y - e.y) || 1, ux = (t.x - e.x) / fl, uy = (t.y - e.y) / fl;
+  // La palma cae en t; la muñeca queda antes, en la línea del antebrazo.
+  const w = { x: t.x - ux * 0.5 * H, y: t.y - uy * 0.5 * H };
+  const ang = (Math.atan2(uy, ux) * 180) / Math.PI - HAND_ANG;
+  // El brazo va ENCIMA de la mano y entra un poco en ella para tapar el borde de la muñeca (contorno solo en los lados).
+  const tip = H * 0.16;
+  const shape = armShape(o, e, { x: w.x + ux * tip, y: w.y + uy * tip }, W, tip);
+  const hand = `translate(${w.x} ${w.y}) rotate(${ang}) scale(${H / 96}) translate(${-WRIST.x} ${-WRIST.y})`;
+  // Mano y brazo como una sola pieza: primero los contornos de ambos y luego los rellenos encima (sin raya en la unión).
+  return (
+    <g className={`arm ${slam ? 'slam' : ''}`}>
+      {/* Sombra: la misma silueta desplazada (mucho más barata que un filtro). */}
+      <g className="arm-shadow" transform="translate(0 6)">
+        <path d={HAND_PATH} transform={hand} fill="#000" stroke="#000" strokeWidth={5} />
+        <path d={shape.fill} fill="#000" stroke="#000" strokeWidth={2 * B} />
+      </g>
+      <path d={HAND_PATH} transform={hand} fill="none" stroke="#0a0e10" strokeWidth={5} strokeLinejoin="miter" strokeMiterlimit={3} />
+      <path d={shape.fill} fill="none" stroke="#0a0e10" strokeWidth={2 * B} strokeLinejoin="round" />
+      <path d={HAND_PATH} transform={hand} fill={color} />
+      <path d={shape.fill} fill={color} />
+    </g>
+  );
+}
+
+/**
+ * Aplastar: mi mano sigue al cursor, unida por un brazo que sale del centro de mis cartas (borde de abajo);
+ * cuando pulso, se queda plantada en la ficha. Los rivales que ponen la mano estiran el brazo desde su lado.
+ */
+function SlapArms({ spot, slapping, slapped, players, colors, live = false, ending = false, seed = 0 }: { spot: Pt; slapping: boolean; slapped: number[]; players: number[]; colors: string[]; live?: boolean; ending?: boolean; seed?: number }) {
+  const [cur, setCur] = useState<Pt | null>(null);
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    if (!slapping) return;
+    const mv = (e: PointerEvent) => setCur({ x: e.clientX, y: e.clientY });
+    window.addEventListener('pointermove', mv);
+    return () => window.removeEventListener('pointermove', mv);
+  }, [slapping]);
+  useEffect(() => {
+    const rs = () => redraw((n) => n + 1);
+    window.addEventListener('resize', rs);
+    return () => window.removeEventListener('resize', rs);
+  }, []);
+  // Mientras dura la ronda, los brazos de los rivales que aún no han pulsado se mueven solos (cada fotograma).
+  const t0 = useRef(performance.now());
+  const waiting = live ? players.filter((p) => p !== ME && !slapped.includes(p)) : [];
+  useEffect(() => {
+    if (!waiting.length && !ending) return;
+    let id = 0;
+    const step = () => { redraw((n) => n + 1); id = requestAnimationFrame(step); };
+    id = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(id);
+  }, [waiting.length, ending]);
+  /** Dónde estaba la mano de cada rival al pulsar, y cuándo: para que el golpe salga desde ahí. */
+  const hits = useRef<Record<number, { from: Pt; at: number }>>({});
+  const last = useRef<Record<number, Pt>>({});
+  // Al acabar la ronda, los que no pulsaron se quedan quietos donde estaban.
+  const frozen = useRef(0);
+  const game = document.querySelector('.game')?.getBoundingClientRect();
+  if (!game) return null;
+  const W = window.innerWidth, H = window.innerHeight;
+  if (ending && !frozen.current) frozen.current = performance.now();
+  const now = performance.now();
+  const hoverNow = ending ? frozen.current : now;
+  /** Al acabar: un momento quietos y luego cada brazo se retira hacia su borde (0 → 1). */
+  const back = ending ? (() => { const k = Math.min(1, Math.max(0, (now - frozen.current - 800) / 650)); return k * k; })() : 0;
+  const retire = (o: Pt, t: Pt): Pt => (back ? { x: t.x + (o.x - t.x) * back, y: t.y + (o.y - t.y) * back } : t);
+  const token = { x: game.left + (spot.x / 100) * game.width, y: game.top + (spot.y / 100) * game.height };
+  // Origen de cada brazo: el centro de sus cartas, pegado al borde de la pantalla.
+  const origin = (p: number): Pt | null => {
+    if (p === ME) {
+      const r = document.querySelector('.cards-row')?.getBoundingClientRect();
+      return { x: r ? r.left + r.width / 2 : W / 2, y: H + 30 };
+    }
+    const r = anchorRect(p);
+    if (!r) return null;
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    // Se lleva al borde más cercano (fuera de la pantalla, para que el brazo «entre»).
+    const dl = x, dr = W - x, dt = y;
+    const m = Math.min(dl, dr, dt);
+    return m === dl ? { x: -30, y } : m === dr ? { x: W + 30, y } : { x, y: -30 };
+  };
+  /** Dónde cae la mano de cada uno sobre la ficha (desplazadas para que no se tapen del todo). */
+  const landing = (p: number, i: number): Pt => {
+    if (p === ME) return token;
+    const a = ((i * 137) % 360) * (Math.PI / 180);
+    return { x: token.x + Math.cos(a) * 34, y: token.y + Math.sin(a) * 34 };
+  };
+  /**
+   * Recorrido simulado de un rival que aún no ha pulsado: entra desde su borde y se va acercando a la ficha a
+   * trompicones, con titubeos y vaivenes. Cada jugador tiene su ritmo, su amplitud y su forma de dudar.
+   */
+  const hover = (p: number, o: Pt): Pt => {
+    const r = (k: number) => { const x = Math.sin((p + 1) * 12.9898 + (seed + k) * 78.233) * 43758.5453; return x - Math.floor(x); };
+    const t = (hoverNow - t0.current) / 1000;
+    const dx = token.x - o.x, dy = token.y - o.y, d = Math.hypot(dx, dy) || 1;
+    const ux = dx / d, uy = dy / d, nx = -uy, ny = ux;
+    // Avance: se acerca rápido al principio y luego se queda rondando entre el 55 % y el 85 % del camino.
+    const reach = 0.55 + r(1) * 0.3;
+    const speed = 0.7 + r(2) * 1.4;
+    let f = 0.12 + (reach - 0.12) * (1 - Math.exp(-t * speed));
+    // Titubeos: amagos hacia delante y retiradas.
+    f += Math.sin(t * (1.6 + r(3) * 2.2) + r(4) * 6.3) * 0.06 + Math.sin(t * (4 + r(5) * 3) + r(6) * 6.3) * 0.025;
+    // Vaivén lateral, más amplio cuanto más lejos está.
+    const amp = (40 + r(7) * 70) * (1.1 - f);
+    const lat = Math.sin(t * (0.9 + r(8) * 1.5) + r(9) * 6.3) * amp + Math.sin(t * (2.7 + r(10) * 2) + r(11) * 6.3) * amp * 0.3;
+    return { x: o.x + ux * d * f + nx * lat, y: o.y + uy * d * f + ny * lat };
+  };
+  const arms: React.ReactNode[] = [];
+  slapped.forEach((p, i) => {
+    const o = origin(p);
+    if (!o) return;
+    const goal = landing(p, i);
+    let t = goal;
+    // El golpe sale de donde estaba su mano (si la estábamos moviendo) y llega en un instante.
+    if (p !== ME && live) {
+      if (!hits.current[p]) hits.current[p] = { from: last.current[p] ?? goal, at: now };
+      const h = hits.current[p];
+      const k = Math.min(1, (now - h.at) / 140);
+      const e = 1 - (1 - k) * (1 - k);
+      t = { x: h.from.x + (goal.x - h.from.x) * e, y: h.from.y + (goal.y - h.from.y) * e };
+      if (k < 1) requestAnimationFrame(() => redraw((n) => n + 1));
+    }
+    arms.push(<Arm key={`a${p}`} o={o} t={retire(o, t)} color={colors[p]} slam={!live || p === ME} side={i % 2 ? -1 : 1} />);
+  });
+  waiting.forEach((p, i) => {
+    const o = origin(p);
+    if (!o) return;
+    const t = hover(p, o);
+    last.current[p] = t;
+    arms.push(<Arm key={`a${p}`} o={o} t={retire(o, t)} color={colors[p]} side={(slapped.length + i) % 2 ? -1 : 1} />);
+  });
+  // Mi brazo sigue al cursor; si la ronda acaba sin que haya pulsado (pierdo), se retira desde donde estaba.
+  if (cur && players.includes(ME) && !slapped.includes(ME) && (slapping || ending)) arms.push(<Arm key="me" o={origin(ME)!} t={retire(origin(ME)!, cur)} color={colors[ME]} side={cur.x < W / 2 ? 1 : -1} />);
+  if (!arms.length) return null;
+  return <svg className={`slap-arms ${ending ? 'ending' : ''}`} aria-hidden="true">{arms}</svg>;
+}
+
 // ───────────────────────── final ─────────────────────────
 
 /** Lo que dura el final a cámara lenta antes de que salga el resumen de la partida. */
@@ -1825,7 +2142,8 @@ function GameOver({ s, colors, startedAt, onExit, onRematch, onLobby }: { s: Gam
     ...(close !== null ? [['Más cerca de ganar', close, s.stats.minHand[close] === 0 ? 'se quedó sin cartas' : `bajó a ${n(s.stats.minHand[close], 'carta', 'cartas')}`] as [string, number, string]] : []),
   ];
   return (
-    <div className="over" role="dialog" aria-label="Fin de la partida">
+    // Los acentos de la pantalla de fin, del color del ganador.
+    <div className="over" role="dialog" aria-label="Fin de la partida" style={{ '--wc': colors[w] } as React.CSSProperties}>
       <div className="over-box">
         <header className={w === ME ? 'win' : ''}>
           <small>Fin de la partida</small>
@@ -1911,7 +2229,7 @@ export default function App() {
     if (sala && /^[A-Z]{4}$/.test(sala)) return { k: 'entry', code: sala };
     // ?demo=5 arranca directamente una partida de 5 jugadores (útil para probar).
     const demo = Number(q.get('demo'));
-    if (demo >= 3 && demo <= 6) return { k: 'local', n: 0, cfg: { name: 'Tú', players: demo, level: 1, extraCurses: false, condena: true, debugHand: q.get('mano')?.split(','), debugSolo: q.has('solo'), beta: q.has('beta') } };
+    if (demo >= 3 && demo <= 6) return { k: 'local', n: 0, cfg: { name: 'Tú', players: demo, level: 1, extraCurses: false, condena: true, debugHand: q.get('mano')?.split(','), debugSolo: q.has('solo'), debugBot: q.get('bot')?.split(','), beta: q.has('beta') } };
     return { k: 'home' };
   });
   const home = useCallback(() => {

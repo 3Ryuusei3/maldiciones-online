@@ -1420,3 +1420,83 @@ input[type='checkbox']:focus-visible { outline: 2px solid var(--gold); outline-o
 .msgzone .peek-banner { position: static; transform: none; top: auto; bottom: auto; padding: 6px 14px; font-size: 15px; white-space: nowrap; }
 /* Aviso de Tinieblas: una línea pegada al borde de abajo, por encima de las cartas, sin impedir pulsarlas. */
 .blind-hint { top: auto; bottom: 14px; z-index: 75; white-space: nowrap; font-size: 13px; padding: 5px 12px; max-width: 94vw; overflow: hidden; text-overflow: ellipsis; background: rgba(29, 31, 36, 0.9); }
+
+/* «Entorno maldito» justo debajo de la trifuerza; las gemas para elegir color, debajo de él. Todo un poco más arriba. */
+.center { top: 51%; }
+.game.cursed .tri::after { top: calc(100% + 6px); bottom: auto; }
+.gem-under { top: calc(100% + 8px); }
+.game.cursed .gem-under { top: calc(100% + 34px); }
+
+/* ═════════ Flechas por debajo, vuelta de cartas a ciegas, elegir color y nombre en el cartel ═════════ */
+
+/* Las flechas, por debajo de todo lo demás (cartas, nombres, avisos…): no quitan visibilidad. */
+.action-arrows { z-index: 0; }
+
+/* Carta jugada a ciegas: se da la vuelta a mitad de camino. */
+.ghost.gflip { animation: gflip 0.32s ease-in-out; }
+@keyframes gflip { 50% { scale: 0.04 1; } }
+
+/* Elegir color: la zona de las gemas, iluminada, con una flecha de los tres colores que la señala. */
+.gem-under { flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px 6px; background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.18) 55%, transparent 75%); animation: rise 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both, gem-glow 1.2s 0.4s ease-in-out infinite alternate; }
+.gem-under .gem-hint { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); white-space: nowrap; }
+.gem-arrow { width: 46px; height: 32px; flex: none; animation: gem-arrow 0.8s ease-in-out infinite alternate; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); }
+@keyframes gem-arrow { from { transform: translateX(-4px); } to { transform: translateX(4px); } }
+@keyframes gem-glow { from { filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5)); } to { filter: drop-shadow(0 0 14px rgba(255, 255, 255, 0.95)); } }
+
+/* «NOMBRE juega…»: el nombre en mayúsculas y algo más grueso. */
+.callout small .cname { text-transform: uppercase; font-weight: 800; letter-spacing: 0.06em; }
+
+/* Icono pequeño del rayo en el aviso de Tinieblas. */
+.blind-hint .icon { vertical-align: -2px; filter: none; background: #fff; border-radius: 2px; padding: 1px; }
+
+/* Las gemas para elegir color entran sin perder su centrado (la animación ya no pisa el translateX). */
+.gem-under { animation: gem-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both, gem-glow 1.2s 0.4s ease-in-out infinite alternate; }
+@keyframes gem-in { from { opacity: 0; transform: translate(-50%, 14px); } to { opacity: 1; transform: translate(-50%, 0); } }
+/* Botones de Adivinar: todos del mismo ancho. */
+.slot .arrows button:not([aria-label]) { width: 92px; text-align: center; white-space: nowrap; }
+/* Rayo del aviso de Tinieblas, sin recuadro. */
+.blind-hint .icon { background: none; padding: 0; vertical-align: -3px; }
+
+/* Pantalla de fin: los acentos (cabecera, puesto del ganador, récords, «Sin cartas»…) en el color del ganador. */
+.over-box { border-color: color-mix(in srgb, var(--wc, #fff) 70%, transparent); }
+.over-box header, .over-box header.win { background: linear-gradient(180deg, color-mix(in srgb, var(--wc, #ffd23f) 32%, transparent), transparent); border-bottom-color: color-mix(in srgb, var(--wc, #fff) 50%, transparent); }
+.over-box header small { color: var(--wc, #fff); }
+.over-list li.first { background: linear-gradient(90deg, color-mix(in srgb, var(--wc, #ffd23f) 22%, transparent), transparent); }
+.over-list li.first .pos { color: var(--wc); font-weight: 600; }
+.over-list .left em, .over-awards span { color: var(--wc, var(--gold)); }
+.over-stats b { color: var(--wc, #fff); }
+/* Los botones del final no cambian de color: blanco (principal) o negro. */
+.game .over-btns button { background: #0a0e10; color: #fff; border: 1px solid rgba(255, 255, 255, 0.5); }
+.game .over-btns button.primary { background: #fff; color: #0a0e10; border-color: #fff; }
+
+/* ═════════ Aplastar: brazos con la mano de la Embestida ═════════ */
+.slap-arms { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 89; pointer-events: none; overflow: visible; }
+.slap-arms .arm-outline { fill: none; stroke: #0a0e10; stroke-width: 34; stroke-linecap: round; }
+.slap-arms .arm-sleeve { fill: none; stroke-width: 26; stroke-linecap: round; }
+.slap-arms .arm-hand { filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45)); }
+/* Los que ya han puesto la mano: el brazo se estira y la mano golpea. */
+.slap-arms .arm.slam path { stroke-dasharray: 3000; stroke-dashoffset: 3000; animation: arm-reach 0.28s ease-out forwards; }
+.slap-arms .arm.slam .arm-hand { transform-box: fill-box; transform-origin: center; animation: arm-slam 0.35s 0.2s ease-out both; }
+@keyframes arm-reach { to { stroke-dashoffset: 0; } }
+@keyframes arm-slam { 0% { opacity: 0; } 40% { opacity: 1; scale: 1.35; } 100% { opacity: 1; scale: 1; } }
+/* Mientras tengo que aplastar, la mano sustituye al cursor. */
+.game.slapping, .game.slapping * { cursor: none !important; }
+/* Brazos con el mismo aspecto que la mano: relleno del color de la mano y borde negro, tramos rectos con codo. */
+.slap-arms .arm-outline { fill: none; stroke: #0a0e10; stroke-width: 30; stroke-linecap: round; stroke-linejoin: round; }
+.slap-arms .arm-skin { fill: none; stroke: #f0b432; stroke-width: 22; stroke-linecap: round; stroke-linejoin: round; }
+/* Brazo más fino y mano más grande: proporción más natural. */
+.slap-arms .arm-outline { stroke-width: 20; }
+.slap-arms .arm-skin { stroke-width: 13; }
+/* Brazo algo más grueso. */
+.slap-arms .arm-outline { stroke-width: 26; }
+.slap-arms .arm-skin { stroke-width: 18; }
+/* Brazos vectoriales del color de cada jugador. */
+.slap-arms .arm { filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45)); }
+.slap-arms .arm-outline { fill: none; stroke: #0a0e10; stroke-linejoin: round; stroke-linecap: butt; }
+.slap-arms .arm-hand { filter: none; }
+.slap-arms .arm.slam path { stroke-dasharray: none; stroke-dashoffset: 0; animation: none; }
+.slap-arms .arm.slam { animation: arm-in 0.3s ease-out both; }
+@keyframes arm-in { from { opacity: 0; } to { opacity: 1; } }
+/* Sin filtro de sombra (con los brazos moviéndose cada fotograma era muy costoso). */
+.slap-arms .arm { filter: none; }
+.slap-arms .arm .arm-shadow { opacity: 0.28; }

@@ -23,6 +23,8 @@ export interface GameConfig {
   debugHand?: string[];
   /** Solo para pruebas (?solo): mi mano queda solo con las cartas de `debugHand`. */
   debugSolo?: boolean;
+  /** Solo para pruebas (?bot=aplastar): cartas que empiezan en la mano de la primera máquina, y empieza ella. */
+  debugBot?: string[];
 }
 
 /** Asiento del jugador de este navegador. En local es siempre 0; online lo fija la sala (setMe). */
@@ -55,6 +57,13 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
       g.players[ME].hand = keep;
     }
     if (cfg.debugHand) g.turn = ME;
+    if (cfg.debugBot) {
+      // La máquina solo tiene esas cartas (todas las que haya en el mazo) para que las juegue seguro.
+      const bh = g.players[1].hand;
+      g.deck.push(...bh.splice(0));
+      for (let i = g.deck.length - 1; i >= 0; i--) if (cfg.debugBot.includes(g.deck[i].kind)) bh.push(...g.deck.splice(i, 1));
+    }
+    if (cfg.debugBot) g.turn = 1;
     return g;
   });
   const ref = useRef(state);

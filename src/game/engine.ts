@@ -38,7 +38,8 @@ type TravEff = Extract<Effect, { k: 'trav' }>;
 
 /** Lugares entre los que se mueven cartas (para animar): un jugador, el Mazo o la Pila. */
 export type Anchor = number | 'deck' | 'pile';
-export interface Fx { from: Anchor; to: Anchor; n: number; card?: Card }
+/** `bounce`: carta probada a ciegas que no servía: va hacia la Pila, se enseña y vuelve a la mano (sin quedarse). */
+export interface Fx { from: Anchor; to: Anchor; n: number; card?: Card; bounce?: boolean }
 
 export interface PendingPlay {
   player: number;
@@ -69,13 +70,18 @@ export type Phase =
   | { t: 'choose'; player: number; need: 'target' | 'card' | 'gem'; options: (string | number)[]; pp: PendingPlay }
   | { t: 'react'; eff: Effect; waiting: number[]; exempt: number[]; win: number }
   /** `queue`: cada Aplastar duplicado es otra ronda completa, que se juega cuando acaba esta (lanzada por quien duplicó). */
-  | { t: 'aplastar'; launcher: number; amount: number; players: number[]; slapped: number[]; win: number; queue?: number[] }
+  /** `fake`: Aplastar de color con Inutilizar activo: no tiene efecto, y quien pulse la mano (por despiste) roba 3. */
+  | { t: 'aplastar'; launcher: number; amount: number; players: number[]; slapped: number[]; win: number; queue?: number[]; fake?: boolean }
+  /** Carta de color con Inutilizar activo: su lanzador decide si «empieza el efecto» (no tiene: si lo hace, roba 3) o cancela. */
+  /** `receive`: se le pregunta a quien la recibe (Travesura) si acepta el efecto, en vez de a quien la echa. */
+  | { t: 'inutil'; player: number; card: Card; receive?: boolean }
   | { t: 'give'; eff: TravEff; waiting: number[]; need: Record<number, number>; target: number }
   | { t: 'escarcha'; player: number; targets: number[] }
   | { t: 'rafaga' }
   | { t: 'tinte'; player: number; resume: Phase | null }
-  | { t: 'codicia'; launcher: number; target: number; options: string[]; give: string | null; best: string | null; waiting: number[] }
-  | { t: 'imanPick'; source: number; targets: number[]; picks: Record<number, TieSplit>; chosen: Record<number, string[]>; waiting: number[] }
+  /** `eff`: el efecto en curso; mientras no se haya hecho el intercambio, aún se puede parar (Antitodo, Égida, Reflejo). */
+  | { t: 'codicia'; launcher: number; target: number; options: string[]; give: string | null; best: string | null; waiting: number[]; eff?: Effect }
+  | { t: 'imanPick'; source: number; targets: number[]; picks: Record<number, TieSplit>; chosen: Record<number, string[]>; waiting: number[]; eff?: Effect }
   | { t: 'iman'; launcher: number; pool: Card[] }
   | { t: 'adivinar'; player: number; cards: Card[] }
   | { t: 'recuperar'; player: number; options: string[] }
@@ -144,6 +150,8 @@ export type Action =
   | { type: 'kick'; target: number }
   /** Tinieblas: usar una carta boca abajo en cualquier momento, probando suerte (si no sirve, se roba 1). */
   | { type: 'guess'; player: number; cardId: string }
+  /** Con Inutilizar: `use` = empezar el efecto de la carta de color (no tiene: roba 3); si no, se cancela. */
+  | { type: 'inutil'; player: number; use: boolean }
   | { type: 'timeout' };
 
 export interface GameOptions {
@@ -335,10 +343,10 @@ export function canDup(s: GameState, p: number, c: Card, blindOk = false): boole
   // otro igual que se eche después es una jugada nueva, no una duplicación.
   if (attr === 'ataque') {
     const ph = s.phase;
-    const live = (ph.t === 'aplastar' && c.kind === 'aplastar')
-      || (ph.t === 'react' && ph.eff.k === 'draw' && ph.eff.aplastar && c.kind === 'aplastar')
-      || (ph.t === 'react' && ph.eff.k === 'trav' && !ph.eff.noChain && c.kind === 'travesura');
-    if (!live) return false;
+    // Aplastar: solo cuando el anterior ha acabado del todo (y entonces es otra ronda completa).
+    if (c.kind === 'aplastar') { if (ph.t !== 'turn') return false; }
+    // Travesura: mientras su efecto sigue en marcha (se acumula).
+    else if (!(ph.t === 'react' && ph.eff.k === 'trav' && !ph.eff.noChain && c.kind === 'travesura')) return false;
   }
   if (s.phase.t === 'react' && s.phase.eff.k === 'trav' && s.phase.eff.targets.includes(p)) return false;
   return true;
@@ -389,6 +397,7 @@ export function pendingPlayers(s: GameState): number[] {
     case 'tinte': return [ph.player];
     case 'react': return ph.waiting;
     case 'aplastar': return ph.players.filter((p) => !ph.slapped.includes(p));
+    case 'inutil': return [ph.player];
     case 'give': return ph.waiting;
     case 'escarcha': return [ph.player];
     case 'rafaga': return s.rafaga ? [s.rafaga.player] : [];
@@ -607,6 +616,21 @@ function runEffect(s: GameState, pp: PendingPlay) {
     return openReact(s, { k: 'gift', source: L, targets: [T!], card: e });
   }
   if (inutil && !isGem(e)) {
+    // Inutilizar: la carta de color no tiene efecto… pero se pone a prueba si los jugadores se acuerdan.
+    if (e.kind === 'aplastar') {
+      // Sale la mano de Aplastar como siempre: quien la pulse roba 3.
+      s.phase = { t: 'aplastar', launcher: L, amount: 3, players: others, slapped: [], win: ++s.win, fake: true };
+      return;
+    }
+    if (e.kind === 'travesura') {
+      // Travesura: se le pregunta a quien la recibiría si acepta el efecto (no tiene: si lo acepta, roba 3).
+      s.phase = { t: 'inutil', player: pred && T !== null ? T : nextPlayer(s, L), card: e, receive: true };
+      return;
+    }
+    if (e.kind === 'codicia' || e.kind === 'adivinar' || e.kind === 'mutis') {
+      s.phase = { t: 'inutil', player: L, card: e };
+      return;
+    }
     log(s, `${cardName(e)} no tiene efecto por Inutilizar.`);
     return finish(s);
   }
@@ -769,7 +793,7 @@ function resolve(s: GameState, eff: Effect, exempt: number[]) {
       if (sp.count > 0) waiting.push(t);
       if (lh.length > 0) waiting.push(L);
       if (!waiting.length) return doCodicia(s, L, t, null, sp.fixed[0] ?? null);
-      s.phase = { t: 'codicia', launcher: L, target: t, options: sp.options, give: null, best: sp.fixed[0] ?? null, waiting };
+      s.phase = { t: 'codicia', launcher: L, target: t, options: sp.options, give: null, best: sp.fixed[0] ?? null, waiting, eff: { ...eff, targets: [t] } };
       return;
     }
     case 'purga':
@@ -788,7 +812,7 @@ function resolve(s: GameState, eff: Effect, exempt: number[]) {
           waiting.push(t);
         } else chosen[t] = [...sp.fixed, ...randomIds(s, sp.options, sp.count)];
       }
-      s.phase = { t: 'imanPick', source: eff.source, targets, picks, chosen, waiting };
+      s.phase = { t: 'imanPick', source: eff.source, targets, picks, chosen, waiting, eff: { ...eff, targets } };
       if (!waiting.length) buildImanPool(s);
       return;
     }
@@ -816,7 +840,8 @@ function resolve(s: GameState, eff: Effect, exempt: number[]) {
         log(s, `El Antitodo bloquea la entrega: ${cardName(eff.card)} vuelve a ${nm(s, eff.source)}.`);
       } else {
         s.players[t].hand.push(eff.card);
-        fx(s, eff.source, t);
+        // Una carta maldita entregada se ve boca arriba (todos saben qué ha recibido).
+        fx(s, eff.source, t, 1, isCursed(eff.card) ? eff.card : undefined);
         log(s, `${nm(s, t)} recibe ${isCursed(eff.card) ? cardName(eff.card) : 'una carta'} de ${nm(s, eff.source)}.`);
       }
       return finish(s);
@@ -916,6 +941,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
     else if (eff.k === 'cristal' && ((isPlainGem(c) && c.color === eff.tone) || c.kind === 'gematri')) as = 'gem';
     if (!as) {
       log(s, `${nm(s, p)} prueba suerte a ciegas con ${cardName(c)}: no le sirve. Roba 1.`);
+      s.fx.push({ from: p, to: 'pile', n: 1, card: c, bounce: true });
       drawCards(s, p, 1);
       ph.waiting = ph.waiting.filter((x) => x !== p);
       if (!ph.waiting.length) resolve(s, eff, ph.exempt);
@@ -1097,13 +1123,13 @@ function handleDup(s: GameState, p: number, cardId: string, blindOk = false): bo
   const inutil = s.env.inutilizar && c.color !== null;
   if (attr === 'entorno') toggleEnv(s, c, p);
   else if (attr === 'ataque' && !inutil) {
-    if (ph.t === 'aplastar' && c.kind === 'aplastar') {
-      // Cada Aplastar es una ronda de diana: el duplicado se juega después de esta.
-      (ph.queue ??= []).push(p);
-      log(s, `Aplastar duplicado: después habrá otra ronda de Aplastar de ${nm(s, p)}.`);
-    } else if (ph.t === 'react' && ph.eff.k === 'draw' && ph.eff.aplastar && c.kind === 'aplastar') {
-      (ph.eff.queue ??= []).push(p);
-      log(s, `Aplastar duplicado: después habrá otra ronda de Aplastar de ${nm(s, p)}.`);
+    if (ph.t === 'turn' && c.kind === 'aplastar') {
+      // Aplastar duplicado (el anterior ya había acabado): otra ronda completa, lanzada por quien duplica.
+      // Después, el turno sigue siendo de quien lo tenía.
+      s.after = { turnTo: s.turn };
+      log(s, `Nueva ronda de Aplastar, de ${nm(s, p)}.`);
+      startAplastar(s, p);
+      return true;
     } else if (ph.t === 'react' && ph.eff.k === 'trav' && !ph.eff.noChain && c.kind === 'travesura') {
       // Quien duplica también dará una carta suya al final.
       ph.eff.launchers.push(p);
@@ -1155,6 +1181,7 @@ function step(s: GameState, a: Action): boolean {
       if (!isLegal(s, a.player, c)) {
         if (!isBlind(s)) return false;
         log(s, `${nm(s, a.player)} juega a ciegas ${cardName(c)}: no se puede encadenar. Roba 1 y pierde el turno.`);
+        s.fx.push({ from: a.player, to: 'pile', n: 1, card: c, bounce: true });
         drawCards(s, a.player, 1);
         finish(s);
         return true;
@@ -1195,10 +1222,9 @@ function step(s: GameState, a: Action): boolean {
         const c = takeFromHand(s, a.player, a.value as string)!;
         pp.companion = c;
         if (!isCursed(c)) {
-          // La carta acompañante queda debajo del Predestinar: arriba sigue Predestinar (incolora) y su lanzador elige color.
-          s.pile.splice(s.pile.length - 1, 0, c);
-          s.stats.played[a.player]++;
-          fx(s, a.player, 'pile', 1, c);
+          // La carta acompañante queda encima del Predestinar: si es de color, manda su color; si es incolora, se elige.
+          putOnPile(s, a.player, c);
+          log(s, `${nm(s, a.player)} acompaña Predestinar con ${cardName(c)}.`);
         }
         // Era su última carta: gana ya, sin que se aplique el efecto.
         if (lastCard(s, a.player)) return true;
@@ -1235,8 +1261,28 @@ function step(s: GameState, a: Action): boolean {
       if (!tryWin(s, a.player)) settleTinte(s);
       return true;
     }
-    case 'react':
+    case 'react': {
+      // Imán o Codicia aún sin resolver (eligiendo cartas): todavía se pueden parar con Antitodo, Égida o Reflejo.
+      if ((ph.t === 'imanPick' || ph.t === 'codicia') && ph.eff && (a.r === 'antitodo' || a.r === 'egida' || a.r === 'reflejo')) {
+        const eff = ph.eff;
+        if (!reactOptionsFor(s, a.player, eff).includes(a.r)) return false;
+        if (!s.undo) s.undo = { dir: s.dir, spent: [] };
+        s.phase = { t: 'react', eff, waiting: [a.player], exempt: [], win: ++s.win };
+        return handleReact(s, a);
+      }
       return handleReact(s, a);
+    }
+    case 'inutil': {
+      if (ph.t !== 'inutil' || ph.player !== a.player) return false;
+      if (a.use) {
+        drawCards(s, a.player, 3);
+        log(s, ph.receive
+          ? `${nm(s, a.player)} acepta el efecto de ${cardName(ph.card)} con Inutilizar activo: no tiene efecto y roba 3.`
+          : `${nm(s, a.player)} intenta usar ${cardName(ph.card)} con Inutilizar activo: no tiene efecto y roba 3.`);
+      } else log(s, `${nm(s, a.player)} recuerda que Inutilizar está activo: ${cardName(ph.card)} no tiene efecto.`);
+      finish(s);
+      return true;
+    }
     case 'guess': {
       // Tinieblas: nadie ve su mano, pero cualquiera puede intentar usar una carta en cualquier momento.
       if (!isBlind(s)) return false;
@@ -1272,12 +1318,20 @@ function step(s: GameState, a: Action): boolean {
       }
       // No sirve ahora: roba 1 aunque no sea su turno.
       log(s, `${nm(s, p)} prueba suerte a ciegas con ${cardName(c)}: no se puede usar ahora. Roba 1.`);
+      s.fx.push({ from: p, to: 'pile', n: 1, card: c, bounce: true });
       drawCards(s, p, 1);
       return true;
     }
     case 'slap': {
       if (ph.t !== 'aplastar' || !ph.players.includes(a.player) || ph.slapped.includes(a.player)) return false;
       ph.slapped.push(a.player);
+      if (ph.fake) {
+        // Era de color con Inutilizar: no tenía efecto. Quien pone la mano por despiste roba 3.
+        drawCards(s, a.player, 3);
+        log(s, `${nm(s, a.player)} pone la mano en un Aplastar inutilizado: roba 3.`);
+        if (ph.slapped.length >= ph.players.length) finish(s);
+        return true;
+      }
       if (ph.slapped.length >= ph.players.length - 1) endAplastar(s);
       return true;
     }
@@ -1484,7 +1538,7 @@ function step(s: GameState, a: Action): boolean {
       } else if (a.where === 'pile') s.pile.splice(s.pile.indexOf(found), 1);
       else takeFromHand(s, a.where, found.id);
       s.players[a.player].hand.push(found);
-      fx(s, a.where, a.player);
+      fx(s, a.where, a.player, 1, found); // la Maldición encontrada se ve boca arriba
       log(s, `Condena: ${nm(s, a.player)} encuentra una Maldición en ${where} y se la queda.`);
       const absolved = s.players[a.player].hand.filter((c) => c.kind === 'maldicion').length >= s.totalCurses;
       s.phase = absolved ? { t: 'condena', player: a.player, absolved: true } : { t: 'turn', drawn: null };
@@ -1574,6 +1628,10 @@ function applyGemas(s: GameState) {
 function endAplastar(s: GameState) {
   const ph = s.phase;
   if (ph.t !== 'aplastar') return;
+  if (ph.fake) {
+    log(s, ph.slapped.length ? 'Se acaba el Aplastar inutilizado.' : 'Nadie cae en el Aplastar inutilizado.');
+    return finish(s);
+  }
   const slow = ph.players.filter((p) => !ph.slapped.includes(p));
   const loser = slow.length ? slow[Math.floor(rnd(s) * slow.length)] : ph.slapped[ph.slapped.length - 1];
   log(s, `${nm(s, loser)} es el último en poner la mano.`);

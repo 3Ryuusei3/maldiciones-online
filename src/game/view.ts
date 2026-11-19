@@ -2,7 +2,7 @@
 // las manos ajenas, el Mazo y la semilla (que permitiría calcular el Mazo) se sustituyen por cartas
 // boca abajo. Los ids también se cambian, porque `c0`, `c1`… siguen el orden fijo del mazo y delatan la carta.
 
-import { Card } from './cards';
+import { Card, isCursed } from './cards';
 import { GameState, Phase } from './engine';
 
 /** Carta boca abajo. La interfaz solo cuenta las cartas ajenas y pinta su dorso. */
@@ -35,7 +35,8 @@ export function viewFor(full: GameState, me: number): GameState {
   s.phase = hidePhase(ph, me, hideCards);
 
   // Animaciones: una carta concreta solo viaja a la vista si sale o llega a la Pila, o si es mía.
-  s.fx = s.fx.map((f) => (f.card && f.from !== 'pile' && f.to !== 'pile' && f.from !== me && f.to !== me ? { ...f, card: undefined } : f));
+  // Las cartas malditas (Maldición, Condena) que pasan de un jugador a otro se ven boca arriba para todos.
+  s.fx = s.fx.map((f) => (f.card && f.from !== 'pile' && f.to !== 'pile' && f.from !== me && f.to !== me && !isCursed(f.card) ? { ...f, card: undefined } : f));
   return s;
 }
 

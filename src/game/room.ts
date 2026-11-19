@@ -31,6 +31,11 @@ export interface Seat {
 
 /** Colores de jugador disponibles (índices de la paleta PCOL de la interfaz). */
 export const COLOR_COUNT = 9;
+/** Un color libre al azar (para las máquinas, que no salgan siempre los mismos). */
+const randomFreeColor = (seats: Seat[], fallback: number) => {
+  const free = Array.from({ length: COLOR_COUNT }, (_, c) => c).filter((c) => !seats.some((x) => x.color === c));
+  return free.length ? free[Math.floor(Math.random() * free.length)] : fallback % COLOR_COUNT;
+};
 /** El primer color que no usa nadie (o el del asiento si ya están todos). */
 const freeColor = (seats: Seat[], fallback: number) => {
   for (let c = 0; c < COLOR_COUNT; c++) if (!seats.some((x) => x.color === c)) return c;
@@ -232,7 +237,7 @@ export function start(r: RoomData, token: string, now: number, online: Set<strin
   const humans = r.seats.filter((x) => x.token && !x.left && online.has(x.token));
   if (!humans.length) return fail('No hay nadie en la sala.');
   const bots: Seat[] = [];
-  for (const name of pickNames(Math.max(0, r.opts.size - humans.length), humans.map((x) => x.name))) bots.push({ name, token: null, color: freeColor([...humans, ...bots], humans.length + bots.length) });
+  for (const name of pickNames(Math.max(0, r.opts.size - humans.length), humans.map((x) => x.name))) bots.push({ name, token: null, color: randomFreeColor([...humans, ...bots], humans.length + bots.length) });
   // Los asientos se sortean para que el anfitrión no sea siempre el primero.
   r.seats = [...humans, ...bots].map((x) => [Math.random(), x] as const).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
   r.game = newGame({
