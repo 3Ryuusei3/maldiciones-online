@@ -7360,3 +7360,5 @@ input[type="checkbox"]:focus-visible {
 /* Reportar un fallo */
 .bug-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; padding: 10px 12px; border: 2px solid #d6d4dc; background: #fff; color: #0a0e10; resize: vertical; min-height: 110px; margin-bottom: 10px; }
 .bug-text:focus { outline: none; border-color: var(--me); }
+/* Aviso de Tinieblas con el mismo rayo que el de las cartas (no un emoji). */
+.peek-banner .icon { background: none; vertical-align: -3px; margin-right: 4px; }

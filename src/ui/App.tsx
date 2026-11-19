@@ -1488,7 +1488,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         {/* El aviso sale cuando empiezan los segundos de memorizar (tras el cartel de la carta y la animación del Entorno). */}
         {peeking && !envFx && Date.now() >= peekUntil - PEEK_VISIBLE_MS && (
           <div className="peek-banner" role="status">
-            🌑 Tinieblas: memoriza tus cartas · se ponen boca abajo en <b>{Math.ceil((peekUntil - Date.now()) / 1000)}</b>
+            <Icon kind="tinieblas" size={16} /> Tinieblas: memoriza tus cartas · se ponen boca abajo en <b>{Math.ceil((peekUntil - Date.now()) / 1000)}</b>
           </div>
         )}
         <div className={`banner ${alert ? 'alert' : ''} ${s.turn === ME && !dealing ? 'mine' : ''} ${underAttack ? 'attack' : myTurn && !dealing ? 'myturn' : ''}`}>
@@ -1809,6 +1809,12 @@ function ActionArrows({ pairs, colors }: { pairs: [number, number][]; colors: st
       if (!pile) return setPaths([]);
       const cx = pile.left + pile.width / 2, cy = pile.top + pile.height / 2;
       const disc = document.querySelector('.disc')?.getBoundingClientRect();
+      /** Zona que ocupan las cartas de cada jugador (con margen), para que la flecha no empiece ni acabe debajo. */
+      const zone = (p: number) => {
+        const r = p === ME ? document.querySelector('.cards-row')?.getBoundingClientRect() : anchorRect(p);
+        return r ? { l: r.left - 14, t: r.top - 14, r: r.right + 14, b: r.bottom + 14 } : null;
+      };
+      const inside = (z: { l: number; t: number; r: number; b: number }, p: { x: number; y: number }) => p.x > z.l && p.x < z.r && p.y > z.t && p.y < z.b;
       setPaths(pairs.map(([f, t]) => {
         const a = pt(f), b = pt(t);
         if (!a || !b) return null;
@@ -1865,20 +1871,27 @@ function ActionArrows({ pairs, colors }: { pairs: [number, number][]; colors: st
             const TAU = Math.PI * 2;
             const span = (((side > 0 ? t1 - t2 : t2 - t1) % TAU) + TAU) % TAU;
             const sx = a.x + (T1.x - a.x) * 0.12, sy = a.y + (T1.y - a.y) * 0.12;
-            const L = Math.hypot(b.x - T2.x, b.y - T2.y) || 1;
-            const cut = Math.min(L * 0.6, 70 + L * 0.12);
-            const ex = b.x + ((T2.x - b.x) / L) * cut, ey = b.y + ((T2.y - b.y) / L) * cut;
+            // El último tramo acaba donde entra en las cartas del destino (o, como poco, un poco antes de él).
+            const rb = zone(t);
+            let u = 1;
+            const at = (k: number) => ({ x: T2.x + (b.x - T2.x) * k, y: T2.y + (b.y - T2.y) * k });
+            while (u > 0.2 && rb && inside(rb, at(u))) u -= 0.02;
+            u = Math.min(u, 0.85);
+            const ex = at(u).x, ey = at(u).y;
             const f2 = (n: number) => n.toFixed(1);
             return { d: `M ${f2(sx)} ${f2(sy)} L ${f2(T1.x)} ${f2(T1.y)} A ${R2} ${R2} 0 ${span > Math.PI ? 1 : 0} ${side > 0 ? 0 : 1} ${f2(T2.x)} ${f2(T2.y)} L ${f2(ex)} ${f2(ey)}`, color: colors[f] };
           }
         }
-        // Empieza y acaba un poco antes de los jugadores, para no taparlos.
-        const k = 0.88;
-        const sx = qx + (a.x - qx) * k, sy = qy + (a.y - qy) * k;
-        // Al destino no llega tan pegada: se queda unos 70 px antes.
-        const ke = Math.max(0.45, k - 70 / (Math.hypot(b.x - qx, b.y - qy) || 1));
-        const ex = qx + (b.x - qx) * ke, ey = qy + (b.y - qy) * ke;
-        return { d: `M ${sx} ${sy} Q ${qx} ${qy} ${ex} ${ey}`, color: colors[f] };
+        // Empieza y acaba FUERA de las cartas de cada jugador (las flechas van por debajo de todo: si la punta cayera
+        // encima de su abanico, quedaría tapada). Se recorre la curva y se corta donde sale de una y entra en la otra.
+        const Q = (t: number) => ({ x: (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * qx + t * t * b.x, y: (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * qy + t * t * b.y });
+        const ra = zone(f), rb = zone(t);
+        let t0 = 0, t1 = 1;
+        while (t0 < 0.45 && ra && inside(ra, Q(t0))) t0 += 0.01;
+        while (t1 > 0.55 && rb && inside(rb, Q(t1))) t1 -= 0.01;
+        t0 = Math.max(t0, 0.06); t1 = Math.min(t1, 0.97);
+        const pts = Array.from({ length: 33 }, (_, i) => Q(t0 + ((t1 - t0) * i) / 32));
+        return { d: `M ${pts.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ')}`, color: colors[f] };
       }).filter((x): x is { d: string; color: string } => !!x));
     };
     place();
