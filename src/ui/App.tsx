@@ -4,6 +4,7 @@ import { Card, Color, COLORS, COLOR_NAME, HELP, KINDS, Kind, cardImage, cardName
 import { Action, Anchor, Effect, Fx, GameState, canDup, canFreeAntitodo, canPlay, isBlind, isCursedEnv, nextPlayer, pendingPlayers, predTargets, reactOptions, reactOptionsFor, topCard } from '../game/engine';
 import { Level } from '../game/bot';
 import { Compendium, CompendioButton, HelpDock } from './Compendium';
+import { TutorGate, TutorOverlay, useTutor } from './Tutorial';
 import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
 import { NetClient, useNet } from '../net/client';
 import type { RoomView } from '../game/room';
@@ -413,7 +414,7 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
 // ───────────────────────── portada ─────────────────────────
 
 /** Portada: elegir modo de juego (las opciones de cada partida van dentro de cada modo). */
-function Home({ onLocal, onOnline }: { onLocal: () => void; onOnline: () => void }) {
+function Home({ onLocal, onOnline, onTutorial }: { onLocal: () => void; onOnline: () => void; onTutorial: () => void }) {
   return (
     <>
       <h1>Maldiciones</h1>
@@ -424,6 +425,7 @@ function Home({ onLocal, onOnline }: { onLocal: () => void; onOnline: () => void
       </div>
       <div className="home-links">
         <CompendioButton />
+        <button onClick={onTutorial}>Tutorial</button>
       </div>
     </>
   );
@@ -602,7 +604,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   // En local la partida la aloja este navegador; online, el servidor (aquí solo se muestra y se envían acciones).
   /** Tiempo máximo de 15 s: en local se puede cambiar desde la pausa; online lo cambia el anfitrión (opción de la sala). */
   const [localTimer, setLocalTimer] = useState(cfg.timer !== false);
-  const local = useGame(useMemo(() => ({ ...cfg, timer: localTimer }), [cfg, localTimer]), intro === null, pause !== null || comp, !net);
+  /** Tutorial: qué pueden hacer las máquinas en el paso actual (lo fija el tutorial, más abajo). */
+  const [tgate, setTgate] = useState<TutorGate>({ bots: 'off', autoPass: true });
+  const local = useGame(useMemo(() => ({ ...cfg, timer: localTimer }), [cfg, localTimer]), intro === null, pause !== null || comp, !net, cfg.tutorial ? tgate : undefined);
   const remote = useNet(net ?? null);
   const rv = remote.view;
   const s = net && rv?.game ? rv.game : local.state;
@@ -631,7 +635,13 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   useEffect(() => { if (net && intro === null) net.send({ t: 'ready' }); }, [net, intro]);
   const startedAt = useRef(Date.now());
   const origins = useRef<Record<string, DOMRect>>({});
+  const tutor = useTutor(!!cfg.tutorial, s, intro);
+  useEffect(() => {
+    if (tutor.gate.bots !== tgate.bots || tutor.gate.autoPass !== tgate.autoPass || tutor.gate.slapFirst !== tgate.slapFirst || tutor.gate.slow !== tgate.slow) setTgate(tutor.gate);
+  }, [tutor.gate.bots, tutor.gate.autoPass, tutor.gate.slapFirst, tutor.gate.slow, tgate]);
   const send = (a: Action) => {
+    // En el tutorial solo se puede hacer lo que pide el paso.
+    if (!tutor.allow(a)) return;
     // Antes de cada acción mía se anota dónde está cada carta de mi mano, para animarla desde ahí.
     document.querySelectorAll<HTMLElement>('[data-card]').forEach((el) => (origins.current[el.dataset.card!] = el.getBoundingClientRect()));
     dispatch(a);
@@ -1109,7 +1119,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   } else if (tinte) {
     alert = true;
     // El aviso de elegir color sale a la vez que las gemas, no antes.
-    text = pickReady && !envFx ? 'Última carta incolora: elige color con las gemas de la trifuerza.'
+    text = pickReady && !envFx ? 'Última carta incolora: elige color con las gemas de los triángulos.'
       : peeking && Date.now() >= peekUntil - PEEK_VISIBLE_MS ? 'Cuando tus cartas se pongan boca abajo, eliges color.'
       : blind ? 'Caen las Tinieblas…' : 'A continuación, elige el siguiente color.';
 
@@ -1325,7 +1335,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const n = sortedHand.length;
   /** Grupos de cartas que se pueden echar a la vez (con un botón «Jugar juntas» entre ellas). */
   const joinGroups: { ids: string[]; run: () => void }[] = [];
-  if (!blind && !dealing && !finale) {
+  // (En el tutorial solo sale al final, cuando toca echar juntos el Antitodo y la Maldición.)
+  if (!blind && !dealing && !finale && (!cfg.tutorial || sortedHand.length === 2)) {
     for (let i = 0; i < sortedHand.length; ) {
       const c = sortedHand[i];
       let j = i + 1;
@@ -1625,7 +1636,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {net && rv && rv.waiting.length > 0 && ph.t !== 'over' && <WaitBox rv={rv} recvAt={remote.recvAt} isHost={isHost} decide={(p, how) => net.send({ t: 'drop', p, how })} />}
       {net && rv && rv.you >= 0 && rv.seats[rv.you]?.state === 'out' && ph.t !== 'over' && <div className="net-banner" role="status">Has quedado fuera de la partida: puedes seguir mirando.</div>}
       {finale && s.winner !== null && <Finale name={s.winner === ME ? '¡Has ganado!' : `¡Gana ${name(s.winner)}!`} why={s.log.some((l) => l.text.includes('3 Rituales')) ? 'Reúne los 3 Rituales' : s.log.some((l) => l.text.includes('único que queda')) ? 'Es el único que queda' : 'Última carta'} color={colors[s.winner]} />}
-      {ph.t === 'over' && !finale && <GameOver s={s} colors={colors} startedAt={startedAt.current} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
+      {ph.t === 'over' && !finale && !cfg.tutorial && <GameOver s={s} colors={colors} startedAt={startedAt.current} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
+      {tutor.view && !finale && <TutorOverlay view={tutor.view} finished={ph.t === 'over'} onExit={onExit} />}
       {pause && ph.t !== 'over' && (
         <div className="pause" role="dialog" aria-label="Partida en pausa">
           <div className="pause-box">
@@ -2364,6 +2376,13 @@ function OnlineRoom({ client, onExit }: { client: NetClient; onExit: (error?: st
   return <><Game key={`${v.code}:${v.round}`} cfg={cfg} net={client} onExit={() => { client.leave(); onExit(); }} /><NetToasts client={client} /></>;
 }
 
+/** Partida del tutorial: 4 jugadores, sin tiempo máximo, con mi nombre y mi color guardados. */
+const tutorialCfg = (): GameConfig => {
+  let name = '', color = 0;
+  try { name = localStorage.getItem('maldiciones:nombre') ?? ''; color = Number(localStorage.getItem('maldiciones:color')) || 0; } catch { /* sin almacenamiento */ }
+  return { name: name || 'Tú', players: 4, level: 1, extraCurses: false, condena: false, beta: false, timer: false, color, tutorial: true };
+};
+
 type Screen = { k: 'home' } | { k: 'setup' } | { k: 'local'; cfg: GameConfig; n: number } | { k: 'entry'; code?: string; error?: string | null } | { k: 'room'; client: NetClient };
 
 export default function App() {
@@ -2374,6 +2393,7 @@ export default function App() {
     if (sala && /^[A-Z]{4}$/.test(sala)) return { k: 'entry', code: sala };
     // ?demo=5 arranca directamente una partida de 5 jugadores (útil para probar).
     const demo = Number(q.get('demo'));
+    if (q.has('tutorial')) return { k: 'local', n: 0, cfg: tutorialCfg() };
     if (demo >= 3 && demo <= 6) return { k: 'local', n: 0, cfg: { name: 'Tú', players: demo, level: 1, extraCurses: false, condena: true, debugHand: q.get('mano')?.split(','), debugSolo: q.has('solo'), debugBot: q.get('bot')?.split(','), beta: q.has('beta') } };
     return { k: 'home' };
   });
@@ -2385,7 +2405,7 @@ export default function App() {
   const leaveRoom = useCallback((error?: string) => setScreen({ k: 'entry', error }), []);
   switch (screen.k) {
     case 'home':
-      return <Shell><Home onLocal={() => setScreen({ k: 'setup' })} onOnline={() => setScreen({ k: 'entry' })} /></Shell>;
+      return <Shell><Home onLocal={() => setScreen({ k: 'setup' })} onOnline={() => setScreen({ k: 'entry' })} onTutorial={() => setScreen({ k: 'local', n: 0, cfg: tutorialCfg() })} /></Shell>;
     case 'setup':
       return <Shell><LocalSetup onBack={home} onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} /></Shell>;
     case 'entry':

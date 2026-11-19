@@ -538,8 +538,11 @@ function startPlay(s: GameState, p: number, card: Card, withIds: string[] = []) 
       log(s, `${nm(s, p)} juega Antitodo junto a una Maldición y la elimina.`);
     } else log(s, `${nm(s, p)} juega Antitodo.`);
     announce(s, p, '¡Antitodo!');
-    resetEnv(s);
-    dropFaceUpEgidas(s);
+    // Si con esto se queda sin cartas (y gana), no se tocan las Égidas ni los Entornos: no estropea el final.
+    if (s.players[p].hand.length > 0 || isCursedEnv(s)) {
+      resetEnv(s);
+      dropFaceUpEgidas(s);
+    }
   } else {
     log(s, `${nm(s, p)} juega ${cardName(card)}.`);
     announce(s, p, `¡${KINDS[card.kind].name}!`, card.kind === 'mutis');

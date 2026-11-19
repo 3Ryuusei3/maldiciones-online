@@ -5,6 +5,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { botDecide, botDup, Level } from '../game/bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from '../game/engine';
+import { newTutorial, tutorBot } from '../game/tutorial';
+import type { TutorGate } from './Tutorial';
 import { BOT_WINDOW_MS, DECIDE_MS, TINIEBLAS_PEEK_MS, WINDOW_MS, botDelay, dupDelay, pickNames, tinieblasJustFell } from '../game/timing';
 
 export interface GameConfig {
@@ -23,6 +25,8 @@ export interface GameConfig {
   debugHand?: string[];
   /** Solo para pruebas (?solo): mi mano queda solo con las cartas de `debugHand`. */
   debugSolo?: boolean;
+  /** Tutorial: partida preparada y máquinas con jugadas fijas. */
+  tutorial?: boolean;
   /** Solo para pruebas (?bot=aplastar): cartas que empiezan en la mano de la primera máquina, y empieza ella. */
   debugBot?: string[];
 }
@@ -34,8 +38,9 @@ export const setMe = (p: number) => { ME = p; };
 export interface Timer { until: number; total: number }
 
 /** `enabled = false`: no aloja nada (la partida online la lleva el servidor). */
-export function useGame(cfg: GameConfig, ready = true, paused = false, enabled = true) {
+export function useGame(cfg: GameConfig, ready = true, paused = false, enabled = true, gate?: TutorGate) {
   const [state, setState] = useState<GameState>(() => {
+    if (cfg.tutorial) return newTutorial(cfg.name);
     const g = newGame({
       players: [{ name: cfg.name || 'Tú', bot: false }, ...pickNames(cfg.players - 1, [cfg.name || 'Tú']).map((name) => ({ name, bot: true }))],
       seed: (Math.random() * 2 ** 31) | 0,
@@ -101,6 +106,28 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
     const now = Date.now();
     const pend = pendingPlayers(s);
     const windowed = ph.t === 'react' || ph.t === 'aplastar' || ph.t === 'gemas';
+    if (cfg.tutorial) {
+      // Tutorial: sin relojes; las máquinas juegan su plan solo cuando el paso lo permite, y en las ventanas
+      // en las que no se espera nada de mí, paso solo.
+      if (gate?.autoPass && pend.includes(ME) && (ph.t === 'react' || ph.t === 'gemas'))
+        later(gate.slow ? 3200 : 700, () => dispatch(ph.t === 'react' ? { type: 'react', player: ME, r: 'pass' } : { type: 'gemas', player: ME, ids: [] }));
+      // «windows»: solo lo que no es jugar un turno (ventanas, elegir en una Codicia…).
+      const can = gate?.bots === 'on' || (gate?.bots === 'windows' && ph.t !== 'turn');
+      const meToSlap = !gate?.slapFirst && ph.t === 'aplastar' && ph.players.includes(ME) && !ph.slapped.includes(ME);
+      if (can && !meToSlap) {
+        const key = `${s.seq}:${gate?.slow ? 's' : ''}`;
+        if (plan.current.key !== key) plan.current = { key, at: {} };
+        pend.filter((p) => s.players[p].bot).forEach((p, i) => {
+          let at = plan.current.at[p];
+          if (at === undefined) at = plan.current.at[p] = now + (ph.t === 'aplastar' ? (gate?.slow ? 1300 + i * 1000 : 500 + i * 450) : windowed ? (gate?.slow ? 2600 + i * 500 : 900) : 1700);
+          later(at - now, () => {
+            const a = tutorBot(ref.current, p);
+            if (a) dispatch(a);
+          });
+        });
+      }
+      return () => timers.forEach(clearTimeout);
+    }
 
     // Reloj de la ventana (solo visible si el humano tiene algo que decidir).
     let until = 0;
@@ -168,7 +195,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
     }
     return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, timer, ready, paused, cfg.timer]);
+  }, [state, timer, ready, paused, cfg.timer, gate?.bots, gate?.autoPass, gate?.slapFirst, gate?.slow]);
 
   const ph = state.phase;
   const windowed = ph.t === 'react' || ph.t === 'aplastar' || ph.t === 'gemas';
