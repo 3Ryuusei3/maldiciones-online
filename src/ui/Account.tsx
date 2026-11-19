@@ -2,14 +2,14 @@
 // y la pastilla de la cuenta en la portada.
 
 import { useState } from 'react';
-import { ICONS, Profile, playAsGuest, saveProfile, signIn, signInGoogle, signOut, signUp, toEntry, useAccount } from '../net/auth';
-import { PCOL, asset, ink } from './shared';
+import { ICONS, Profile, playAsGuest, saveGuest, saveProfile, signIn, signInGoogle, signOut, signUp, toEntry, useAccount } from '../net/auth';
+import { COLOR_ORDER, PCOL, asset, ink } from './shared';
 
 /** Selector de color (los 9 de los jugadores). */
 function ColorPick({ value, onChange }: { value: number; onChange: (c: number) => void }) {
   return (
     <div className="color-pick" role="radiogroup" aria-label="Tu color">
-      {PCOL.map((c, i) => <button key={c} type="button" role="radio" aria-checked={value === i} aria-label={`Color ${i + 1}`} className={value === i ? 'on' : ''} style={{ background: c }} onClick={() => onChange(i)} />)}
+      {COLOR_ORDER.map((i) => <button key={i} type="button" role="radio" aria-checked={value === i} aria-label={`Color ${i + 1}`} className={value === i ? 'on' : ''} style={{ background: PCOL[i] }} onClick={() => onChange(i)} />)}
     </div>
   );
 }
@@ -27,11 +27,19 @@ function IconPick({ value, color, onChange }: { value: string; color: number; on
   );
 }
 
-/** Avatar de la cuenta: su icono sobre su color. */
+/** Avatar de jugador: su icono sobre su color, en un hexágono con borde. */
 export function Avatar({ p, size = 34 }: { p: Profile; size?: number }) {
+  return <HexIcon icon={p.icon} color={PCOL[p.color] ?? PCOL[0]} size={size} />;
+}
+
+/** Hexágono con el icono del jugador sobre su color (también en la mesa, junto a los nombres). */
+export function HexIcon({ icon, color, size = 22 }: { icon: string; color: string; size?: number }) {
   return (
-    <span className="avatar" style={{ width: size, height: size, background: PCOL[p.color] ?? PCOL[0] }}>
-      <img src={asset(`icons/${p.icon}.webp`)} alt="" />
+    // La sombra va en un envoltorio sin recorte (el hexágono recortado no podría proyectarla).
+    <span className="hex-wrap">
+      <span className="hex-icon" style={{ width: size * 0.87, height: size }}>
+        <span className="hex-in" style={{ background: color }}><img src={asset(`icons/${icon}.webp`)} alt="" /></span>
+      </span>
     </span>
   );
 }
@@ -100,6 +108,41 @@ export function EntryScreen() {
   );
 }
 
+/** Invitado: también elige nombre, color e icono (se guardan en este navegador). */
+export function GuestScreen({ onDone }: { onDone?: () => void }) {
+  const acc = useAccount();
+  const cur = acc.guest;
+  const [nick, setNick] = useState(cur?.nickname ?? (() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } })());
+  const [color, setColor] = useState(cur?.color ?? savedColor());
+  const [icon, setIcon] = useState(cur?.icon ?? 'maldicion');
+  const [error, setError] = useState<string | null>(null);
+  const preview: Profile = { nickname: nick || '…', color, icon };
+  return (
+    <>
+      <h1>{cur ? 'Tu perfil' : 'Jugar como invitado'}</h1>
+      <p className="tagline">Elige cómo te verán los demás</p>
+      <div className="profile-preview"><Avatar p={preview} size={56} /><span className="pill" style={{ background: PCOL[color], color: ink(PCOL[color]) }}>{preview.nickname}</span></div>
+      <form className="entry-form" onSubmit={(e) => {
+        e.preventDefault();
+        const n = nick.replace(/\s+/g, ' ').trim();
+        if (n.length < 2) return setError('Escribe un nombre (al menos 2 letras).');
+        saveGuest({ nickname: n.slice(0, 14), color, icon });
+        onDone?.();
+      }}>
+        <label>Nombre<input value={nick} onChange={(e) => setNick(e.target.value)} maxLength={14} required placeholder="Cómo te verán los demás" /></label>
+        <div className="field">Tu color<ColorPick value={color} onChange={setColor} /></div>
+        <div className="field">Tu icono<IconPick value={icon} color={color} onChange={setIcon} /></div>
+        {error && <p className="error">{error}</p>}
+        <div className="play-row"><button className="play" type="submit">{cur ? 'Guardar' : 'Empezar a jugar'}</button></div>
+      </form>
+      <div className="home-links">
+        {cur && onDone && <button onClick={onDone}>Volver</button>}
+        <button onClick={toEntry}>{cur ? 'Iniciar sesión o crear cuenta' : 'Volver'}</button>
+      </div>
+    </>
+  );
+}
+
 /** Perfil: al entrar por primera vez (sobre todo con Google) y desde «Mi cuenta». */
 export function ProfileScreen({ first, onDone }: { first?: boolean; onDone?: () => void }) {
   const acc = useAccount();
@@ -145,24 +188,33 @@ const ExitIcon = () => (
   </svg>
 );
 
+/** Icono de entrar (flecha hacia dentro). */
+const EnterIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><path d="M10 17l5-5-5-5" /><path d="M15 12H3" />
+  </svg>
+);
+
 /** En la portada, arriba: quién eres (pulsando, «Mi cuenta») a la izquierda y salir a la derecha; o, como invitado, entrar. */
 export function AccountChip({ onAccount }: { onAccount: () => void }) {
   const acc = useAccount();
   if (acc.status === 'in' && acc.profile) return (
     <div className="account-bar">
       <button className="account-me" onClick={onAccount} title="Mi cuenta: nickname, color e icono">
-        <Avatar p={acc.profile} size={30} />
+        <Avatar p={acc.profile} size={42} />
         <b>{acc.profile.nickname}</b>
       </button>
       <button className="account-exit" onClick={signOut} title="Cerrar sesión" aria-label="Cerrar sesión"><ExitIcon /></button>
     </div>
   );
-  if (acc.status === 'guest') return (
+  if (acc.status === 'guest' && acc.guest) return (
     <div className="account-bar">
-      <button className="account-me guest" onClick={toEntry} title="Iniciar sesión o crear cuenta">
-        <span className="avatar guest-av">?</span>
-        <span>Invitado · <u>Entrar</u></span>
+      <button className="account-me" onClick={onAccount} title="Tu perfil de invitado: nombre, color e icono">
+        <Avatar p={acc.guest} size={42} />
+        <b>{acc.guest.nickname}</b>
+        <small className="guest-tag">invitado</small>
       </button>
+      <button className="account-exit enter" onClick={toEntry} title="Iniciar sesión o crear cuenta" aria-label="Iniciar sesión o crear cuenta"><EnterIcon /></button>
     </div>
   );
   return null;

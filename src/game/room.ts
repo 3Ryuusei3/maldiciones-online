@@ -3,6 +3,7 @@
 // Funciona igual que el anfitrión local (useGame), pero aquí también juegan "en piloto automático"
 // los humanos que se desconectan o tardan demasiado en su turno.
 
+import { isIcon, randomIcon } from './icons';
 import { BugReport, GameRecord, Recording, buildRecord, recordAction, startRecording, isUuid } from './record';
 import { Level, botDecide, botDup } from './bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from './engine';
@@ -32,10 +33,12 @@ export interface Seat {
   pid?: string;
   /** Cuenta del jugador (id de Neon Auth), si ha iniciado sesión. */
   uid?: string;
+  /** Icono del jugador (los de las cartas); las máquinas, uno al azar. */
+  icon?: string;
 }
 
 /** Colores de jugador disponibles (índices de la paleta PCOL de la interfaz). */
-export const COLOR_COUNT = 9;
+export const COLOR_COUNT = 12;
 /** Un color libre al azar (para las máquinas, que no salgan siempre los mismos). */
 const randomFreeColor = (seats: Seat[], fallback: number) => {
   const free = Array.from({ length: COLOR_COUNT }, (_, c) => c).filter((c) => !seats.some((x) => x.color === c));
@@ -118,7 +121,7 @@ export const seatOf = (r: RoomData, token: string) => r.seats.findIndex((x) => x
 // ───────────────────────── mensajes ─────────────────────────
 
 export type ClientMsg =
-  | { t: 'hello'; name: string; token: string; pid?: string; jwt?: string | null; color?: number }
+  | { t: 'hello'; name: string; token: string; pid?: string; jwt?: string | null; color?: number; icon?: string }
   | { t: 'opts'; opts: Partial<RoomOpts> }
   | { t: 'start' }
   | { t: 'ready' }
@@ -134,7 +137,7 @@ export type ClientMsg =
   | { t: 'bug'; text: string; ua?: string; build?: string };
 
 /** `state` de un asiento en partida: `wait` (caído, se le espera), `auto` (caído, juega una máquina), `out` (fuera). */
-export interface SeatInfo { name: string; bot: boolean; online: boolean; host: boolean; color: number; state?: 'wait' | 'auto' | 'out' }
+export interface SeatInfo { name: string; bot: boolean; online: boolean; host: boolean; color: number; icon: string; state?: 'wait' | 'auto' | 'out' }
 
 export interface RoomView {
   t: 'room';
@@ -166,13 +169,14 @@ const fail = (msg: string, fatal = false): Result => ({ ok: false, msg, fatal })
 const cleanName = (n: unknown) => (typeof n === 'string' ? n.replace(/\s+/g, ' ').trim().slice(0, MAX_NAME) : '') || 'Jugador';
 
 /** Un jugador entra (o vuelve) a la sala. */
-export function hello(r: RoomData, token: string, name: string, online: Set<string> = new Set(), pid?: string, uid?: string | null, color?: number): Result {
+export function hello(r: RoomData, token: string, name: string, online: Set<string> = new Set(), pid?: string, uid?: string | null, color?: number, icon?: string): Result {
   if (typeof token !== 'string' || token.length < 16) return fail('Identificador no válido.', true);
   const res = helloSeat(r, token, name, online, color);
   const i = seatOf(r, token);
   if (res.ok && i >= 0) {
     if (isUuid(pid)) r.seats[i].pid = pid;
     if (uid) r.seats[i].uid = uid;
+    if (isIcon(icon)) r.seats[i].icon = icon;
   }
   return res;
 }
@@ -260,7 +264,7 @@ export function start(r: RoomData, token: string, now: number, online: Set<strin
   const humans = r.seats.filter((x) => x.token && !x.left && online.has(x.token));
   if (!humans.length) return fail('No hay nadie en la sala.');
   const bots: Seat[] = [];
-  for (const name of pickNames(Math.max(0, r.opts.size - humans.length), humans.map((x) => x.name))) bots.push({ name, token: null, color: randomFreeColor([...humans, ...bots], humans.length + bots.length) });
+  for (const name of pickNames(Math.max(0, r.opts.size - humans.length), humans.map((x) => x.name))) bots.push({ name, token: null, color: randomFreeColor([...humans, ...bots], humans.length + bots.length), icon: randomIcon() });
   // Los asientos se sortean para que el anfitrión no sea siempre el primero.
   r.seats = [...humans, ...bots].map((x) => [Math.random(), x] as const).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
   r.game = newGame({
@@ -543,6 +547,7 @@ export function roomView(r: RoomData, token: string | null, online: Set<string>,
       online: !!x.token && !x.left && online.has(x.token),
       host: !!x.token && x.token === hostOf(r, online),
       color: x.color ?? p % COLOR_COUNT,
+      icon: x.icon ?? 'maldicion',
       state: s?.players[p]?.out ? 'out' : r.drops?.[p] ? (r.drops[p].mode === 'wait' ? 'wait' : 'auto') : undefined,
     })),
     round: r.round,

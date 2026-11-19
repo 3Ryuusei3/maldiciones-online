@@ -7433,3 +7433,45 @@ input[type="checkbox"]:focus-visible {
 .spin-box .reel { display: flex; flex-direction: column; transition-property: transform; transition-timing-function: cubic-bezier(0.1, 0.55, 0.12, 1.02); will-change: transform; }
 .spin-box .reel b { flex: none; height: var(--rh); display: flex; align-items: center; justify-content: center; padding: 0 12px; font-size: 24px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: none; }
 .spin-box.done .reel-win { box-shadow: 0 0 0 2px #fff, 0 0 30px var(--sc); animation: spin-win 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4); }
+
+/* Iconos de jugador en hexágono: borde blanco y el icono sobre el color del jugador. */
+.hex-icon { position: relative; display: inline-block; flex: none; clip-path: polygon(25% 2%, 75% 2%, 100% 50%, 75% 98%, 25% 98%, 0 50%); background: #fff; }
+.hex-icon .hex-in { position: absolute; inset: 2px; display: grid; place-items: center; clip-path: polygon(25% 2%, 75% 2%, 100% 50%, 75% 98%, 25% 98%, 0 50%); }
+.hex-icon img { width: 64%; height: 64%; object-fit: contain; }
+/* En las etiquetas de nombre de la mesa: a la izquierda del nombre, pegado al borde. */
+.pill .hex-icon { margin-left: -9px; }
+.home-panel .account-bar .guest-tag { color: #9a96a8; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.lobby-seats .hex-icon { vertical-align: middle; }
+/* Hexágono con una punta arriba y otra abajo. */
+.hex-icon, .hex-icon .hex-in { clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+/* En las etiquetas de nombre de la mesa: más grande, sobresaliendo del rectángulo por arriba y por abajo. */
+.pill .hex-icon { margin: -10px 2px -10px -26px; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35)); }
+.pill:has(.hex-icon) { padding-left: 32px; }
+/* Sombra del hexágono (en el envoltorio: el recorte del hexágono taparía la sombra). */
+.hex-wrap { display: inline-flex; flex: none; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45)); }
+.pill .hex-icon { filter: none; }
+.pill .hex-wrap { margin: -10px 2px -10px -26px; }
+.pill .hex-wrap .hex-icon { margin: 0; }
+.lobby-seats .hex-wrap { margin-right: 8px; vertical-align: middle; }
+/* Al acabar la ruleta: el que empieza se marca con un anillo que late y una etiqueta «¡Empieza!». */
+.pill.spin-glow { box-shadow: 0 0 0 3px #fff, 0 0 26px 6px var(--gc) !important; animation: start-pulse 0.8s ease-in-out infinite alternate; }
+@keyframes start-pulse { from { box-shadow: 0 0 0 3px #fff, 0 0 16px 2px var(--gc); } to { box-shadow: 0 0 0 4px #fff, 0 0 34px 10px var(--gc); } }
+.start-tag { padding: 4px 10px; font-size: 12px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; box-shadow: 0 0 0 2px #fff, 0 0 18px rgba(0, 0, 0, 0.3); animation: spin-win 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4) both; white-space: nowrap; }
+.game.spinning .start-tag { visibility: visible; }
+/* El hexágono más hacia la izquierda (sobresale más por ese lado) para que ocupe menos de la etiqueta. */
+.pill .hex-wrap { margin: -10px 0 -10px -40px; }
+.pill:has(.hex-icon) { padding-left: 26px; }
+/* Como el hexágono sobresale por la izquierda, la etiqueta se separa un poco del borde (si no, se cortaría en los lados). */
+.pill:has(.hex-icon) { margin-left: 16px; }
+/* El hexágono, centrado sobre el borde izquierdo de la etiqueta: sus puntas de arriba y abajo caen justo en el borde. */
+.pill .hex-wrap { margin-left: calc(-26px - 17.4px); }
+.pill:has(.hex-icon) { margin-left: 20px; }
+.pill .hex-wrap { margin-left: calc(-26px - 19.4px); }
+.pill .hex-wrap { margin-left: calc(-26px - 21.4px); }
+.pill:has(.hex-icon) { margin-left: 22px; }
+/* Hexágono algo más grande (46 px): mismos márgenes proporcionales (centro 4 px por fuera del borde). */
+.pill .hex-wrap { margin: -13px 0 -13px calc(-26px - 24px); }
+.pill:has(.hex-icon) { margin-left: 25px; }
+
+/* Sala de espera: el icono pegado al nombre (sin margen extra además del hueco de la fila). */
+.lobby-seats .hex-wrap { margin-right: -2px; }

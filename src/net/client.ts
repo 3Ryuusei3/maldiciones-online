@@ -121,9 +121,9 @@ export class NetClient {
       // Con sesión iniciada se manda el token de la cuenta (la sala lo comprueba) y el color preferido.
       void authToken().then((jwt) => {
         if (ws.readyState !== WebSocket.OPEN) return;
-        let color: number | undefined;
-        try { const c = localStorage.getItem('maldiciones:color'); if (c !== null) color = Number(c); } catch { /* nada */ }
-        ws.send(JSON.stringify({ t: 'hello', name: this.name, token: this.token, pid: playerId(), jwt, color } satisfies ClientMsg));
+        let color: number | undefined, icon: string | undefined;
+        try { const c = localStorage.getItem('maldiciones:color'); if (c !== null) color = Number(c); icon = localStorage.getItem('maldiciones:icono') ?? undefined; } catch { /* nada */ }
+        ws.send(JSON.stringify({ t: 'hello', name: this.name, token: this.token, pid: playerId(), jwt, color, icon } satisfies ClientMsg));
       });
       clearInterval(this.ping);
       this.ping = window.setInterval(() => ws.readyState === WebSocket.OPEN && ws.send('ping'), 25000);

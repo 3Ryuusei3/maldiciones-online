@@ -11,7 +11,9 @@ export function toggleFullscreen() {
 /** Color de cada jugador (asiento): se usa en su placa y en el registro. */
 /** Colores de jugador (los botones y avisos ya usan el color de cada jugador, así que el amarillo vuelve a estar libre). */
 // Tonos medios y saturados, en la línea de los colores de las cartas (nada pastel), para que se distingan sobre la mesa.
-export const PCOL = ['#f2b200', '#10a89a', '#e2457f', '#2f7fe6', '#ee7417', '#6aa812', '#8f55e0', '#cf3b3b', '#4b5bc4'];
+export const PCOL = ['#f2b200', '#10a89a', '#e2457f', '#2f7fe6', '#ee7417', '#6aa812', '#8f55e0', '#cf3b3b', '#4b5bc4', '#f5c767', '#946cab', '#72bf8c'];
+/** Orden en los selectores: primero los 3 colores oficiales de las cartas (amarillo, morado y verde), luego el resto. */
+export const COLOR_ORDER = [9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8];
 
 /** Color de texto legible sobre un color de jugador: negro sobre los claros, blanco sobre los oscuros. */
 export function ink(hex: string): string {

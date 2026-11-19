@@ -1,9 +1,10 @@
 // Partidas online: crear o unirse a una sala y sala de espera.
 
-import { useAccount } from '../net/auth';
+import { myProfile, useAccount } from '../net/auth';
+import { AccountChip, HexIcon } from './Account';
 import { useState } from 'react';
 import { NetClient, createRoom, roomInfo, useNet } from '../net/client';
-import { PCOL, asset, toggleFullscreen } from './shared';
+import { COLOR_ORDER, PCOL, asset, toggleFullscreen } from './shared';
 import { LEVELS, SetupFields } from './Setup';
 import { CompendioButton } from './Compendium';
 
@@ -23,9 +24,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
 }
 
 /** Pantalla de entrada: crear una sala nueva o unirse con un código. */
-export function OnlineEntry({ initialCode, initialError, onJoin, onBack }: { initialCode?: string; initialError?: string | null; onJoin: (code: string, name: string) => void; onBack: () => void }) {
+export function OnlineEntry({ initialCode, initialError, onJoin, onBack, onAccount }: { initialCode?: string; initialError?: string | null; onJoin: (code: string, name: string) => void; onBack: () => void; onAccount?: () => void }) {
   const acc = useAccount();
-  const prof = acc.status === 'in' ? acc.profile : null;
+  const prof = myProfile(acc);
   const [name, setName] = useState(() => prof?.nickname ?? (() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } })());
   const [code, setCode] = useState(initialCode ?? '');
   const [busy, setBusy] = useState(false);
@@ -69,7 +70,8 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack }: { ini
     <>
       <h1>Online</h1>
       <p className="tagline">Juega con amigos</p>
-      {prof ? <p className="as-account">Juegas como <b>{prof.nickname}</b>.</p> : (
+      {onAccount && <AccountChip onAccount={onAccount} />}
+      {prof ? null : (
       <label>
         Tu nombre
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jugador" maxLength={14} />
@@ -123,7 +125,7 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
         <ul className="lobby-seats">
           {v.seats.map((x, i) => (
             <li key={i} className={x.online ? '' : 'off'}>
-              <i style={{ background: PCOL[x.color] ?? PCOL[i % PCOL.length] }} />
+              <HexIcon icon={x.icon ?? 'maldicion'} color={PCOL[x.color] ?? PCOL[i % PCOL.length]} size={22} />
               {x.name}
               {i === v.you && <small>(tú)</small>}
               {x.host && <small>anfitrión</small>}
@@ -137,7 +139,8 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
         <div className="field">
           Tu color
           <div className="color-pick" role="radiogroup" aria-label="Tu color">
-            {PCOL.map((c, i) => {
+            {COLOR_ORDER.map((i) => {
+              const c = PCOL[i];
               const mine = v.seats[v.you]?.color === i;
               const taken = !mine && v.seats.some((x, j) => j !== v.you && !x.bot && x.color === i);
               return <button key={c} role="radio" aria-checked={mine} aria-label={`Color ${i + 1}${taken ? ' (ocupado)' : ''}`} className={mine ? 'on' : ''} disabled={taken} style={{ background: c }} onClick={() => client.send({ t: 'color', c: i })} />;

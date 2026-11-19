@@ -23,6 +23,8 @@ export interface GameConfig {
   timer?: boolean;
   /** Mi color en local (índice de la paleta de jugadores); las máquinas usan los que quedan. */
   color?: number;
+  /** Mi icono (los de las cartas); las máquinas llevan uno al azar. */
+  icon?: string;
   /** Solo para pruebas (?mano=tinieblas,reflejo): cartas que empiezan en mi mano, y empiezo yo. */
   debugHand?: string[];
   /** Solo para pruebas (?solo): mi mano queda solo con las cartas de `debugHand`. */

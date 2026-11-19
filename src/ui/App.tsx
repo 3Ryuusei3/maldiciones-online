@@ -5,15 +5,16 @@ import { Action, Anchor, Effect, Fx, GameState, canDup, canFreeAntitodo, canPlay
 import { Level } from '../game/bot';
 import { Compendium, CompendioButton, HelpDock } from './Compendium';
 import { TutorGate, TutorOverlay, useTutor } from './Tutorial';
-import { AccountChip, EntryScreen, ProfileScreen } from './Account';
-import { initAccount, useAccount } from '../net/auth';
+import { AccountChip, EntryScreen, GuestScreen, HexIcon, ProfileScreen } from './Account';
+import { initAccount, myProfile, useAccount } from '../net/auth';
+import { randomIcon } from '../game/icons';
 import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
 import { BUILD, NetClient, playerId, sendLocalBug, useNet } from '../net/client';
 import type { RoomView } from '../game/room';
 import { Lobby, OnlineEntry, Shell } from './Online';
 import { SetupFields } from './Setup';
 import type { RoomOpts } from '../game/room';
-import { CardView, Icon, PCOL, asset, ink, rich, toggleFullscreen } from './shared';
+import { COLOR_ORDER, CardView, Icon, PCOL, asset, ink, rich, toggleFullscreen } from './shared';
 import { PEEK_VISIBLE_MS } from '../game/timing';
 
 // ───────────────────────── piezas básicas ─────────────────────────
@@ -451,22 +452,23 @@ function Home({ onLocal, onOnline, onTutorial, onAccount }: { onLocal: () => voi
 }
 
 /** Partida local contra las máquinas: nombre y opciones antes de empezar. */
-function LocalSetup({ onStart, onBack }: { onStart: (c: GameConfig) => void; onBack: () => void }) {
+function LocalSetup({ onStart, onBack, onAccount }: { onStart: (c: GameConfig) => void; onBack: () => void; onAccount?: () => void }) {
   const acc = useAccount();
-  const prof = acc.status === 'in' ? acc.profile : null;
+  const prof = myProfile(acc);
   const [name, setName] = useState(() => prof?.nickname ?? (() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } })());
   // Ninguna casilla marcada por defecto.
   const [opts, setOpts] = useState<RoomOpts>({ size: 4, level: 1, extraCurses: false, condena: false, beta: false, timer: false });
   const [color, setColor] = useState(() => prof?.color ?? (() => { try { const c = Number(localStorage.getItem('maldiciones:color')); return c >= 0 && c < PCOL.length ? c : 0; } catch { return 0; } })());
   const start = () => {
     try { localStorage.setItem('maldiciones:nombre', name.trim()); localStorage.setItem('maldiciones:color', String(color)); } catch { /* sin almacenamiento: no se recuerda */ }
-    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta, timer: opts.timer !== false, color });
+    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta, timer: opts.timer !== false, color, icon: prof?.icon });
   };
   return (
     <>
       <h1>En local</h1>
       <p className="tagline">Contra las máquinas</p>
-      {prof ? <p className="as-account">Juegas como <b>{prof.nickname}</b> (nombre y color se cambian en «Mi cuenta»).</p> : <>
+      {onAccount && <AccountChip onAccount={onAccount} />}
+      {prof ? null : <>
       <label>
         Tu nombre
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tú" maxLength={14} />
@@ -474,7 +476,7 @@ function LocalSetup({ onStart, onBack }: { onStart: (c: GameConfig) => void; onB
       <div className="field">
         Tu color
         <div className="color-pick" role="radiogroup" aria-label="Tu color">
-          {PCOL.map((c, i) => <button key={c} role="radio" aria-checked={color === i} aria-label={`Color ${i + 1}`} className={color === i ? 'on' : ''} style={{ background: c }} onClick={() => setColor(i)} />)}
+          {COLOR_ORDER.map((i) => <button key={i} role="radio" aria-checked={color === i} aria-label={`Color ${i + 1}`} className={color === i ? 'on' : ''} style={{ background: PCOL[i] }} onClick={() => setColor(i)} />)}
         </div>
       </div>
       </>}
@@ -569,7 +571,7 @@ const STATE_TAG: Record<'wait' | 'auto' | 'out', [string, string]> = {
   out: ['fuera', 'Ha quedado fuera de la partida'],
 };
 
-function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, state, onKick, egidaAir, color, next, glow }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; state?: SeatState; onKick?: () => void; egidaAir: string[]; color: string; next: boolean; glow?: boolean }) {
+function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, state, onKick, egidaAir, color, next, glow, icon }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; state?: SeatState; onKick?: () => void; egidaAir: string[]; color: string; next: boolean; glow?: boolean; icon?: string }) {
   const pl = s.players[p];
   // Durante el reparto su Maldición está aparte, boca arriba, así que no cuenta en el abanico.
   const have = Math.max(0, Math.min(shown - (curseApart(intro) ? 1 : 0), 14));
@@ -592,7 +594,8 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
         </div>
       )}
       <div className="plate">
-        <span className={`pill ${glow ? 'spin-glow' : ''}`} style={{ background: color, color: ink(color), '--gc': color } as React.CSSProperties}>{pl.name}<i>{shown}</i></span>
+        <span className={`pill ${glow ? 'spin-glow' : ''}`} style={{ background: color, color: ink(color), '--gc': color } as React.CSSProperties}>{icon && <HexIcon icon={icon} color={color} size={46} />}{pl.name}<i>{shown}</i></span>
+        {glow && <span className="start-tag" style={{ background: color, color: ink(color) }}>¡Empieza!</span>}
         {s.turn === p && !intro && s.phase.t !== 'over' && <span className="turn-tag" style={{ background: color, color: ink(color), boxShadow: `0 0 18px ${color}` }}>Su turno</span>}
         {next && s.turn !== p && !intro && <span className="next-tag" style={{ borderColor: color }}>Después</span>}
         {!intro && pl.hand.length === 1 && s.phase.t !== 'over' && <span className="last-tag">¡Última carta!</span>}
@@ -657,6 +660,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     const rest = botColors.current.filter((i) => i !== mine).map((i) => PCOL[i]);
     return s.players.map((_, p) => (p === ME ? PCOL[mine] : rest[(p - 1 + rest.length) % rest.length]));
   }, [net, rv?.seats, s.players.length, cfg.color]);
+  /** Icono de cada jugador: online, el que trae cada uno (las máquinas, al azar); en local, el mío y uno al azar por máquina. */
+  const botIcons = useRef(Array.from({ length: 8 }, () => randomIcon()));
+  const icons = useMemo(() => s.players.map((_, p) => (net ? rv?.seats[p]?.icon ?? 'maldicion' : p === ME ? cfg.icon ?? 'maldicion' : botIcons.current[p])), [net, rv?.seats, s.players.length, cfg.icon]);
   const timerOn = net ? rv?.opts.timer !== false : localTimer;
   const seatState = (p: number): SeatState => (net && rv ? rv.seats[p]?.state : s.players[p].out ? 'out' : undefined);
   // Online: se avisa al servidor cuando ya se ha visto el reparto, para que empiece a correr el juego.
@@ -1445,6 +1451,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             say={s.announce?.n !== muted}
             room={facedown ? p.hand.length - shown(p.id) : room[p.id] ?? 0}
             glow={!!spin?.done && spin.cur === p.id}
+            icon={icons[p.id]}
           />
         ))}
 
@@ -1561,7 +1568,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       )}
       <div className={`hand ${s.turn === ME && !dealing ? 'turn' : ''}`}>
         <div className="me-tag">
-          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''} ${spin?.done && spin.cur === ME ? 'spin-glow' : ''}`} style={{ background: colors[ME], color: ink(colors[ME]), '--gc': colors[ME] } as React.CSSProperties}>{me.name}<i>{shown(ME)}</i></span>
+          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''} ${spin?.done && spin.cur === ME ? 'spin-glow' : ''}`} style={{ background: colors[ME], color: ink(colors[ME]), '--gc': colors[ME] } as React.CSSProperties}><HexIcon icon={icons[ME]} color={colors[ME]} size={46} />{me.name}<i>{shown(ME)}</i></span>
+          {spin?.done && spin.cur === ME && <span className="start-tag" style={{ background: colors[ME], color: ink(colors[ME]) }}>¡Empiezas tú!</span>}
           {s.turn === ME && !dealing && ph.t !== 'over' && <span className="turn-tag" style={{ background: colors[ME], color: ink(colors[ME]), boxShadow: `0 0 18px ${colors[ME]}` }}>Tu turno</span>}
           {nextUp === ME && s.turn !== ME && !dealing && <span className="next-tag" style={{ borderColor: colors[ME] }}>Te toca después</span>}
           {!dealing && me.hand.length === 1 && ph.t !== 'over' && <span className="last-tag">¡Última carta!</span>}
@@ -2486,9 +2494,9 @@ function OnlineRoom({ client, onExit }: { client: NetClient; onExit: (error?: st
 
 /** Partida del tutorial: 4 jugadores, sin tiempo máximo, con mi nombre y mi color guardados. */
 const tutorialCfg = (): GameConfig => {
-  let name = '', color = 0;
-  try { name = localStorage.getItem('maldiciones:nombre') ?? ''; color = Number(localStorage.getItem('maldiciones:color')) || 0; } catch { /* sin almacenamiento */ }
-  return { name: name || 'Tú', players: 4, level: 1, extraCurses: false, condena: false, beta: false, timer: false, color, tutorial: true };
+  let name = '', color = 0, icon: string | undefined;
+  try { name = localStorage.getItem('maldiciones:nombre') ?? ''; color = Number(localStorage.getItem('maldiciones:color')) || 0; icon = localStorage.getItem('maldiciones:icono') ?? undefined; } catch { /* sin almacenamiento */ }
+  return { name: name || 'Tú', players: 4, level: 1, extraCurses: false, condena: false, beta: false, timer: false, color, icon, tutorial: true };
 };
 
 type Screen = { k: 'account' } | { k: 'home' } | { k: 'setup' } | { k: 'local'; cfg: GameConfig; n: number } | { k: 'entry'; code?: string; error?: string | null } | { k: 'room'; client: NetClient };
@@ -2520,16 +2528,17 @@ export default function App() {
     if (acc.status === 'out') return <Shell><EntryScreen /></Shell>;
     if (acc.status === 'in' && acc.profile === undefined) return <Shell><p className="tagline">Cargando tu cuenta…</p></Shell>;
     if (acc.status === 'in' && acc.profile === null) return <Shell><ProfileScreen first /></Shell>;
+    if (acc.status === 'guest' && !acc.guest) return <Shell><GuestScreen /></Shell>;
   }
   switch (screen.k) {
     case 'account':
-      return <Shell><ProfileScreen onDone={home} /></Shell>;
+      return <Shell>{acc.status === 'guest' ? <GuestScreen onDone={home} /> : <ProfileScreen onDone={home} />}</Shell>;
     case 'home':
       return <Shell><Home onLocal={() => setScreen({ k: 'setup' })} onOnline={() => setScreen({ k: 'entry' })} onTutorial={() => setScreen({ k: 'local', n: 0, cfg: tutorialCfg() })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
     case 'setup':
-      return <Shell><LocalSetup onBack={home} onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} /></Shell>;
+      return <Shell><LocalSetup onBack={home} onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
     case 'entry':
-      return <Shell><OnlineEntry initialCode={screen.code} initialError={screen.error} onBack={home} onJoin={(code, name) => setScreen({ k: 'room', client: new NetClient(code, name) })} /></Shell>;
+      return <Shell><OnlineEntry initialCode={screen.code} initialError={screen.error} onBack={home} onJoin={(code, name) => setScreen({ k: 'room', client: new NetClient(code, name) })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
     case 'room':
       return <OnlineRoom client={screen.client} onExit={leaveRoom} />;
     case 'local':

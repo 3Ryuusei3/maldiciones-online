@@ -17,8 +17,7 @@ import { BugReport } from '../../src/game/record';
 import { NICK_RE, cleanNick, getProfile, nickFree, saveBug, saveGame, saveProfile, validRecord } from './db';
 import { bearer, verifyUser } from './auth';
 
-/** Iconos que se pueden elegir para la cuenta (los de las cartas). */
-const ICONS = ['maldicion', 'antitodo', 'aplastar', 'codicia', 'condena', 'cristalizar', 'egida', 'reflejo', 'iman', 'adivinar', 'recuperar', 'predestinar', 'purga', 'mutis', 'inutilizar', 'tinieblas', 'travesura', 'gema1', 'gema2', 'gema3', 'gematri', 'escarcha', 'rafaga', 'trastada', 'ritual1'];
+import { ICONS } from '../../src/game/icons';
 
 interface Env {
   SALAS: DurableObjectNamespace<Sala>;
@@ -98,8 +97,8 @@ export default {
         const nickname = cleanNick(b.nickname);
         if (!NICK_RE.test(nickname)) return json({ error: 'El nickname debe tener de 3 a 14 letras, números, espacios o _ . -' }, 400);
         const color = Number(b.color);
-        if (!Number.isInteger(color) || color < 0 || color > 8) return json({ error: 'Color no válido.' }, 400);
-        const icon = typeof b.icon === 'string' && ICONS.includes(b.icon) ? b.icon : 'maldicion';
+        if (!Number.isInteger(color) || color < 0 || color > 11) return json({ error: 'Color no válido.' }, 400);
+        const icon = typeof b.icon === 'string' && (ICONS as readonly string[]).includes(b.icon) ? b.icon : 'maldicion';
         const r = await saveProfile(env.DATABASE_URL, uid, { nickname, color, icon }, typeof b.guestId === 'string' ? b.guestId : null);
         if (r === 'taken') return json({ error: 'Ese nickname ya lo tiene otro jugador.' }, 409);
         return json({ profile: { nickname, color, icon } });
@@ -186,7 +185,7 @@ export class Sala extends DurableObject<Env> {
     if (m.t === 'hello') {
       // Con sesión iniciada, el asiento queda enlazado con la cuenta (comprobando su token).
       const uid = await verifyUser(m.jwt, this.env.NEON_AUTH_JWKS_URL);
-      res = hello(r, m.token, m.name, this.online(ws), m.pid, uid, m.color);
+      res = hello(r, m.token, m.name, this.online(ws), m.pid, uid, m.color, m.icon);
       if (res.ok) {
         token = m.token;
         ws.serializeAttachment({ token } satisfies Att);

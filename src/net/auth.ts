@@ -20,6 +20,34 @@ export interface Account {
   suggested?: string;
   /** null: tiene sesión pero aún no ha creado su perfil (nickname). */
   profile?: Profile | null;
+  /** Invitado: su nombre, color e icono (guardados en este navegador); null si aún no los ha elegido. */
+  guest?: Profile | null;
+}
+
+/** Perfil con el que se juega: el de la cuenta o el de invitado. */
+export const myProfile = (a: Account): Profile | null => (a.status === 'in' ? a.profile ?? null : a.status === 'guest' ? a.guest ?? null : null);
+
+/** Perfil de invitado guardado en el navegador (hace falta nombre e icono). */
+function storedGuest(): Profile | null {
+  try {
+    const nickname = localStorage.getItem('maldiciones:nombre')?.trim();
+    const icon = localStorage.getItem('maldiciones:icono');
+    const color = Number(localStorage.getItem('maldiciones:color'));
+    if (!nickname || !icon) return null;
+    return { nickname, icon, color: color >= 0 && color < 12 ? color : 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** Guarda el perfil de invitado (nombre, color e icono) en el navegador. */
+export function saveGuest(p: Profile) {
+  try {
+    localStorage.setItem('maldiciones:nombre', p.nickname);
+    localStorage.setItem('maldiciones:color', String(p.color));
+    localStorage.setItem('maldiciones:icono', p.icon);
+  } catch { /* sin almacenamiento: solo para esta visita */ }
+  set({ ...state, guest: p });
 }
 
 const GUEST_KEY = 'maldiciones:modo';
@@ -83,12 +111,12 @@ export async function initAccount() {
   } catch { /* sin conexión con Neon Auth: se sigue como invitado o sin sesión */ }
   let guest = false;
   try { guest = localStorage.getItem(GUEST_KEY) === 'invitado'; } catch { /* nada */ }
-  set({ status: guest ? 'guest' : 'out' });
+  set(guest ? { status: 'guest', guest: storedGuest() } : { status: 'out' });
 }
 
 export function playAsGuest() {
   try { localStorage.setItem(GUEST_KEY, 'invitado'); } catch { /* nada */ }
-  set({ status: 'guest' });
+  set({ status: 'guest', guest: storedGuest() });
 }
 
 /** Vuelve a la pantalla de entrada (para que un invitado inicie sesión o cree su cuenta). */
@@ -156,9 +184,8 @@ export async function saveProfile(p: Profile): Promise<string | null> {
   const r = await api('/api/perfil', { method: 'PUT', body: JSON.stringify({ ...p, guestId: playerId() }) });
   if (!r.ok) return (r.data.error as string) ?? 'No se ha podido guardar.';
   set({ ...state, profile: r.data.profile as Profile });
-  try { localStorage.setItem('maldiciones:nombre', p.nickname); localStorage.setItem('maldiciones:color', String(p.color)); } catch { /* nada */ }
+  try { localStorage.setItem('maldiciones:nombre', p.nickname); localStorage.setItem('maldiciones:color', String(p.color)); localStorage.setItem('maldiciones:icono', p.icon); } catch { /* nada */ }
   return null;
 }
 
-/** Iconos para la cuenta (los de las cartas). */
-export const ICONS = ['maldicion', 'antitodo', 'aplastar', 'codicia', 'condena', 'cristalizar', 'egida', 'reflejo', 'iman', 'adivinar', 'recuperar', 'predestinar', 'purga', 'mutis', 'inutilizar', 'tinieblas', 'travesura', 'gema1', 'gema2', 'gema3', 'gematri', 'escarcha', 'rafaga', 'trastada', 'ritual1'] as const;
+export { ICONS } from '../game/icons';
