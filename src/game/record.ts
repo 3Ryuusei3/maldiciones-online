@@ -18,7 +18,7 @@ export interface Recording {
   saved?: boolean;
 }
 
-export interface SeatMeta { playerId?: string | null; color?: number | null; botLevel?: number | null; left?: boolean }
+export interface SeatMeta { userId?: string | null; playerId?: string | null; color?: number | null; botLevel?: number | null; left?: boolean }
 
 export interface GameRecord {
   id: string;
@@ -35,7 +35,7 @@ export interface GameRecord {
   initial: GameState;
   actions: RecAction[];
   players: {
-    seat: number; playerId: string | null; name: string; isBot: boolean; botLevel: number | null; color: number | null;
+    seat: number; playerId: string | null; userId: string | null; name: string; isBot: boolean; botLevel: number | null; color: number | null;
     won: boolean; finalHand: number; played: number; drawn: number; maxCurses: number; maxHand: number; minHand: number; left: boolean;
   }[];
 }
@@ -79,6 +79,7 @@ export function buildRecord(rec: Recording, s: GameState, o: { mode: 'local' | '
     players: s.players.map((p, i) => ({
       seat: i,
       playerId: o.seats[i]?.playerId ?? null,
+      userId: o.seats[i]?.userId ?? null,
       name: p.name,
       isBot: p.bot,
       botLevel: p.bot ? o.seats[i]?.botLevel ?? null : null,

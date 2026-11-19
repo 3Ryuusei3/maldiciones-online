@@ -4,6 +4,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Action } from '../game/engine';
 import type { ClientMsg, RoomOpts, RoomView, ServerMsg } from '../game/room';
+import { authToken } from './auth';
 
 /**
  * Dónde está el servidor. En desarrollo, el mismo sitio (Vite lo redirige al 8787). En producción, el Worker
@@ -14,7 +15,7 @@ const SERVER = 'https://maldiciones.ryuusei3.workers.dev';
 /** Abierta en local (p. ej. `wrangler dev`), habla con el servidor local aunque sea la versión compilada. */
 const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 const API = ((import.meta.env.VITE_API as string | undefined) ?? (import.meta.env.PROD && !isLocal ? SERVER : '')).replace(/\/$/, '');
-const httpUrl = (path: string) => `${API}${path}`;
+export const httpUrl = (path: string) => `${API}${path}`;
 const wsUrl = (path: string) => {
   const u = new URL(httpUrl(path), location.href);
   u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -52,9 +53,10 @@ export const BUILD = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
 
 /** Guarda una partida local (sin esperar respuesta; si no hay servidor, se pierde sin más). */
 export function saveLocalGame(record: unknown) {
-  try {
-    void fetch(httpUrl('/api/partidas'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(record), keepalive: true }).catch(() => {});
-  } catch { /* nada */ }
+  // Con sesión iniciada, con el token de la cuenta: la partida queda enlazada con ella.
+  void authToken().then((t) => fetch(httpUrl('/api/partidas'), {
+    method: 'POST', headers: { 'content-type': 'application/json', ...(t ? { authorization: `Bearer ${t}` } : {}) }, body: JSON.stringify(record), keepalive: true,
+  })).catch(() => {});
 }
 
 /** Envía un reporte de fallo de una partida local. */
@@ -116,7 +118,13 @@ export class NetClient {
     ws.onopen = () => {
       this.retry = 0;
       this.set({ status: 'open' });
-      ws.send(JSON.stringify({ t: 'hello', name: this.name, token: this.token, pid: playerId() } satisfies ClientMsg));
+      // Con sesión iniciada se manda el token de la cuenta (la sala lo comprueba) y el color preferido.
+      void authToken().then((jwt) => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        let color: number | undefined;
+        try { const c = localStorage.getItem('maldiciones:color'); if (c !== null) color = Number(c); } catch { /* nada */ }
+        ws.send(JSON.stringify({ t: 'hello', name: this.name, token: this.token, pid: playerId(), jwt, color } satisfies ClientMsg));
+      });
       clearInterval(this.ping);
       this.ping = window.setInterval(() => ws.readyState === WebSocket.OPEN && ws.send('ping'), 25000);
     };

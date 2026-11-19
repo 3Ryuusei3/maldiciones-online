@@ -15,6 +15,7 @@
     "ws": "^8.23.0"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.2.1"
+    "@neondatabase/serverless": "^1.2.1",
+    "jose": "^6.2.18"
   }
 }

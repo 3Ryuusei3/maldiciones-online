@@ -1,5 +1,6 @@
 // Partidas online: crear o unirse a una sala y sala de espera.
 
+import { useAccount } from '../net/auth';
 import { useState } from 'react';
 import { NetClient, createRoom, roomInfo, useNet } from '../net/client';
 import { PCOL, asset, toggleFullscreen } from './shared';
@@ -23,7 +24,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
 /** Pantalla de entrada: crear una sala nueva o unirse con un código. */
 export function OnlineEntry({ initialCode, initialError, onJoin, onBack }: { initialCode?: string; initialError?: string | null; onJoin: (code: string, name: string) => void; onBack: () => void }) {
-  const [name, setName] = useState(() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } });
+  const acc = useAccount();
+  const prof = acc.status === 'in' ? acc.profile : null;
+  const [name, setName] = useState(() => prof?.nickname ?? (() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } })());
   const [code, setCode] = useState(initialCode ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(initialError ?? null);
@@ -66,10 +69,12 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack }: { ini
     <>
       <h1>Online</h1>
       <p className="tagline">Juega con amigos</p>
+      {prof ? <p className="as-account">Juegas como <b>{prof.nickname}</b>.</p> : (
       <label>
         Tu nombre
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jugador" maxLength={14} />
       </label>
+      )}
       <div className="play-row">
         <button className="play" disabled={busy} onClick={create}>Crear sala</button>
       </div>

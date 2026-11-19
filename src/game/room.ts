@@ -30,6 +30,8 @@ export interface Seat {
   color?: number;
   /** Identificador público del jugador (invitado: el de su navegador), para su histórico. */
   pid?: string;
+  /** Cuenta del jugador (id de Neon Auth), si ha iniciado sesión. */
+  uid?: string;
 }
 
 /** Colores de jugador disponibles (índices de la paleta PCOL de la interfaz). */
@@ -116,7 +118,7 @@ export const seatOf = (r: RoomData, token: string) => r.seats.findIndex((x) => x
 // ───────────────────────── mensajes ─────────────────────────
 
 export type ClientMsg =
-  | { t: 'hello'; name: string; token: string; pid?: string }
+  | { t: 'hello'; name: string; token: string; pid?: string; jwt?: string | null; color?: number }
   | { t: 'opts'; opts: Partial<RoomOpts> }
   | { t: 'start' }
   | { t: 'ready' }
@@ -164,15 +166,22 @@ const fail = (msg: string, fatal = false): Result => ({ ok: false, msg, fatal })
 const cleanName = (n: unknown) => (typeof n === 'string' ? n.replace(/\s+/g, ' ').trim().slice(0, MAX_NAME) : '') || 'Jugador';
 
 /** Un jugador entra (o vuelve) a la sala. */
-export function hello(r: RoomData, token: string, name: string, online: Set<string> = new Set(), pid?: string): Result {
+export function hello(r: RoomData, token: string, name: string, online: Set<string> = new Set(), pid?: string, uid?: string | null, color?: number): Result {
   if (typeof token !== 'string' || token.length < 16) return fail('Identificador no válido.', true);
-  const res = helloSeat(r, token, name, online);
+  const res = helloSeat(r, token, name, online, color);
   const i = seatOf(r, token);
-  if (res.ok && i >= 0 && isUuid(pid)) r.seats[i].pid = pid;
+  if (res.ok && i >= 0) {
+    if (isUuid(pid)) r.seats[i].pid = pid;
+    if (uid) r.seats[i].uid = uid;
+  }
   return res;
 }
 
-function helloSeat(r: RoomData, token: string, name: string, online: Set<string>): Result {
+/** El color preferido del jugador si nadie más de la sala lo tiene; si no, el primero libre (quien llegó antes lo conserva). */
+const prefColor = (seats: Seat[], pref: number | undefined, fallback: number) =>
+  Number.isInteger(pref) && pref! >= 0 && pref! < COLOR_COUNT && !seats.some((x) => x.color === pref) ? pref! : freeColor(seats, fallback);
+
+function helloSeat(r: RoomData, token: string, name: string, online: Set<string>, pref?: number): Result {
   let i = seatOf(r, token);
   if (i < 0 && r.game) {
     // Quien cerró la pestaña vuelve con otro identificador: recupera su asiento si entra con el mismo nombre
@@ -199,7 +208,7 @@ function helloSeat(r: RoomData, token: string, name: string, online: Set<string>
     let h = r.seats.findIndex((x) => !x.token);
     if (h < 0) h = r.seats.findIndex((x) => x.left);
     if (h < 0) return fail('La sala está llena.', true);
-    r.seats[h] = { name: nm, token, color: r.seats[h].color ?? freeColor(r.seats, h) };
+    r.seats[h] = { name: nm, token, color: prefColor(r.seats.filter((_, j) => j !== h), pref, h) };
     r.game.players[h] = { ...r.game.players[h], name: nm, bot: false };
     // Se vuelve a planificar ese asiento como humano.
     delete r.sched.at[h];
@@ -208,7 +217,7 @@ function helloSeat(r: RoomData, token: string, name: string, online: Set<string>
     return ok;
   }
   if (r.seats.length >= r.opts.size) return fail('La sala está llena.', true);
-  r.seats.push({ name: nm, token, color: freeColor(r.seats, r.seats.length) });
+  r.seats.push({ name: nm, token, color: prefColor(r.seats, pref, r.seats.length) });
   if (!r.host) r.host = token;
   return ok;
 }
@@ -550,7 +559,7 @@ export function roomRecord(r: RoomData, now: number): GameRecord | null {
   if (!r.game || !r.rec) return null;
   return buildRecord(r.rec, r.game, {
     mode: 'online', room: r.code, now, options: { ...r.opts },
-    seats: r.seats.map((x) => ({ playerId: x.pid ?? null, color: x.color ?? null, botLevel: x.token ? null : r.opts.level, left: !!x.left })),
+    seats: r.seats.map((x) => ({ userId: x.uid ?? null, playerId: x.pid ?? null, color: x.color ?? null, botLevel: x.token ? null : r.opts.level, left: !!x.left })),
   });
 }
 

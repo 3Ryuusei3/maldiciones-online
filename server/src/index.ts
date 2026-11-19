@@ -14,13 +14,19 @@ import {
   act, decideDrop, hello, setColor, leave, newRoom, nextWake, ready, roomBug, roomRecord, roomView, setOpts, start, tick, toLobby,
 } from '../../src/game/room';
 import { BugReport } from '../../src/game/record';
-import { saveBug, saveGame, validRecord } from './db';
+import { NICK_RE, cleanNick, getProfile, nickFree, saveBug, saveGame, saveProfile, validRecord } from './db';
+import { bearer, verifyUser } from './auth';
+
+/** Iconos que se pueden elegir para la cuenta (los de las cartas). */
+const ICONS = ['maldicion', 'antitodo', 'aplastar', 'codicia', 'condena', 'cristalizar', 'egida', 'reflejo', 'iman', 'adivinar', 'recuperar', 'predestinar', 'purga', 'mutis', 'inutilizar', 'tinieblas', 'travesura', 'gema1', 'gema2', 'gema3', 'gematri', 'escarcha', 'rafaga', 'trastada', 'ritual1'];
 
 interface Env {
   SALAS: DurableObjectNamespace<Sala>;
   ASSETS: Fetcher;
   /** Conexión a Neon (secreto: `wrangler secret put DATABASE_URL`; en local, en server/.dev.vars). */
   DATABASE_URL?: string;
+  /** Claves públicas de Neon Auth para comprobar los tokens de las cuentas (variable en wrangler.jsonc). */
+  NEON_AUTH_JWKS_URL?: string;
 }
 
 /** Cuerpo JSON de una petición, con un tamaño máximo. */
@@ -38,7 +44,7 @@ const CODE_RE = /^[A-Z]{4}$/;
 const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => ALPHABET[b % ALPHABET.length]).join('');
 
 /** La web puede estar en otro dominio (Vercel): la API admite peticiones de cualquier origen (no hay cookies ni datos privados). */
-const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type' };
+const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, PUT, OPTIONS', 'access-control-allow-headers': 'content-type, authorization' };
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', ...CORS } });
 
 export default {
@@ -60,6 +66,9 @@ export default {
       let g: unknown;
       try { g = await body(req, 3_000_000); } catch { return json({ error: 'Partida no válida.' }, 400); }
       if (!validRecord(g) || g.mode !== 'local') return json({ error: 'Partida no válida.' }, 400);
+      // Con sesión iniciada, la partida queda enlazada con la cuenta (el asiento del jugador es el 0 en local).
+      const uid = await verifyUser(bearer(req), env.NEON_AUTH_JWKS_URL);
+      g.players = g.players.map((p) => ({ ...p, userId: p.seat === 0 && uid ? uid : null }));
       await saveGame(env.DATABASE_URL, g);
       return json({ ok: true });
     }
@@ -69,6 +78,32 @@ export default {
       try { b = (await body(req, 2_000_000)) as BugReport; } catch { return json({ error: 'Reporte no válido.' }, 400); }
       if (!b || typeof b.description !== 'string' || !b.description.trim()) return json({ error: 'Cuenta qué ha pasado.' }, 400);
       return json({ ok: true, id: await saveBug(env.DATABASE_URL, { ...b, mode: 'local' }) });
+    }
+
+    // Perfil de la cuenta (nickname único, color e icono).
+    if (url.pathname === '/api/nick' && req.method === 'GET') {
+      if (!env.DATABASE_URL) return json({ error: 'Sin base de datos.' }, 503);
+      const nick = cleanNick(url.searchParams.get('n'));
+      if (!NICK_RE.test(nick)) return json({ free: false, valid: false });
+      return json({ free: await nickFree(env.DATABASE_URL, nick, await verifyUser(bearer(req), env.NEON_AUTH_JWKS_URL)), valid: true });
+    }
+    if (url.pathname === '/api/perfil') {
+      if (!env.DATABASE_URL) return json({ error: 'Sin base de datos.' }, 503);
+      const uid = await verifyUser(bearer(req), env.NEON_AUTH_JWKS_URL);
+      if (!uid) return json({ error: 'Inicia sesión.' }, 401);
+      if (req.method === 'GET') return json({ profile: await getProfile(env.DATABASE_URL, uid) });
+      if (req.method === 'PUT') {
+        let b: { nickname?: unknown; color?: unknown; icon?: unknown; guestId?: unknown };
+        try { b = (await body(req, 4000)) as typeof b; } catch { return json({ error: 'Datos no válidos.' }, 400); }
+        const nickname = cleanNick(b.nickname);
+        if (!NICK_RE.test(nickname)) return json({ error: 'El nickname debe tener de 3 a 14 letras, números, espacios o _ . -' }, 400);
+        const color = Number(b.color);
+        if (!Number.isInteger(color) || color < 0 || color > 8) return json({ error: 'Color no válido.' }, 400);
+        const icon = typeof b.icon === 'string' && ICONS.includes(b.icon) ? b.icon : 'maldicion';
+        const r = await saveProfile(env.DATABASE_URL, uid, { nickname, color, icon }, typeof b.guestId === 'string' ? b.guestId : null);
+        if (r === 'taken') return json({ error: 'Ese nickname ya lo tiene otro jugador.' }, 409);
+        return json({ profile: { nickname, color, icon } });
+      }
     }
 
     const m = url.pathname.match(/^\/api\/salas\/([A-Za-z]{4})(\/ws)?$/);
@@ -149,7 +184,9 @@ export class Sala extends DurableObject<Env> {
     let token = (ws.deserializeAttachment() as Att | null)?.token ?? null;
     let res: Result;
     if (m.t === 'hello') {
-      res = hello(r, m.token, m.name, this.online(ws), m.pid);
+      // Con sesión iniciada, el asiento queda enlazado con la cuenta (comprobando su token).
+      const uid = await verifyUser(m.jwt, this.env.NEON_AUTH_JWKS_URL);
+      res = hello(r, m.token, m.name, this.online(ws), m.pid, uid, m.color);
       if (res.ok) {
         token = m.token;
         ws.serializeAttachment({ token } satisfies Att);

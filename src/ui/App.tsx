@@ -5,6 +5,8 @@ import { Action, Anchor, Effect, Fx, GameState, canDup, canFreeAntitodo, canPlay
 import { Level } from '../game/bot';
 import { Compendium, CompendioButton, HelpDock } from './Compendium';
 import { TutorGate, TutorOverlay, useTutor } from './Tutorial';
+import { AccountChip, EntryScreen, ProfileScreen } from './Account';
+import { initAccount, useAccount } from '../net/auth';
 import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
 import { BUILD, NetClient, playerId, sendLocalBug, useNet } from '../net/client';
 import type { RoomView } from '../game/room';
@@ -414,9 +416,10 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
 // ───────────────────────── portada ─────────────────────────
 
 /** Portada: elegir modo de juego (las opciones de cada partida van dentro de cada modo). */
-function Home({ onLocal, onOnline, onTutorial }: { onLocal: () => void; onOnline: () => void; onTutorial: () => void }) {
+function Home({ onLocal, onOnline, onTutorial, onAccount }: { onLocal: () => void; onOnline: () => void; onTutorial: () => void; onAccount: () => void }) {
   return (
     <>
+      <AccountChip onAccount={onAccount} />
       <h1>Maldiciones</h1>
       <p className="tagline">El juego de cartas maldito</p>
       <div className="play-row">
@@ -433,10 +436,12 @@ function Home({ onLocal, onOnline, onTutorial }: { onLocal: () => void; onOnline
 
 /** Partida local contra las máquinas: nombre y opciones antes de empezar. */
 function LocalSetup({ onStart, onBack }: { onStart: (c: GameConfig) => void; onBack: () => void }) {
-  const [name, setName] = useState(() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } });
+  const acc = useAccount();
+  const prof = acc.status === 'in' ? acc.profile : null;
+  const [name, setName] = useState(() => prof?.nickname ?? (() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } })());
   // Ninguna casilla marcada por defecto.
   const [opts, setOpts] = useState<RoomOpts>({ size: 4, level: 1, extraCurses: false, condena: false, beta: false, timer: false });
-  const [color, setColor] = useState(() => { try { const c = Number(localStorage.getItem('maldiciones:color')); return c >= 0 && c < PCOL.length ? c : 0; } catch { return 0; } });
+  const [color, setColor] = useState(() => prof?.color ?? (() => { try { const c = Number(localStorage.getItem('maldiciones:color')); return c >= 0 && c < PCOL.length ? c : 0; } catch { return 0; } })());
   const start = () => {
     try { localStorage.setItem('maldiciones:nombre', name.trim()); localStorage.setItem('maldiciones:color', String(color)); } catch { /* sin almacenamiento: no se recuerda */ }
     onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta, timer: opts.timer !== false, color });
@@ -445,6 +450,7 @@ function LocalSetup({ onStart, onBack }: { onStart: (c: GameConfig) => void; onB
     <>
       <h1>En local</h1>
       <p className="tagline">Contra las máquinas</p>
+      {prof ? <p className="as-account">Juegas como <b>{prof.nickname}</b> (nombre y color se cambian en «Mi cuenta»).</p> : <>
       <label>
         Tu nombre
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tú" maxLength={14} />
@@ -455,6 +461,7 @@ function LocalSetup({ onStart, onBack }: { onStart: (c: GameConfig) => void; onB
           {PCOL.map((c, i) => <button key={c} role="radio" aria-checked={color === i} aria-label={`Color ${i + 1}`} className={color === i ? 'on' : ''} style={{ background: c }} onClick={() => setColor(i)} />)}
         </div>
       </div>
+      </>}
       <SetupFields opts={opts} set={(o) => setOpts((v) => ({ ...v, ...o }))} />
       <div className="play-row">
         <button className="play" onClick={start}>Empezar</button>
@@ -2426,7 +2433,7 @@ const tutorialCfg = (): GameConfig => {
   return { name: name || 'Tú', players: 4, level: 1, extraCurses: false, condena: false, beta: false, timer: false, color, tutorial: true };
 };
 
-type Screen = { k: 'home' } | { k: 'setup' } | { k: 'local'; cfg: GameConfig; n: number } | { k: 'entry'; code?: string; error?: string | null } | { k: 'room'; client: NetClient };
+type Screen = { k: 'account' } | { k: 'home' } | { k: 'setup' } | { k: 'local'; cfg: GameConfig; n: number } | { k: 'entry'; code?: string; error?: string | null } | { k: 'room'; client: NetClient };
 
 export default function App() {
   const q = new URLSearchParams(location.search);
@@ -2446,9 +2453,21 @@ export default function App() {
     setScreen({ k: 'home' });
   }, []);
   const leaveRoom = useCallback((error?: string) => setScreen({ k: 'entry', error }), []);
+  const acc = useAccount();
+  useEffect(() => { void initAccount(); }, []);
+  // Antes de los menús: comprobar la sesión; sin sesión ni invitado, la pantalla de entrada; con cuenta nueva, el perfil.
+  // (Las partidas abiertas por enlace de prueba —tutorial, ?demo— no pasan por aquí.)
+  if (screen.k === 'home' || screen.k === 'setup' || screen.k === 'entry' || screen.k === 'account') {
+    if (acc.status === 'loading') return <Shell><p className="tagline">Cargando…</p></Shell>;
+    if (acc.status === 'out') return <Shell><EntryScreen /></Shell>;
+    if (acc.status === 'in' && acc.profile === undefined) return <Shell><p className="tagline">Cargando tu cuenta…</p></Shell>;
+    if (acc.status === 'in' && acc.profile === null) return <Shell><ProfileScreen first /></Shell>;
+  }
   switch (screen.k) {
+    case 'account':
+      return <Shell><ProfileScreen onDone={home} /></Shell>;
     case 'home':
-      return <Shell><Home onLocal={() => setScreen({ k: 'setup' })} onOnline={() => setScreen({ k: 'entry' })} onTutorial={() => setScreen({ k: 'local', n: 0, cfg: tutorialCfg() })} /></Shell>;
+      return <Shell><Home onLocal={() => setScreen({ k: 'setup' })} onOnline={() => setScreen({ k: 'entry' })} onTutorial={() => setScreen({ k: 'local', n: 0, cfg: tutorialCfg() })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
     case 'setup':
       return <Shell><LocalSetup onBack={home} onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} /></Shell>;
     case 'entry':

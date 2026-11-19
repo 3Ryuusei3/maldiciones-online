@@ -70,3 +70,20 @@ create table if not exists bug_reports (
   status text not null default 'open'
 );
 create index if not exists bug_reports_created on bug_reports (created_at desc);
+
+-- Perfiles de las cuentas (Neon Auth guarda los usuarios en el esquema neon_auth; aquí, lo propio del juego).
+-- `user_id` es el id de Neon Auth (el «sub» del token). El nickname es único sin distinguir mayúsculas.
+create table if not exists profiles (
+  user_id text primary key,
+  nickname text not null,
+  color int not null default 0,
+  icon text not null default 'maldicion',
+  guest_id uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists profiles_nickname_lc on profiles (lower(nickname));
+
+-- Cada jugador de una partida, enlazado con su cuenta (si jugaba con sesión iniciada).
+alter table game_players add column if not exists user_id text;
+create index if not exists game_players_user on game_players (user_id);
