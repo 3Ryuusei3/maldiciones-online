@@ -50,7 +50,7 @@ function HomeBg() {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const still = false; // se mueve aunque el móvil pida reducir el movimiento
     let size = { w: 0, h: 0, vw: 0, vh: 0 };
     const layout = () => {
       const vw = innerWidth, vh = innerHeight;

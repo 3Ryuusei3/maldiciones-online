@@ -1349,15 +1349,8 @@ button.badge:hover:not(:disabled) {
     width: calc(var(--table-card) * 0.6);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  *,
-  .rays,
-  .flow {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition: none !important;
-  }
-}
+/* El ajuste del móvil de «reducir movimiento» no se tiene en cuenta: el juego se explica con sus animaciones. */
+
 
 /* ───── cambio de sentido: las flechas frenan, se dan la vuelta y arrancan hacia el otro lado ───── */
 .dirfx {
@@ -8104,4 +8097,11 @@ input[type="checkbox"]:focus-visible {
 }
 @media (orientation: portrait) and (max-width: 600px) {
   .callout { zoom: 0.8; }
+}
+
+/* Móvil: sin botón de pantalla completa (la app instalada ya va a pantalla completa) y sin los rayos girando
+   (un fondo enorme rotando cuesta mucho en el móvil). */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px), (pointer: coarse) {
+  .fs-only, .fs-btn, .fs-btn2 { display: none !important; }
+  .rays { animation: none; }
 }
