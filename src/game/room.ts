@@ -19,6 +19,8 @@ export interface RoomOpts {
   beta: boolean;
   /** Tiempo máximo (15 s) para cada decisión de un humano; sin él, se espera lo que haga falta. Por defecto, sí. */
   timer?: boolean;
+  /** Nivel de cada máquina (por hueco libre, en orden); si falta, `level`. */
+  botLevels?: Level[];
 }
 
 export interface Seat {
@@ -35,6 +37,8 @@ export interface Seat {
   uid?: string;
   /** Icono del jugador (los de las cartas); las máquinas, uno al azar. */
   icon?: string;
+  /** Nivel de la máquina (en partida, los asientos de las máquinas). */
+  level?: Level;
 }
 
 /** Colores de jugador disponibles (índices de la paleta PCOL de la interfaz). */
@@ -249,12 +253,16 @@ export function setOpts(r: RoomData, token: string, o: Partial<RoomOpts>, online
   }
   if (typeof o.size === 'number' && o.size >= 3 && o.size <= 6) n.size = Math.max(o.size, r.seats.length);
   if (o.level === 0 || o.level === 1 || o.level === 2) n.level = o.level;
+  if (Array.isArray(o.botLevels)) n.botLevels = o.botLevels.slice(0, 6).map((l) => (l === 0 || l === 2 ? l : 1));
   if (typeof o.extraCurses === 'boolean') n.extraCurses = o.extraCurses;
   if (typeof o.condena === 'boolean') n.condena = o.condena;
   if (typeof o.beta === 'boolean') n.beta = o.beta;
   if (typeof o.timer === 'boolean') n.timer = o.timer;
   return ok;
 }
+
+/** Nivel de juego de una máquina (el de su asiento, o el general de la sala). */
+const lvlOf = (r: RoomData, p: number): Level => r.seats[p]?.level ?? r.opts.level;
 
 /** Empieza la partida: los huecos libres se rellenan con máquinas. */
 export function start(r: RoomData, token: string, now: number, online: Set<string> = new Set([token])): Result {
@@ -264,7 +272,7 @@ export function start(r: RoomData, token: string, now: number, online: Set<strin
   const humans = r.seats.filter((x) => x.token && !x.left && online.has(x.token));
   if (!humans.length) return fail('No hay nadie en la sala.');
   const bots: Seat[] = [];
-  for (const name of pickNames(Math.max(0, r.opts.size - humans.length), humans.map((x) => x.name))) bots.push({ name, token: null, color: randomFreeColor([...humans, ...bots], humans.length + bots.length), icon: randomIcon() });
+  for (const name of pickNames(Math.max(0, r.opts.size - humans.length), humans.map((x) => x.name))) bots.push({ name, token: null, color: randomFreeColor([...humans, ...bots], humans.length + bots.length), icon: randomIcon(), level: r.opts.botLevels?.[bots.length] ?? r.opts.level });
   // Los asientos se sortean para que el anfitrión no sea siempre el primero.
   r.seats = [...humans, ...bots].map((x) => [Math.random(), x] as const).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
   r.game = newGame({
@@ -393,7 +401,7 @@ function plan(r: RoomData, online: Set<string>, now: number) {
     if (sc.at[p] !== undefined && sc.who[p] !== isLive) delete sc.at[p];
     if (sc.at[p] !== undefined) continue;
     sc.who[p] = isLive;
-    if (!isLive) sc.at[p] = now + botDelay(s, r.opts.level, humanCanDup);
+    if (!isLive) sc.at[p] = now + botDelay(s, lvlOf(r, p), humanCanDup);
     else if (windowed) sc.at[p] = -1; // en las ventanas manda el reloj de la ventana
     else if (r.opts.timer === false) sc.at[p] = -1; // sin tiempo máximo: se espera a que decida
     // Si acaban de caer las Tinieblas, se suma el tiempo de memorizar la mano.
@@ -404,7 +412,7 @@ function plan(r: RoomData, online: Set<string>, now: number) {
   for (const pl of s.players) {
     if (live(r, pl.id, online)) continue;
     const k = `${top}:${pl.id}`;
-    if (sc.dup[k] === undefined) sc.dup[k] = botDup(s, pl.id, r.opts.level) ? now + dupDelay() : 0;
+    if (sc.dup[k] === undefined) sc.dup[k] = botDup(s, pl.id, lvlOf(r, pl.id)) ? now + dupDelay() : 0;
   }
   // Las de cartas que ya no están arriba no sirven.
   for (const k of Object.keys(sc.dup)) if (!k.startsWith(`${top}:`)) delete sc.dup[k];
@@ -476,7 +484,7 @@ export function tick(r: RoomData, online: Set<string>, now: number): boolean {
         const at = sc.at[p];
         if (at === undefined || at < 0 || at > now) continue;
         sc.at[p] = -1;
-        a = botDecide(s, p, live(r, p, online) ? 1 : r.opts.level);
+        a = botDecide(s, p, live(r, p, online) ? 1 : lvlOf(r, p));
         if (a) break;
       }
     if (!a)
@@ -564,7 +572,7 @@ export function roomRecord(r: RoomData, now: number): GameRecord | null {
   if (!r.game || !r.rec) return null;
   return buildRecord(r.rec, r.game, {
     mode: 'online', room: r.code, now, options: { ...r.opts },
-    seats: r.seats.map((x) => ({ userId: x.uid ?? null, playerId: x.pid ?? null, color: x.color ?? null, botLevel: x.token ? null : r.opts.level, left: !!x.left })),
+    seats: r.seats.map((x) => ({ userId: x.uid ?? null, playerId: x.pid ?? null, color: x.color ?? null, botLevel: x.token ? null : x.level ?? r.opts.level, left: !!x.left })),
   });
 }
 

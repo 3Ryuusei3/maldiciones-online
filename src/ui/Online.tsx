@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { NetClient, createRoom, roomInfo, useNet } from '../net/client';
 import { COLOR_ORDER, PCOL, asset, toggleFullscreen } from './shared';
 import { LEVELS, SetupFields } from './Setup';
+import type { Level } from '../game/bot';
 import { CompendioButton } from './Compendium';
 
 
@@ -125,14 +126,29 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
         <ul className="lobby-seats">
           {v.seats.map((x, i) => (
             <li key={i} className={x.online ? '' : 'off'}>
-              <HexIcon icon={x.icon ?? 'maldicion'} color={PCOL[x.color] ?? PCOL[i % PCOL.length]} size={22} />
+              <HexIcon icon={x.icon ?? 'maldicion'} color={PCOL[x.color] ?? PCOL[i % PCOL.length]} size={34} />
               {x.name}
               {i === v.you && <small>(tú)</small>}
               {x.host && <small>anfitrión</small>}
               {!x.online && <small>desconectado</small>}
             </li>
           ))}
-          {Array.from({ length: bots }, (_, i) => <li key={`b${i}`} className="bot"><i />Máquina ({LEVELS[o.level].toLowerCase()})</li>)}
+          {Array.from({ length: bots }, (_, i) => {
+            // Cada máquina con su nivel: el anfitrión lo cambia pulsándolo (Fácil → Normal → Difícil).
+            const lv = o.botLevels?.[i] ?? o.level;
+            const next = () => {
+              const all = Array.from({ length: bots }, (_, j) => o.botLevels?.[j] ?? o.level);
+              all[i] = ((lv + 1) % 3) as Level;
+              client.opts({ botLevels: all });
+            };
+            return (
+              <li key={`b${i}`} className="bot">
+                <span className="hex-wrap"><span className="hex-icon bot-hex" style={{ width: 34 * 0.87, height: 34 }}><span className="hex-in" /></span></span>
+                Máquina
+                {v.host ? <button className={`lvl lvl-${lv}`} onClick={next} title="Cambiar el nivel de esta máquina">{LEVELS[lv]}</button> : <small className={`lvl lvl-${lv}`}>{LEVELS[lv]}</small>}
+              </li>
+            );
+          })}
         </ul>
       </div>
       {v.you >= 0 && (
@@ -150,13 +166,13 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
       )}
       {v.host ? (
         <>
-          <SetupFields opts={o} set={(x) => client.opts(x)} min={v.seats.length} />
+          <SetupFields opts={o} set={(x) => client.opts(x)} min={v.seats.length} hideLevel />
           <button className="play" onClick={() => client.send({ t: 'start' })}>Empezar</button>
         </>
       ) : (
         <>
           <p className="lobby-note">Solo el anfitrión puede cambiar las opciones de la partida.</p>
-          <div className="readonly"><SetupFields opts={o} set={() => {}} readOnly /></div>
+          <div className="readonly"><SetupFields opts={o} set={() => {}} readOnly hideLevel /></div>
           <p className="lobby-wait">Esperando a que el anfitrión empiece la partida…</p>
         </>
       )}
