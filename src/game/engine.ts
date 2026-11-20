@@ -82,7 +82,8 @@ export type Phase =
   /** `eff`: el efecto en curso; mientras no se haya hecho el intercambio, aún se puede parar (Antitodo, Égida, Reflejo). */
   | { t: 'codicia'; launcher: number; target: number; options: string[]; give: string | null; best: string | null; waiting: number[]; eff?: Effect }
   | { t: 'imanPick'; source: number; targets: number[]; picks: Record<number, TieSplit>; chosen: Record<number, string[]>; waiting: number[]; eff?: Effect }
-  | { t: 'iman'; launcher: number; pool: Card[] }
+  /** `to`: a quién se pueden repartir las cartas (los que se las dieron; quien se defendió con Égida, no). */
+  | { t: 'iman'; launcher: number; pool: Card[]; to?: number[] }
   | { t: 'adivinar'; player: number; cards: Card[] }
   | { t: 'recuperar'; player: number; options: string[] }
   | { t: 'gemas'; waiting: number[]; win: number; chosen: Record<number, string[]> }
@@ -974,7 +975,7 @@ function buildImanPool(s: GameState) {
     }
   if (!pool.length) return finish(s);
   log(s, `El Imán de ${nm(s, ph.source)} atrae ${pool.length} carta(s).`);
-  s.phase = { t: 'iman', launcher: ph.source, pool: shuffle(s, pool) };
+  s.phase = { t: 'iman', launcher: ph.source, pool: shuffle(s, pool), to: ph.targets.filter((t) => t !== ph.source) };
 }
 
 function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guessed = false): boolean {
@@ -1500,7 +1501,7 @@ function step(s: GameState, a: Action): boolean {
       for (const c of ph.pool) {
         const d = a.assign[c.id] ?? 'discard';
         if (d !== 'discard') {
-          if (typeof d === 'number' && (d === a.player || !s.players[d] || s.players[d].out)) return false;
+          if (typeof d === 'number' && (d === a.player || !s.players[d] || s.players[d].out || (ph.to && !ph.to.includes(d)))) return false;
           count[d] = (count[d] ?? 0) + 1;
           if (count[d] > 3) return false;
         }

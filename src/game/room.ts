@@ -140,7 +140,9 @@ export type ClientMsg =
   /** Elegir mi color (en la sala de espera). */
   | { t: 'color'; c: number }
   /** Reportar un fallo (la sala añade el estado de la partida y las últimas jugadas). */
-  | { t: 'bug'; text: string; ua?: string; build?: string };
+  | { t: 'bug'; text: string; ua?: string; build?: string }
+  /** Enviar un emoticono a la mesa. */
+  | { t: 'emote'; e: string };
 
 /** `state` de un asiento en partida: `wait` (caído, se le espera), `auto` (caído, juega una máquina), `out` (fuera). */
 export interface SeatInfo { name: string; bot: boolean; online: boolean; host: boolean; color: number; icon: string; state?: 'wait' | 'auto' | 'out' }
@@ -164,7 +166,7 @@ export interface RoomView {
   now: number;
 }
 
-export type ServerMsg = RoomView | { t: 'error'; msg: string; fatal?: boolean };
+export type ServerMsg = RoomView | { t: 'error'; msg: string; fatal?: boolean } | { t: 'emote'; p: number; e: string };
 
 // ───────────────────────── sala de espera ─────────────────────────
 

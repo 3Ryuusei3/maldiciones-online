@@ -18,6 +18,7 @@ import { NICK_RE, cleanNick, getProfile, nickFree, saveBug, saveGame, saveProfil
 import { bearer, verifyUser } from './auth';
 
 import { isIcon } from '../../src/game/icons';
+import { isEmote } from '../../src/game/emotes';
 
 interface Env {
   SALAS: DurableObjectNamespace<Sala>;
@@ -149,6 +150,8 @@ export default {
 export class Sala extends DurableObject<Env> {
   /** Copia en memoria (se pierde al hibernar y se vuelve a leer del almacenamiento). */
   private room: RoomData | null | undefined;
+  /** Último emoticono de cada jugador (para no saturar la mesa). */
+  private emoted = new Map<string, number>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -230,6 +233,16 @@ export class Sala extends DurableObject<Env> {
         case 'lobby': res = toLobby(r, token); break;
         case 'ready': ready(r, token, online, now); res = { ok: true }; break;
         case 'act': res = act(r, token, m.a, online, now); break;
+        case 'emote': {
+          // Emoticono: se reenvía a todos (no cambia la partida). Como mucho uno cada segundo por jugador.
+          const p = r.seats.findIndex((x) => x.token === token);
+          const last = this.emoted.get(token) ?? 0;
+          if (p < 0 || !isEmote(m.e) || now - last < 1000) return;
+          this.emoted.set(token, now);
+          const msg = JSON.stringify({ t: 'emote', p, e: m.e } satisfies ServerMsg);
+          for (const w of this.ctx.getWebSockets()) { try { w.send(msg); } catch { /* cerrado */ } }
+          return;
+        }
         case 'bug': {
           const b = roomBug(r, token, m.text, m.ua, m.build);
           if (b && this.env.DATABASE_URL) this.ctx.waitUntil(saveBug(this.env.DATABASE_URL, b).then(() => {}, () => {}));

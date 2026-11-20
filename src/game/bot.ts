@@ -328,7 +328,7 @@ export function botDecide(s: GameState, p: number, lvl: Level, r: Rnd = Math.ran
       const assign: Record<string, 'keep' | 'discard' | number> = {};
       const load: Record<number, number> = {};
       let kept = 0;
-      const rivals = s.players.filter((x) => x.id !== p && !x.out).map((x) => x.id);
+      const rivals = (ph.to ?? s.players.filter((x) => x.id !== p && !x.out).map((x) => x.id)).filter((x) => !s.players[x].out);
       // A quién dar ahora: el que menos cartas tenga (contando lo que ya se le ha dado) y aún admita alguna.
       const giveTo = () => {
         const open = rivals.filter((x) => (load[x] ?? 0) < 3);

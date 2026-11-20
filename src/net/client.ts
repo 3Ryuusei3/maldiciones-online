@@ -96,6 +96,10 @@ export class NetClient {
   readonly token = token();
   private ws: WebSocket | null = null;
   private subs = new Set<() => void>();
+  private emoteSubs = new Set<(p: number, e: string) => void>();
+  /** Emoticonos que llegan de la mesa (asiento y emoticono). Devuelve la función para dejar de escuchar. */
+  onEmote(f: (p: number, e: string) => void) { this.emoteSubs.add(f); return () => { this.emoteSubs.delete(f); }; }
+  emote(e: string) { this.send({ t: 'emote', e }); }
   private retry = 0;
   private gone = false;
   private ping = 0;
@@ -133,6 +137,7 @@ export class NetClient {
       let m: ServerMsg;
       try { m = JSON.parse(e.data); } catch { return; }
       if (m.t === 'room') this.set({ view: m, recvAt: Date.now(), error: null });
+      else if (m.t === 'emote') this.emoteSubs.forEach((f) => f(m.p, m.e));
       else if (m.t === 'error') this.set({ error: m.msg, fatal: !!m.fatal });
     };
     ws.onclose = (e) => {

@@ -8126,8 +8126,6 @@ input[type="checkbox"]:focus-visible {
 /* La web ocupa la pantalla entera (viewport-fit=cover): los fondos llegan a los bordes y los controles se quedan
    dentro de la zona segura (lejos de la muesca, la barra de estado y la barra de inicio). */
 body { background: #0a0e10; }
-.home,
-.game,
 .home-page,
 .over-page {
   box-sizing: border-box;
@@ -8135,4 +8133,91 @@ body { background: #0a0e10; }
   padding-right: env(safe-area-inset-right);
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
+}
+/* Portada y sala: el panel llega hasta los bordes y su contenido se aparta de la muesca (borde transparente:
+   el fondo del panel se pinta también debajo). */
+.home-panel {
+  box-sizing: border-box;
+  border-top: env(safe-area-inset-top) solid transparent;
+  border-right: env(safe-area-inset-right) solid transparent;
+  border-bottom: env(safe-area-inset-bottom) solid transparent;
+}
+/* Partida: el fondo y los resplandores ocupan toda la pantalla; solo los controles se apartan de la muesca. */
+.topbar {
+  border-top: env(safe-area-inset-top) solid transparent;
+  border-left: env(safe-area-inset-left) solid transparent;
+  border-right: env(safe-area-inset-right) solid transparent;
+}
+.table,
+.msgzone {
+  margin-left: env(safe-area-inset-left);
+  margin-right: env(safe-area-inset-right);
+}
+.me-tag { margin-left: env(safe-area-inset-left); }
+.hand { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Emoticonos: botón en la barra de arriba, menú desplegable y burbuja junto al nombre de quien lo manda. */
+.emote-pill { cursor: pointer; }
+.emote-pill .emote-hint { font-weight: 400; font-size: 15px; line-height: 1; margin-left: -2px; opacity: 0.85; }
+/* Menú encima de mi nombre (abajo a la izquierda). */
+.emote-pick {
+  position: absolute;
+  z-index: 300;
+  left: 0;
+  bottom: calc(100% + 12px);
+  display: grid;
+  grid-template-columns: repeat(4, 44px);
+  gap: 4px;
+  padding: 6px;
+  background: #0a0e10;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  animation: fade-in 0.15s;
+}
+.emote-pick button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 26px;
+  line-height: 1;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.emote-pick button:hover { background: rgba(255, 255, 255, 0.12); }
+.emote-bubble {
+  position: fixed;
+  z-index: 290;
+  transform: translate(-50%, -100%);
+  margin-top: -6px;
+  font-size: 34px;
+  line-height: 1;
+  padding: 6px 8px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  animation: emote-pop 2.8s ease both;
+}
+.emote-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  margin-left: -6px;
+  border: 6px solid transparent;
+  border-bottom: 0;
+  border-top-color: #fff;
+}
+@keyframes emote-pop {
+  0% { opacity: 0; transform: translate(-50%, -80%) scale(0.4); }
+  10% { opacity: 1; transform: translate(-50%, -100%) scale(1.1); }
+  16% { transform: translate(-50%, -100%) scale(1); }
+  85% { opacity: 1; transform: translate(-50%, -100%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -120%) scale(0.9); }
+}
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .emote-pick { grid-template-columns: repeat(6, 38px); }
+  .emote-pick button { width: 38px; height: 38px; font-size: 22px; }
+  .emote-bubble { font-size: 24px; padding: 4px 6px; }
 }

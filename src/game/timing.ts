@@ -40,13 +40,13 @@ export function botDelay(s: GameState, level: Level, humanCanDup: boolean): numb
   if (t === 'aplastar') return SLAP_GRACE + between(...SLAP_MS[level]);
   // Reacciones algo más pausadas: que dé tiempo a ver la carta (un Reflejo, por ejemplo) antes de que nadie responda.
   if (t === 'react') return between(2900, 3700) * k;
-  if (t === 'gemas') return between(1300, 2100) * k;
-  if (t === 'choose' || t === 'tinte') return between(1400, 2000) * k;
+  if (t === 'gemas') return between(900, 1500) * k;
+  if (t === 'choose' || t === 'tinte') return between(1000, 1600) * k;
   return between(1700, 2300) * k;
 }
 
 /** Cuánto tarda una máquina en duplicar la carta superior cuando quiere hacerlo. */
-export const dupDelay = () => between(2000, 3400) * PACE;
+export const dupDelay = () => between(1400, 2400) * PACE;
 
 /**
  * Al caer las Tinieblas, todos tienen unos segundos para memorizar su mano antes de que se den la vuelta

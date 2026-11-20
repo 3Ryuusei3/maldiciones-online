@@ -16,6 +16,7 @@ import { SetupFields } from './Setup';
 import type { RoomOpts } from '../game/room';
 import { COLOR_ORDER, CardView, Icon, PCOL, asset, ink, rich, toggleFullscreen } from './shared';
 import { PEEK_VISIBLE_MS } from '../game/timing';
+import { EMOTES } from '../game/emotes';
 
 // ───────────────────────── piezas básicas ─────────────────────────
 
@@ -111,19 +112,20 @@ const fanSlot = (p: number, k = 0, w = ghostW()) => {
 const elRot = (el?: HTMLElement | null) => parseFloat(el?.style.transform.match(/rotate\((-?[\d.]+)deg/)?.[1] ?? '0') || 0;
 
 /** Duración del vuelo de una carta y de su presentación en grande sobre la Pila. */
-let FLY_MS = 1060;
-let SHOW_MS = 940;
-let SETTLE_MS = 520;
-let CALLOUT_MS = 3600;
+let FLY_MS = 680;
+let SHOW_MS = 510;
+let SETTLE_MS = 290;
+let CALLOUT_MS = 3000;
 /**
  * Velocidad de las animaciones de cartas y carteles: 1 = la base. La partida normal va un 10 % más pausada y el
  * tutorial, más todavía (es para aprender).
  */
 function setAnimSpeed(f: number) {
-  FLY_MS = 1060 * f;
-  SHOW_MS = 940 * f;
-  SETTLE_MS = 520 * f;
-  CALLOUT_MS = 3600 * f;
+  // Algo más ágil que al principio: robar, duplicar y la carta en grande no se hacen esperar.
+  FLY_MS = 680 * f;
+  SHOW_MS = 510 * f;
+  SETTLE_MS = 290 * f;
+  CALLOUT_MS = 3000 * f;
 }
 setAnimSpeed(1.1);
 /** Lo que tarda una mano en abrir hueco antes de que salga la carta que va a ocuparlo. */
@@ -295,7 +297,7 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
     const stars = group?.fx ?? [];
     const CAP = 14;
     const total = s.fx.reduce((n, f) => n + Math.min(f.n, CAP), 0);
-    const gap = total > 8 ? 120 : total > 3 ? 170 : 240; // las cartas salen de una en una
+    const gap = total > 8 ? 100 : total > 3 ? 140 : 190; // las cartas salen de una en una
     // La jugada que gana la partida va a cámara lenta.
     const slow = s.phase.t === 'over';
     const added: string[] = [];
@@ -353,7 +355,8 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
             rotB: rot ?? (id && !under && f.card && s.pile[s.pile.length - 1]?.id === f.card.id ? topRot(f.card.id) : 0),
             delay,
             flipFrom,
-            ms: slow ? FLY_MS * 2.6 : undefined,
+            // Robar del Mazo va más rápido (son cartas boca abajo, no hay nada que leer).
+            ms: slow ? FLY_MS * 2.6 : fromDeck && !isStar ? FLY_MS * 0.7 : undefined,
             showMs: slow ? SHOW_MS * 2.6 : undefined,
             solid: !!mine,
             show: isStar ? (B.width * (stars.length > 1 ? 1.2 : slow ? 1.7 : 1.36)) / w : undefined,
@@ -696,6 +699,27 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const icons = useMemo(() => s.players.map((_, p) => (net ? rv?.seats[p]?.icon ?? 'maldicion' : p === ME ? cfg.icon ?? 'maldicion' : botIcons.current[p])), [net, rv?.seats, s.players.length, cfg.icon]);
   const timerOn = net ? rv?.opts.timer !== false : localTimer;
   const arrowsOn = net ? rv?.opts.arrows !== false : localArrows;
+  // Emoticonos: el que se manda se ve un momento junto al nombre de quien lo envía (en online, para todos).
+  const [emoteOpen, setEmoteOpen] = useState(false);
+  const [emotes, setEmotes] = useState<{ k: number; p: number; e: string; x: number; y: number }[]>([]);
+  const emoteSeq = useRef(0);
+  const lastEmote = useRef(0);
+  const showEmote = (p: number, e: string) => {
+    const el = p === ME ? document.querySelector('.me-tag .pill') : document.querySelector(`[data-anchor="p${p}"]`)?.closest('.seat')?.querySelector('.pill');
+    const r = el?.getBoundingClientRect();
+    if (!r) return;
+    const k = ++emoteSeq.current;
+    setEmotes((v) => [...v.filter((x) => x.p !== p), { k, p, e, x: r.left + r.width / 2, y: r.top }]);
+    window.setTimeout(() => setEmotes((v) => v.filter((x) => x.k !== k)), 2800);
+  };
+  useEffect(() => (net ? net.onEmote(showEmote) : undefined), [net]);
+  const sendEmote = (e: string) => {
+    if (Date.now() - lastEmote.current < 1000) return;
+    lastEmote.current = Date.now();
+    setEmoteOpen(false);
+    if (net) net.emote(e);
+    else showEmote(ME, e);
+  };
   const phone = useMedia(PHONE_Q);
   const tall = useMedia(TALL_Q);
   const seatState = (p: number): SeatState => (net && rv ? rv.seats[p]?.state : s.players[p].out ? 'out' : undefined);
@@ -1195,7 +1219,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   } else if (iman && trayPick) {
     const id = trayPick;
     const put = (d: 'keep' | 'discard' | number) => { setAssign((a) => ({ ...a, [id]: d })); setTrayPick(null); };
-    pickPlayers = rivalIds.filter((p) => assign[id] === p || count(p) < 3);
+    pickPlayers = rivalIds.filter((p) => (!iman.to || iman.to.includes(p)) && (assign[id] === p || count(p) < 3));
     onPlayer = (p) => put(p);
     onPile = () => put('discard');
   } else if (recuperar && trayPick) {
@@ -1465,6 +1489,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
   const cursed = isCursedEnv(s);
   const deckEmpty = !dealing && s.deck.length === 0;
+  /** Cartas que se ven en el Mazo (en el reparto boca abajo, también las que aún no se han repartido). */
+  const deckN = facedown ? s.deck.length + s.players.reduce((a, p) => a + p.hand.length - shown(p.id), 0) + 1 : s.deck.length;
 
   const seats = (tall ? SEATS_TALL : SEATS)[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
@@ -1483,6 +1509,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         <button className="round" title="Salir" onClick={() => (ph.t === 'over' ? onExit() : setPause('exit'))}>×</button>
       </div>
 
+      {emotes.map((m) => <span key={m.k} className="emote-bubble" style={{ left: m.x, top: m.y }} aria-label={`${m.p === ME ? 'Tú' : s.players[m.p]?.name}: ${m.e}`}>{m.e}</span>)}
       <div className={`table k${rivals.length}`}>
         {rivals.map((p, i) => (
           <Seat
@@ -1512,12 +1539,14 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
         <div className="center">
           <div className={`deck ${onDeck ? 'hot' : ''} ${deckEmpty ? 'empty' : ''} ${shuffling ? 'shuffling' : ''} ${stage.deck ? (dealing ? 'placed' : '') : 'unplaced'}`} data-anchor="deck" onClick={onDeck ?? undefined} title={deckEmpty ? 'Mazo vacío: se barajará la Pila al robar' : 'Mazo'}>
-            <img className="d3" src={asset('cards/back.webp')} alt="" />
-            <img className="d2" src={asset('cards/back.webp')} alt="" />
+            {/* El montón se ve con tantas cartas como queden (hasta 3): con 2, dos; con 1, una. */}
+            {deckN >= 3 && <img className="d3" src={asset('cards/back.webp')} alt="" />}
+            {deckN >= 2 && <img className="d2" src={asset('cards/back.webp')} alt="" />}
+            {/* La de arriba siempre (vacío, se ve apagada): marca el sitio del Mazo. */}
             <img src={asset('cards/back.webp')} alt="Mazo" draggable={false} />
             {deckEmpty && <span className="deck-empty">Mazo vacío</span>}
             {shuffling && <span className="deck-shuffle">¡Se baraja la Pila!</span>}
-            <span className="count">{facedown ? s.deck.length + s.players.reduce((a, p) => a + p.hand.length - shown(p.id), 0) + 1 : s.deck.length}</span>
+            <span className="count">{deckN}</span>
           </div>
 
           <div className={`disc ${flash ? 'flip' : ''}`}>
@@ -1623,7 +1652,13 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       )}
       <div className={`hand ${s.turn === ME && !dealing ? 'turn' : ''}`}>
         <div className="me-tag">
-          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''} ${spin?.done && spin.cur === ME ? 'spin-glow' : ''}`} style={{ background: colors[ME], color: ink(colors[ME]), '--gc': colors[ME] } as React.CSSProperties}><HexIcon icon={icons[ME]} color={colors[ME]} size={46} />{me.name}<i>{shown(ME)}</i></span>
+          {/* Pulsando mi nombre se abre el menú de emoticonos (encima de él). */}
+          <span role="button" tabIndex={0} title="Enviar un emoticono" aria-expanded={emoteOpen} onClick={() => setEmoteOpen((v) => !v)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setEmoteOpen((v) => !v)} className={`pill emote-pill ${s.turn === ME && !dealing ? 'on' : ''} ${spin?.done && spin.cur === ME ? 'spin-glow' : ''}`} style={{ background: colors[ME], color: ink(colors[ME]), '--gc': colors[ME] } as React.CSSProperties}><HexIcon icon={icons[ME]} color={colors[ME]} size={46} />{me.name}<i>{shown(ME)}</i><b className="emote-hint" aria-hidden="true">☺</b></span>
+          {emoteOpen && (
+            <div className="emote-pick" role="menu" aria-label="Emoticonos">
+              {EMOTES.map((e) => <button key={e} role="menuitem" onClick={() => sendEmote(e)}>{e}</button>)}
+            </div>
+          )}
           {spin?.done && spin.cur === ME && <span className="start-tag" style={{ background: colors[ME], color: ink(colors[ME]) }}>¡Empiezas tú!</span>}
           {s.turn === ME && !dealing && ph.t !== 'over' && <span className="turn-tag" style={{ background: colors[ME], color: ink(colors[ME]), boxShadow: `0 0 18px ${colors[ME]}` }}>Tu turno</span>}
           {nextUp === ME && s.turn !== ME && !dealing && <span className="next-tag" style={{ borderColor: colors[ME] }}>Te toca después</span>}
@@ -1709,7 +1744,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
           } else to(e.source, ph.t === 'react' ? e.targets.filter((t) => !ph.exempt.includes(t)) : e.targets);
         } else if (ph.t === 'codicia') to(ph.launcher, [ph.target]);
         else if (ph.t === 'imanPick') to(ph.source, ph.targets);
-        else if (ph.t === 'iman') to(ph.launcher, s.players.filter((x) => x.id !== ph.launcher && !x.out).map((x) => x.id));
+        else if (ph.t === 'iman') to(ph.launcher, ph.to ?? s.players.filter((x) => x.id !== ph.launcher && !x.out).map((x) => x.id));
         else if (ph.t === 'escarcha') to(ph.player, ph.targets);
         else if (ph.t === 'inutil' && ph.receive) to(s.turn, [ph.player]);
         pairs = pairs.filter(([f, t]) => f !== t && !s.players[t]?.out);
