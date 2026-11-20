@@ -1770,7 +1770,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
           </div>
         </div>
       )}
-      {comp && <div className="over-page"><Compendium tab="jugar" onClose={() => setComp(false)} /></div>}
+      {comp && <div className="over-page"><Compendium tab="cartas" onClose={() => setComp(false)} /></div>}
     </div>
   );
 }

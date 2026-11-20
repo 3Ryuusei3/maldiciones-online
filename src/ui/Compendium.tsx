@@ -7,13 +7,10 @@ import { AttrIcon, CATS, Icon, RankIcon, Triforce, asset, kindsOf, sample } from
 
 /** Color con el que se enseña cada carta de color en el compendio, para que no salgan todas iguales. */
 const HUE: Partial<Record<Kind, Color>> = { gema1: 'a', gema2: 'v', gema3: 'm', aplastar: 'a', cristalizar: 'm', travesura: 'v', codicia: 'a', adivinar: 'm', mutis: 'v' };
-/**
- * Imagen de una carta en el compendio. Travesura se enseña con la incolora, que es la que tiene el dibujo nuevo
- * (3 cartas); las de color aún llevan el antiguo. Solo sale de color si se pide expresamente.
- */
-const pic = (k: Kind, c?: Color | null) => asset(cardImage(c === null || (k === 'travesura' && c === undefined) ? { id: 'x', kind: k, color: null } : sample(k, c ?? HUE[k] ?? 'm')));
+/** Imagen de una carta en el compendio (`null`: la incolora, p. ej. la Travesura incolora). */
+const pic = (k: Kind, c?: Color | null) => asset(cardImage(c === null ? { id: 'x', kind: k, color: null } : sample(k, c ?? HUE[k] ?? 'm')));
 /** En las mini partidas todo va en morado, para que las cartas encadenen entre sí. */
-const dpic = (k: Kind) => pic(k, k === 'travesura' ? null : 'm');
+const dpic = (k: Kind) => pic(k, 'm');
 const BACK = 'cards/back.webp';
 
 /** Cuántas hay de cada carta en el Mazo. */
@@ -24,8 +21,16 @@ const COUNT: Record<Kind, number> = {
 };
 
 /** Cartas que en el compendio y la ayuda van juntas en una sola entrada (cambia solo el número): su carta va rotando. */
-const VARIANTS: Partial<Record<Kind, { kind: Kind; c?: Color }[]>> = {
+/** Cartas de color: se enseñan empezando por su color del compendio y pasando por los otros dos. */
+const colors = (k: Kind): { kind: Kind; c: Color }[] => { const f = HUE[k] ?? 'm'; return [f, ...(['v', 'a', 'm'] as Color[]).filter((c) => c !== f)].map((c) => ({ kind: k, c })); };
+/** Cartas con varias versiones de dibujo (I, II, III): la I es la del juego; las otras, imágenes aparte. */
+const versions = (k: Kind) => [{ kind: k, label: 'I' }, { kind: k, label: 'II', src: `cards/${k}-2.webp` }, { kind: k, label: 'III', src: `cards/${k}-3.webp` }];
+const VARIANTS: Partial<Record<Kind, { kind: Kind; c?: Color | null; label?: string; src?: string }[]>> = {
+  cristalizar: colors('cristalizar'), aplastar: colors('aplastar'), codicia: colors('codicia'), adivinar: colors('adivinar'), mutis: colors('mutis'),
+  inutilizar: versions('inutilizar'), tinieblas: versions('tinieblas'),
   gema1: [{ kind: 'gema1', c: 'a' }, { kind: 'gema2', c: 'v' }, { kind: 'gema3', c: 'm' }],
+  // Travesura: verde, amarilla, morada e incolora (se pasa de una a otra como las Gemas).
+  travesura: [{ kind: 'travesura', c: 'v' }, { kind: 'travesura', c: 'a' }, { kind: 'travesura', c: 'm' }, { kind: 'travesura', c: null }],
   ritual1: [{ kind: 'ritual1' }, { kind: 'ritual2' }, { kind: 'ritual3' }],
 };
 const GROUP_NAME: Partial<Record<Kind, string>> = { gema1: 'Gema I · II · III', ritual1: 'Ritual I · II · III' };
@@ -35,7 +40,7 @@ const nameOf = (k: Kind) => GROUP_NAME[k] ?? KINDS[k].name;
 const entries = (a: Attr) => kindsOf(a).filter((k) => repOf(k) === k);
 const countText = (k: Kind) => {
   const v = VARIANTS[k];
-  if (!v) return `${COUNT[k]} ${COUNT[k] === 1 ? 'carta' : 'cartas'}`;
+  if (!v || v.every((x) => x.kind === k)) return `${COUNT[k]} ${COUNT[k] === 1 ? 'carta' : 'cartas'}`;
   return `${v.map((x) => COUNT[x.kind]).join(' + ')} cartas`;
 };
 
@@ -55,15 +60,18 @@ function RotCard({ kind, className = '' }: { kind: Kind; className?: string }) {
   const go = (d: number) => { setAuto(false); setI((x) => (x + d + v.length) % v.length); };
   return (
     <div className={`rot ${className}`}>
-      <img key={cur.kind} src={pic(cur.kind, cur.c)} alt={KINDS[cur.kind].name} />
+      <img key={i} src={cur.src ? asset(cur.src) : pic(cur.kind, cur.c)} alt={KINDS[cur.kind].name} />
       <div className="rot-ctl">
         <button onClick={() => go(-1)} aria-label="Carta anterior">‹</button>
-        <span>{KINDS[cur.kind].name}</span>
+        <span>{KINDS[cur.kind].name}{cur.label ? ` ${cur.label}` : v.every((x) => x.kind === kind) ? (cur.c ? ` ${colorWord(cur.c, kind)}` : ' incolora') : ''}</span>
         <button onClick={() => go(1)} aria-label="Carta siguiente">›</button>
       </div>
     </div>
   );
 }
+
+/** Nombre del color concordando con la carta (Cristalizar y Aplastar en masculino). */
+const colorWord = (c: Color, k: Kind) => { const masc = k === 'cristalizar' || k === 'aplastar'; return { a: masc ? 'amarillo' : 'amarilla', m: masc ? 'morado' : 'morada', v: 'verde' }[c]; };
 
 /** Detalles de las reglas de cada carta (del reglamento V7). */
 const NOTES: Record<Kind, string[]> = {
@@ -502,7 +510,7 @@ function Mechanics({ open }: { open: (k: Kind) => void }) {
           <span><RankIcon rank={1} size={38} />I</span><span><RankIcon rank={2} size={38} />II</span><span><RankIcon rank={3} size={38} />III</span>
           <span><RankIcon rank={4} size={38} />Diamante</span><span><RankIcon rank={4} dark size={38} />Diamante</span>
         </div>
-        <Fig items={[{ k: 'codicia', c: 'v', label: 'I' }, { k: 'purga', label: 'II' }, { k: 'travesura', c: null, label: 'III' }, { k: 'antitodo', label: '◆ Diamante' }]} caption="Codicia e Imán se llevan tu carta de mayor Jerarquía; si hay empate, eliges tú cuál entregas." />
+        <Fig items={[{ k: 'codicia', c: 'v', label: 'I' }, { k: 'purga', label: 'II' }, { k: 'travesura', c: 'v', label: 'III' }, { k: 'antitodo', label: '◆ Diamante' }]} caption="Codicia e Imán se llevan tu carta de mayor Jerarquía; si hay empate, eliges tú cuál entregas." />
       </section>
       <section id="m-duplicar">
         <h2>Duplicar</h2>
@@ -816,7 +824,7 @@ export function CompendioButton({ icon = false }: { icon?: boolean }) {
           </button>
         : <button onClick={() => setOpen(true)}>Compendio</button>}
       {/* En el body: el panel tiene backdrop-filter y no dejaría salir un position: fixed. */}
-      {open && createPortal(<div className="home-page home-overlay"><Compendium tab="jugar" onClose={() => setOpen(false)} /></div>, document.body)}
+      {open && createPortal(<div className="home-page home-overlay"><Compendium tab="cartas" onClose={() => setOpen(false)} /></div>, document.body)}
     </>
   );
 }

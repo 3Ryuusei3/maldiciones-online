@@ -7545,3 +7545,32 @@ input[type="checkbox"]:focus-visible {
 .room-head { align-items: center; }
 .home-panel button.room-code-btn { display: block; padding: 6px 4px 6px 16px; border: 1px solid rgba(255, 255, 255, 0.45); font-size: 26px; letter-spacing: 0.3em; margin-right: 0; line-height: 1; }
 .home-panel button.room-code-btn:hover:not(:disabled) { border-color: var(--gold); }
+
+/* Fondo de la portada: viaja por toda la imagen a puntos al azar (lo mueve HomeBg en Online.tsx). */
+.home-bg.home-bg2 {
+  inset: auto;
+  top: 0;
+  left: 0;
+  animation: none;
+  background-size: 100% 100%;
+  transform-origin: 0 0;
+  transition: transform 24s cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+
+/* Carrusel de variantes: las flechas fijas en los extremos (no bailan al cambiar el largo del nombre). */
+.rot-ctl {
+  align-self: stretch;
+  width: 100%;
+  justify-content: space-between;
+}
+.rot-ctl span {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rot-ctl button {
+  flex: none;
+}

@@ -2,7 +2,7 @@
 
 import { myProfile, useAccount } from '../net/auth';
 import { AccountChip, AccountExit, HexIcon } from './Account';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NetClient, createRoom, roomInfo, useNet } from '../net/client';
 import { COLOR_ORDER, PCOL, asset, toggleFullscreen } from './shared';
 import { LEVELS, SetupFields } from './Setup';
@@ -17,7 +17,7 @@ import { CompendioButton } from './Compendium';
 export function Shell({ children, onAccount }: { children: React.ReactNode; onAccount?: () => void }) {
   return (
     <div className="home">
-      <div className="home-bg" style={{ backgroundImage: `url(${asset('ui/fondo.webp')})` }} />
+      <HomeBg />
       <div className="home-panel">
         {/* Cabecera del panel: la cuenta a la izquierda; compendio y pantalla completa a la derecha (en móvil, en su sitio, sin tapar nada). */}
         <div className="panel-top">
@@ -34,6 +34,55 @@ export function Shell({ children, onAccount }: { children: React.ReactNode; onAc
       </div>
     </div>
   );
+}
+
+/** Proporción del fondo de pantalla (4200 x 2718). */
+const BG_RATIO = 4200 / 2718;
+/** Cada cuánto cambia el fondo de recorrido (lo mismo que dura la transición, para que nunca se pare). */
+const BG_MS = 24000;
+
+/**
+ * Fondo de la portada: la imagen es casi el doble de grande que la pantalla y va viajando a un punto al azar
+ * de toda la imagen (con algo de zoom y giro distintos cada vez), así que el recorrido nunca se repite.
+ */
+function HomeBg() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let size = { w: 0, h: 0, vw: 0, vh: 0 };
+    const layout = () => {
+      const vw = innerWidth, vh = innerHeight;
+      // Se ve algo más de la mitad de la imagen en cada momento.
+      const w = Math.max(vw, vh * BG_RATIO) * 1.6;
+      size = { w, h: w / BG_RATIO, vw, vh };
+      el.style.width = `${w}px`;
+      el.style.height = `${size.h}px`;
+    };
+    const go = () => {
+      const { w, h, vw, vh } = size;
+      const s = 1 + Math.random() * 0.18;
+      const r = (Math.random() - 0.5) * 5;
+      // Margen para que con el giro no asome nunca una esquina.
+      const m = 0.05 * w * s;
+      const tx = -m - Math.random() * Math.max(0, w * s - vw - 2 * m);
+      const ty = -m - Math.random() * Math.max(0, h * s - vh - 2 * m);
+      el.style.transform = `translate(${tx}px, ${ty}px) rotate(${r}deg) scale(${s})`;
+    };
+    layout();
+    el.style.transition = 'none';
+    go();
+    void el.offsetWidth;
+    el.style.transition = '';
+    if (still) return;
+    const first = window.setTimeout(go, 60);
+    const id = window.setInterval(go, BG_MS);
+    const onResize = () => { layout(); go(); };
+    addEventListener('resize', onResize);
+    return () => { clearTimeout(first); clearInterval(id); removeEventListener('resize', onResize); };
+  }, []);
+  return <div ref={ref} className="home-bg home-bg2" style={{ backgroundImage: `url(${asset('ui/fondo.webp')})` }} />;
 }
 
 /** Pantalla de entrada: crear una sala nueva o unirse con un código. */
