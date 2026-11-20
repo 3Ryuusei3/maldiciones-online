@@ -8105,3 +8105,19 @@ input[type="checkbox"]:focus-visible {
   .fs-only, .fs-btn, .fs-btn2 { display: none !important; }
   .rays { animation: none; }
 }
+/* Entrada: enlace al compendio (se puede leer sin cuenta). */
+.home-panel .entry-comp { display: flex; justify-content: center; margin-top: 4px; }
+.home-panel .entry-comp button { background: none; border: 0; color: #e6e3f0; text-decoration: underline; text-transform: none; letter-spacing: 0.02em; font-size: 14px; padding: 4px; }
+.home-panel .entry-comp button:hover:not(:disabled) { background: none; color: #fff; }
+/* Móvil: las gemas de elegir color más pequeñas y sin salirse de la pantalla. */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .gem-under { gap: 4px; padding: 6px 8px 4px; }
+  .gem-under .gem-pick { gap: 6px; }
+  .gem-under .gem-btn svg { width: 28px; height: auto; }
+  .gem-under .gem-hint { font-size: 9.5px; padding: 3px 7px; letter-spacing: 0.08em; }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  /* La Trifuerza va pegada al borde derecho: las gemas se alinean por la derecha en vez de centrarse. */
+  .gem-under { left: auto; right: -6px; transform: none; animation: gem-glow 1.2s ease-in-out infinite alternate; }
+  .gem-under .gem-hint { left: auto; right: 0; transform: none; }
+}

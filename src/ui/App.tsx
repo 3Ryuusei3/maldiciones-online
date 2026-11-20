@@ -1138,6 +1138,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     if (givingCod) return { run: () => send({ type: 'give', player: ME, cardId: c.id }) };
     if (escarcha) return { run: () => setEscGive(escGive?.cardId === c.id ? null : { cardId: c.id, to: null }), label: escGive?.cardId === c.id ? (escGive.to === null ? 'Elige a quién' : `→ ${name(escGive.to)}`) : undefined };
     if (rafaga) return rafaga.own ? { run: () => setTrayPick(trayPick === c.id ? null : c.id), label: trayPick === c.id ? 'Elige a quién' : undefined } : null;
+    // Tinieblas recién caídas: mientras dura la cuenta atrás (memorizar), aún no se puede jugar ni usar ninguna carta.
+    if (peeking) return null;
     // Imán o Codicia aún sin resolver: se pueden parar con una carta de defensa (o Antitodo).
     if (lateOpts.length && !blind) {
       if (c.kind === 'antitodo' && lateOpts.includes('antitodo')) return { run: () => react({ r: 'antitodo' }), label: 'Anular' };

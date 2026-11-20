@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { ICONS, Profile, playAsGuest, saveGuest, saveProfile, signIn, signInGoogle, signOut, signUp, toEntry, useAccount } from '../net/auth';
 import { ATTR_NAME, Attr, KINDS, Kind } from '../game/cards';
 import { iconBase, iconTint, withTint } from '../game/icons';
+import { CompendioButton } from './Compendium';
 import { COLOR_ORDER, PCOL, asset, ink } from './shared';
 
 /** Selector de color (los 9 de los jugadores). */
@@ -126,6 +127,8 @@ export function EntryScreen() {
         {google}
         <div className="entry-or"><span>o</span></div>
         <button className="entry-guest" onClick={playAsGuest}>Jugar como invitado</button>
+        {/* El compendio (reglas y cartas) se puede leer sin entrar. */}
+        <div className="entry-comp"><CompendioButton /></div>
         {error && <p className="error">{error}</p>}
       </div>
     </>

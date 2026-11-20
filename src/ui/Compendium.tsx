@@ -927,7 +927,7 @@ export function CompendioButton({ icon = false }: { icon?: boolean }) {
         ? <button className="tool-btn" onClick={() => setOpen(true)} title="Compendio: reglas y cartas" aria-label="Compendio">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
           </button>
-        : <button onClick={() => setOpen(true)}>Compendio</button>}
+        : <button onClick={() => setOpen(true)}>Ver el compendio (reglas y cartas)</button>}
       {/* En el body: el panel tiene backdrop-filter y no dejaría salir un position: fixed. */}
       {open && createPortal(<div className="home-page home-overlay"><Compendium tab="cartas" onClose={() => setOpen(false)} /></div>, document.body)}
     </>
