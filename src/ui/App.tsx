@@ -557,6 +557,26 @@ const TRI_COLOR: ['tinieblas' | 'mutis' | 'inutilizar', Color][] = [['tinieblas'
 
 
 /** Dónde se sienta cada rival: borde izquierdo, arriba (con su posición horizontal) o borde derecho, en sentido horario. */
+/** Móvil en vertical: todos los rivales arriba, en fila (a los lados no caben sin pisar la mesa). */
+const SEATS_TALL: Record<number, [string, number][]> = {
+  2: [['top', 27], ['top', 73]],
+  3: [['top', 18], ['top', 50], ['top', 82]],
+  4: [['top', 13], ['top', 38], ['top', 62], ['top', 87]],
+  5: [['top', 14], ['top', 32], ['top', 50], ['top', 68], ['top', 86]],
+};
+/** Pantalla de móvil (estrecha, o en horizontal con poca altura): sin flechas y con lo justo. */
+const PHONE_Q = '(max-width: 600px) and (orientation: portrait), (max-height: 520px) and (orientation: landscape)';
+const TALL_Q = '(max-width: 600px) and (orientation: portrait)';
+function useMedia(q: string) {
+  const [on, setOn] = useState(() => matchMedia(q).matches);
+  useEffect(() => {
+    const m = matchMedia(q);
+    const f = () => setOn(m.matches);
+    m.addEventListener('change', f);
+    return () => m.removeEventListener('change', f);
+  }, [q]);
+  return on;
+}
 const SEATS: Record<number, [string, number][]> = {
   2: [['left', 0], ['right', 0]],
   3: [['left', 0], ['top', 50], ['right', 0]],
@@ -676,6 +696,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const icons = useMemo(() => s.players.map((_, p) => (net ? rv?.seats[p]?.icon ?? 'maldicion' : p === ME ? cfg.icon ?? 'maldicion' : botIcons.current[p])), [net, rv?.seats, s.players.length, cfg.icon]);
   const timerOn = net ? rv?.opts.timer !== false : localTimer;
   const arrowsOn = net ? rv?.opts.arrows !== false : localArrows;
+  const phone = useMedia(PHONE_Q);
+  const tall = useMedia(TALL_Q);
   const seatState = (p: number): SeatState => (net && rv ? rv.seats[p]?.state : s.players[p].out ? 'out' : undefined);
   // Online: se avisa al servidor cuando ya se ha visto el reparto, para que empiece a correr el juego.
   useEffect(() => { if (net && intro === null && spinPhase === 'off') net.send({ t: 'ready' }); }, [net, intro, spinPhase]);
@@ -1442,7 +1464,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const cursed = isCursedEnv(s);
   const deckEmpty = !dealing && s.deck.length === 0;
 
-  const seats = SEATS[rivals.length];
+  const seats = (tall ? SEATS_TALL : SEATS)[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
     <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${cfg.tutorial ? 'tutorial' : ''} ${dealing ? 'dealing' : ''} ${spinPhase === 'run' ? 'spinning' : ''} ${spin?.done ? 'spin-dir-on' : ''} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
@@ -1670,9 +1692,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {ph.t === 'adivinar' && ph.player !== ME && <AdivinarFx key={`adiv${ph.player}`} actor={ph.player} name={name(ph.player)} n={ph.cards.length} />}
       {countText && <div key={countText} className="count-big" aria-live="assertive">{countText}</div>}
       {/* Elegir color: flecha de los tres colores desde mi mano hasta las gemas, como un efecto dirigido. */}
-      {tinte && !envFx && pickReady && <PickArrow />}
+      {tinte && !envFx && pickReady && !phone && <PickArrow />}
       {/* Quién actúa sobre quién: flechas desde que empieza el efecto hasta que acaba (una por cada lanzador). */}
-      {!dealing && !finale && arrowsOn && (() => {
+      {!dealing && !finale && arrowsOn && !phone && (() => {
         let pairs: [number, number][] = [];
         const to = (from: number, ts: number[]) => ts.forEach((t) => pairs.push([from, t]));
         if (ph.t === 'react' || ph.t === 'give') {
