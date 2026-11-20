@@ -94,6 +94,8 @@ export interface TieSplit { fixed: string[]; options: string[]; count: number }
 
 export interface GameState {
   seed: number;
+  /** Cuándo empezó la partida (ms; lo pone quien la crea, no el motor). Para el temporizador. */
+  startedAt?: number;
   seq: number;
   /** Contador de ventanas temporizadas (para que el anfitrión lleve los relojes). */
   win: number;
@@ -111,7 +113,7 @@ export interface GameState {
   dir: 1 | -1;
   turn: number;
   /** `tinieblas.at`: jugada en la que cayeron (para dejar unos segundos de memorizar la mano). */
-  env: { mutis: boolean; inutilizar: boolean; tinieblas: null | { owner: number; count: number; fresh: boolean; at?: number } };
+  env: { mutis: boolean; inutilizar: boolean; tinieblas: null | { owner: number; count: number; fresh: boolean; at?: number; secrets?: string[]; known?: string[] } };
   phase: Phase;
   rafaga: Rafaga | null;
   /** Para el resumen final: cartas echadas y robadas por jugador, y turnos jugados. */
@@ -267,7 +269,33 @@ function announce(s: GameState, player: number, text: string, silent = false) {
 }
 
 function resetEnv(s: GameState) {
+  revealSecrets(s);
   s.env = { mutis: false, inutilizar: false, tinieblas: null };
+}
+
+/**
+ * Con Tinieblas, lo que no se ve (qué carta se entrega) se anota como «una carta (???)» y se cuenta cuando
+ * se disipan. Sin Tinieblas, se anota tal cual.
+ */
+function logSecret(s: GameState, hidden: string, real: string) {
+  const tin = s.env.tinieblas;
+  if (!tin) return log(s, real);
+  log(s, hidden);
+  (tin.secrets ??= []).push(real);
+}
+
+/** Al disiparse las Tinieblas, se cuenta lo que había quedado oculto. */
+function revealSecrets(s: GameState) {
+  const sec = s.env.tinieblas?.secrets ?? [];
+  for (const t of sec) log(s, `Tras las Tinieblas: ${t}`);
+  if (s.env.tinieblas) s.env.tinieblas.secrets = [];
+}
+
+/** Se disipan las Tinieblas (y se cuenta lo que había quedado oculto). */
+function endTinieblas(s: GameState) {
+  log(s, 'Se disipan las Tinieblas.');
+  revealSecrets(s);
+  s.env.tinieblas = null;
 }
 
 function dropFaceUpEgidas(s: GameState) {
@@ -492,7 +520,8 @@ function beginTurn(s: GameState, p: number) {
   s.stats.turns++;
   s.after = null;
   const pl = s.players[p];
-  if (pl.hand.some((c) => c.kind === 'condena')) {
+  const tin = s.env.tinieblas;
+  if (pl.hand.some((c) => c.kind === 'condena' && (!tin || !tin.known || tin.known.includes(c.id)))) {
     const absolved = pl.hand.filter((c) => c.kind === 'maldicion').length >= s.totalCurses;
     s.phase = { t: 'condena', player: p, absolved };
   } else {
@@ -525,8 +554,7 @@ function finish(s: GameState) {
   if (tin && tin.owner === prev) {
     if (tin.fresh) tin.fresh = false;
     else if (++tin.count >= 3) {
-      s.env.tinieblas = null;
-      log(s, 'Se disipan las Tinieblas.');
+      endTinieblas(s);
     }
   }
   beginTurn(s, after?.turnTo ?? nextPlayer(s, prev));
@@ -609,8 +637,14 @@ function toggleEnv(s: GameState, card: Card, by: number) {
     s.env.inutilizar = !s.env.inutilizar;
     log(s, s.env.inutilizar ? 'Inutilizar: las cartas de color pierden su efecto.' : 'Inutilizar termina.');
   } else if (card.kind === 'tinieblas') {
-    s.env.tinieblas = s.env.tinieblas ? null : { owner: by, count: 0, fresh: true, at: s.seq };
-    log(s, s.env.tinieblas ? 'Tinieblas: todos juegan con las cartas boca abajo.' : 'Se disipan las Tinieblas.');
+    if (s.env.tinieblas) endTinieblas(s);
+    else {
+      // Las Condenas que ya se tenían (y se sabía): solo esas surten efecto mientras dure; una que te llegue a
+      // ciegas no empieza hasta que la veas (al disiparse las Tinieblas).
+      const known = s.players.flatMap((pl) => pl.hand.filter((c) => c.kind === 'condena').map((c) => c.id));
+      s.env.tinieblas = { owner: by, count: 0, fresh: true, at: s.seq, known };
+      log(s, 'Tinieblas: todos juegan con las cartas boca abajo.');
+    }
   }
   if (isCursedEnv(s)) log(s, '☠ Entorno maldito: nadie puede ganar mientras haya 2 o más Entornos activos.');
 }
@@ -622,7 +656,10 @@ function runEffect(s: GameState, pp: PendingPlay) {
   const pred = predestined || !!pp.directed;
   const T = pp.target; // objetivo elegido (Predestinar, Codicia, Purga, Ráfaga)
   s.after = { turnTo: predestined ? T : null };
-  if (predestined && T !== null) log(s, `${nm(s, L)} predestina ${cardName(e)} a ${nm(s, T)}, que recibe el turno.`);
+  if (predestined && T !== null) {
+    if (isCursed(e)) logSecret(s, `${nm(s, L)} predestina una carta (???) a ${nm(s, T)}, que recibe el turno.`, `${nm(s, L)} predestinó ${cardName(e)} a ${nm(s, T)}.`);
+    else log(s, `${nm(s, L)} predestina ${cardName(e)} a ${nm(s, T)}, que recibe el turno.`);
+  }
   const inutil = s.env.inutilizar && e.color !== null;
   const others = inGame(s).filter((p) => p.id !== L).map((p) => p.id);
 
@@ -855,9 +892,11 @@ function resolve(s: GameState, eff: Effect, exempt: number[]) {
         log(s, `El Antitodo bloquea la entrega: ${cardName(eff.card)} vuelve a ${nm(s, eff.source)}.`);
       } else {
         s.players[t].hand.push(eff.card);
-        // Una carta maldita entregada se ve boca arriba (todos saben qué ha recibido).
-        fx(s, eff.source, t, 1, isCursed(eff.card) ? eff.card : undefined);
-        log(s, `${nm(s, t)} recibe ${isCursed(eff.card) ? cardName(eff.card) : 'una carta'} de ${nm(s, eff.source)}.`);
+        // Una carta maldita entregada se ve boca arriba (todos saben qué ha recibido)… salvo con Tinieblas.
+        const seen = isCursed(eff.card) && !s.env.tinieblas;
+        fx(s, eff.source, t, 1, seen ? eff.card : undefined);
+        if (isCursed(eff.card)) logSecret(s, `${nm(s, t)} recibe una carta (???) de ${nm(s, eff.source)}.`, `${nm(s, t)} recibió ${cardName(eff.card)} de ${nm(s, eff.source)}.`);
+        else log(s, `${nm(s, t)} recibe una carta de ${nm(s, eff.source)}.`);
       }
       return finish(s);
     }
@@ -1187,11 +1226,33 @@ export function apply(prev: GameState, a: Action): GameState {
   return s;
 }
 
-/** Copias idénticas echadas a la vez que la primera: se duplican una tras otra (si alguna ya no se puede, se para). */
-function dupMore(s: GameState, p: number, first: Card, ids?: string[]) {
-  const same = (ids ?? []).filter((id) => { const c = s.players[p].hand.find((x) => x.id === id); return !!c && c.kind === first.kind && c.color === first.color; });
-  s.joinQ = same.length ? { player: p, ids: same } : null;
-  drainJoin(s);
+/**
+ * Copias idénticas que se echan junto a la primera («Jugar juntas»): van todas a la Pila a la vez y el efecto se
+ * hace una sola vez; si son Ataques, se multiplica (como al Duplicar). Las que no se pueden duplicar no cuentan.
+ */
+function joinable(s: GameState, p: number, first: Card, ids?: string[]): Card[] {
+  const attr = KINDS[first.kind].attr;
+  if (attr === 'defensa' || attr === 'sagrada' || attr === 'maldita' || KINDS[first.kind].rank >= 4) return [];
+  if (first.kind === 'predestinar' || first.kind === 'cristalizar') return [];
+  const out: Card[] = [];
+  for (const id of new Set(ids ?? [])) {
+    const c = s.players[p].hand.find((x) => x.id === id);
+    if (c && c.id !== first.id && c.kind === first.kind && c.color === first.color) out.push(c);
+  }
+  return out;
+}
+
+/** Ataques echados juntos: Travesura acumula (otra carta tuya y +2 por copia) y Aplastar suma rondas completas. */
+function multiplyJoined(s: GameState, p: number, c: Card, n: number) {
+  if (s.env.inutilizar && c.color !== null) return;
+  const ph = s.phase;
+  if (c.kind === 'travesura' && ph.t === 'react' && ph.eff.k === 'trav') {
+    for (let i = 0; i < n; i++) { ph.eff.launchers.push(p); ph.eff.amount += 2; }
+    log(s, `Travesura se multiplica: ${nm(s, ph.eff.targets[0])} recibirá ${ph.eff.launchers.length} carta(s) y robará ${ph.eff.amount}.`);
+  } else if (c.kind === 'aplastar' && ph.t === 'aplastar') {
+    ph.queue = [...(ph.queue ?? []), ...Array(n).fill(p)];
+    log(s, `Aplastar se multiplica: ${n + 1} rondas seguidas.`);
+  }
 }
 
 /**
@@ -1227,10 +1288,14 @@ function step(s: GameState, a: Action): boolean {
         finish(s);
         return true;
       }
+      // «Jugar juntas»: las copias idénticas van a la Pila a la vez que la primera.
+      const extra = joinable(s, a.player, c, a.with);
+      for (const x of extra) { takeFromHand(s, a.player, x.id); putOnPile(s, a.player, x); }
+      if (extra.length) log(s, `${nm(s, a.player)} echa ${extra.length + 1} ${KINDS[c.kind].name} juntas${KINDS[c.kind].attr === 'ataque' ? ': el efecto se multiplica' : ''}.`);
       startPlay(s, a.player, c, a.with ?? []);
       // Predestinar tras robar: la carta que lo acompaña es la robada.
       if (drawnId && drawnId !== c.id && s.phase.t === 'choose' && s.phase.need === 'card') s.phase.options = s.phase.options.filter((o) => o === drawnId);
-      dupMore(s, a.player, c, a.with);
+      if (extra.length) multiplyJoined(s, a.player, c, extra.length);
       return true;
     }
     case 'draw': {
@@ -1296,8 +1361,12 @@ function step(s: GameState, a: Action): boolean {
     }
     case 'dup': {
       const c = s.players[a.player].hand.find((x) => x.id === a.cardId);
+      if (!c || !canDup(s, a.player, c)) return false;
+      // Varias copias a la vez: todas a la Pila juntas; el efecto, una vez (multiplicado si es un Ataque).
+      const extra = joinable(s, a.player, c, a.with);
+      for (const x of extra) { takeFromHand(s, a.player, x.id); putOnPile(s, a.player, x); }
       if (!handleDup(s, a.player, a.cardId)) return false;
-      if (c) dupMore(s, a.player, c, a.with);
+      if (extra.length) multiplyJoined(s, a.player, c, extra.length);
       return true;
     }
     case 'antitodo': {
@@ -1605,7 +1674,7 @@ function step(s: GameState, a: Action): boolean {
         log(s, `${nm(s, a.player)} queda absuelto y descarta Condena.`);
         finish(s);
       } else {
-        log(s, `${nm(s, a.player)} queda absuelto y entrega Condena a ${nm(s, a.to)}.`);
+        logSecret(s, `${nm(s, a.player)} queda absuelto y entrega una carta (???) a ${nm(s, a.to)}.`, `${nm(s, a.player)} quedó absuelto y entregó Condena a ${nm(s, a.to)}.`);
         openReact(s, { k: 'gift', source: a.player, targets: [a.to], card: c });
       }
       return true;
@@ -1630,8 +1699,7 @@ function step(s: GameState, a: Action): boolean {
       pl.held = false;
       log(s, `${nm(s, p)} queda fuera de la partida: ${n ? `sus ${n} cartas van al fondo de la Pila` : 'no tenía cartas'}.`);
       if (s.env.tinieblas?.owner === p) {
-        s.env.tinieblas = null;
-        log(s, 'Se disipan las Tinieblas.');
+        endTinieblas(s);
       }
       const left = inGame(s);
       if (left.length === 1) {

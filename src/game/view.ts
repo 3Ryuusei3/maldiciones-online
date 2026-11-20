@@ -33,6 +33,14 @@ export function viewFor(full: GameState, me: number): GameState {
 
   const hideCards = (cards: Card[], tag: string) => cards.map((c, i) => back(`${tag}${i}`));
   s.phase = hidePhase(ph, me, hideCards);
+  // Tinieblas: lo que quedó oculto (qué carta se entregó) no se envía hasta que se disipan, y la carta que se
+  // está entregando ahora solo la ve quien la da.
+  if (s.env.tinieblas) {
+    s.env.tinieblas.secrets = [];
+    s.env.tinieblas.known = [];
+    const p2 = s.phase;
+    if (p2.t === 'react' && p2.eff.k === 'gift' && p2.eff.source !== me) s.phase = { ...p2, eff: { ...p2.eff, card: back('gift') } };
+  }
 
   // Animaciones: una carta concreta solo viaja a la vista si sale o llega a la Pila, o si es mía.
   // Las cartas malditas (Maldición, Condena) que pasan de un jugador a otro se ven boca arriba para todos.

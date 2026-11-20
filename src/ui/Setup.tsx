@@ -29,6 +29,7 @@ export function SetupFields({ opts, set, min = 3, readOnly = false, hideLevel = 
       <label className="check" title="Incluye la carta Condena en el Mazo"><input type="checkbox" disabled={readOnly} checked={opts.condena} onChange={(e) => set({ condena: e.target.checked })} />Carta Condena</label>
       <label className="check" title="Escarcha, Ráfaga, Trastada y los Rituales"><input type="checkbox" disabled={readOnly} checked={opts.beta} onChange={(e) => set({ beta: e.target.checked })} />Cartas beta</label>
       <label className="check" title="Si se agota el tiempo, juega la máquina por ti"><input type="checkbox" disabled={readOnly} checked={opts.timer !== false} onChange={(e) => set({ timer: e.target.checked })} />Máximo 15 s por decisión</label>
+      <label className="check" title="Flechas de quién lanza un efecto contra quién (se puede cambiar durante la partida)"><input type="checkbox" disabled={readOnly} checked={opts.arrows !== false} onChange={(e) => set({ arrows: e.target.checked })} />Flechas de los efectos</label>
       </MoreOptions>
     </>
   );

@@ -19,6 +19,8 @@ export interface RoomOpts {
   beta: boolean;
   /** Tiempo máximo (15 s) para cada decisión de un humano; sin él, se espera lo que haga falta. Por defecto, sí. */
   timer?: boolean;
+  /** Flechas de quién actúa sobre quién. Por defecto, sí. El anfitrión las puede quitar también en partida. */
+  arrows?: boolean;
   /** Nivel de cada máquina (por hueco libre, en orden); si falta, `level`. */
   botLevels?: Level[];
 }
@@ -244,11 +246,14 @@ export function setOpts(r: RoomData, token: string, o: Partial<RoomOpts>, online
   if (token !== hostOf(r, online)) return fail('Solo el anfitrión puede cambiar las opciones.');
   const n = r.opts;
   if (r.game && r.game.phase.t !== 'over') {
-    // En partida solo se puede cambiar el tiempo máximo (por si alguien se ha quedado parado).
-    if (typeof o.timer !== 'boolean') return fail('La partida ya ha empezado.');
-    n.timer = o.timer;
-    // Se vuelve a planificar la decisión en curso con el nuevo criterio.
-    r.sched.key = '';
+    // En partida solo se puede cambiar el tiempo máximo (por si alguien se ha quedado parado) y las flechas.
+    if (typeof o.timer !== 'boolean' && typeof o.arrows !== 'boolean') return fail('La partida ya ha empezado.');
+    if (typeof o.arrows === 'boolean') n.arrows = o.arrows;
+    if (typeof o.timer === 'boolean') {
+      n.timer = o.timer;
+      // Se vuelve a planificar la decisión en curso con el nuevo criterio.
+      r.sched.key = '';
+    }
     return ok;
   }
   if (typeof o.size === 'number' && o.size >= 3 && o.size <= 6) n.size = Math.max(o.size, r.seats.length);
@@ -258,6 +263,7 @@ export function setOpts(r: RoomData, token: string, o: Partial<RoomOpts>, online
   if (typeof o.condena === 'boolean') n.condena = o.condena;
   if (typeof o.beta === 'boolean') n.beta = o.beta;
   if (typeof o.timer === 'boolean') n.timer = o.timer;
+  if (typeof o.arrows === 'boolean') n.arrows = o.arrows;
   return ok;
 }
 
@@ -282,6 +288,7 @@ export function start(r: RoomData, token: string, now: number, online: Set<strin
     condena: r.opts.condena,
     beta: r.opts.beta,
   });
+  r.game.startedAt = now;
   r.round++;
   r.rec = startRecording(crypto.randomUUID(), r.game, now);
   r.sched = { ...freshSched(), startAt: now + INTRO_MAX_MS };

@@ -21,6 +21,8 @@ export interface GameConfig {
   beta?: boolean;
   /** Tiempo máximo de 15 s para cada decisión (por defecto, sí). */
   timer?: boolean;
+  /** Flechas de quién actúa sobre quién (por defecto, sí). */
+  arrows?: boolean;
   /** Mi color en local (índice de la paleta de jugadores); las máquinas usan los que quedan. */
   color?: number;
   /** Mi icono (los de las cartas); las máquinas llevan uno al azar. */
@@ -46,7 +48,7 @@ export interface Timer { until: number; total: number }
 /** `enabled = false`: no aloja nada (la partida online la lleva el servidor). */
 export function useGame(cfg: GameConfig, ready = true, paused = false, enabled = true, gate?: TutorGate) {
   const [state, setState] = useState<GameState>(() => {
-    if (cfg.tutorial) return newTutorial(cfg.name);
+    if (cfg.tutorial) return { ...newTutorial(cfg.name), startedAt: Date.now() };
     const g = newGame({
       players: [{ name: cfg.name || 'Tú', bot: false }, ...pickNames(cfg.players - 1, [cfg.name || 'Tú']).map((name) => ({ name, bot: true }))],
       seed: (Math.random() * 2 ** 31) | 0,
@@ -75,6 +77,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
       for (let i = g.deck.length - 1; i >= 0; i--) if (cfg.debugBot.includes(g.deck[i].kind)) bh.push(...g.deck.splice(i, 1));
     }
     if (cfg.debugBot) g.turn = 1;
+    g.startedAt = Date.now();
     return g;
   });
   const ref = useRef(state);

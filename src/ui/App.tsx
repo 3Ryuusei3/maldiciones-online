@@ -470,7 +470,7 @@ function LocalSetup({ onStart, onBack, onAccount }: { onStart: (c: GameConfig) =
   const [color, setColor] = useState(() => prof?.color ?? (() => { try { const c = Number(localStorage.getItem('maldiciones:color')); return c >= 0 && c < PCOL.length ? c : 0; } catch { return 0; } })());
   const start = () => {
     try { localStorage.setItem('maldiciones:nombre', name.trim()); localStorage.setItem('maldiciones:color', String(color)); } catch { /* sin almacenamiento: no se recuerda */ }
-    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta, timer: opts.timer !== false, color, icon: prof?.icon });
+    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta, timer: opts.timer !== false, arrows: opts.arrows !== false, color, icon: prof?.icon });
   };
   return (
     <>
@@ -517,7 +517,8 @@ function effText(s: GameState, e: Effect): string {
     case 'escarcha': return e.source === ME ? 'Tu Escarcha: congelas el tiempo y moverás las cartas de los oponentes.' : `Escarcha de ${N(e.source)}: congela el tiempo y moverá las cartas de los oponentes.`;
     case 'rescarcha': return e.source === ME ? 'Escarcha reflejada: tú moverás las cartas de los demás.' : `Escarcha reflejada: ${N(e.source)} moverá las cartas de los demás.`;
     case 'rafaga': return e.source === ME ? 'Tu Ráfaga: jugarás 5 cartas del Mazo y 1 tuya contra quien quieras.' : `Ráfaga de ${N(e.source)}: jugará 5 cartas del Mazo y 1 suya contra quien quiera.`;
-    case 'gift': return `${N(e.source)} entrega ${isCursed(e.card) ? cardName(e.card) : 'una carta'} a ${n(e.targets[0])}.`;
+    // Con Tinieblas no se sabe qué carta se entrega (solo lo sabe quien la da).
+    case 'gift': return `${N(e.source)} entrega ${isCursed(e.card) && (!s.env.tinieblas || e.source === ME) ? cardName(e.card) : s.env.tinieblas ? 'una carta (???)' : 'una carta'} a ${n(e.targets[0])}.`;
   }
 }
 
@@ -639,6 +640,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   // En local la partida la aloja este navegador; online, el servidor (aquí solo se muestra y se envían acciones).
   /** Tiempo máximo de 15 s: en local se puede cambiar desde la pausa; online lo cambia el anfitrión (opción de la sala). */
   const [localTimer, setLocalTimer] = useState(cfg.timer !== false);
+  const [localArrows, setLocalArrows] = useState(cfg.arrows !== false);
   /** Tutorial: qué pueden hacer las máquinas en el paso actual (lo fija el tutorial, más abajo). */
   const [tgate, setTgate] = useState<TutorGate>({ bots: 'off', autoPass: true });
   /** Ruleta del principio (quién empieza y en qué sentido): `wait` hasta que acaba el reparto, `run` mientras gira. */
@@ -673,6 +675,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const botIcons = useRef(Array.from({ length: 8 }, () => randomIcon()));
   const icons = useMemo(() => s.players.map((_, p) => (net ? rv?.seats[p]?.icon ?? 'maldicion' : p === ME ? cfg.icon ?? 'maldicion' : botIcons.current[p])), [net, rv?.seats, s.players.length, cfg.icon]);
   const timerOn = net ? rv?.opts.timer !== false : localTimer;
+  const arrowsOn = net ? rv?.opts.arrows !== false : localArrows;
   const seatState = (p: number): SeatState => (net && rv ? rv.seats[p]?.state : s.players[p].out ? 'out' : undefined);
   // Online: se avisa al servidor cuando ya se ha visto el reparto, para que empiece a correr el juego.
   useEffect(() => { if (net && intro === null && spinPhase === 'off') net.send({ t: 'ready' }); }, [net, intro, spinPhase]);
@@ -695,6 +698,10 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   }, [intro, spinPhase]);
   useEffect(() => () => spinTimers.current.forEach(clearTimeout), []);
   const startedAt = useRef(Date.now());
+  /** Cuándo terminó (para parar el temporizador y enseñar la duración en la pantalla final). */
+  const endedAt = useRef<number | null>(null);
+  if (s.phase.t === 'over' && endedAt.current === null) endedAt.current = Date.now();
+  if (s.phase.t !== 'over' && endedAt.current !== null) endedAt.current = null;
   const origins = useRef<Record<string, DOMRect>>({});
   const tutor = useTutor(!!cfg.tutorial, s, intro);
   useEffect(() => {
@@ -1443,7 +1450,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       <div className="shade" />
       <div className="flights" ref={flights} />
       <div className="topbar">
-        <div className="brand"><img src={asset('icons/maldicion.webp')} alt="" />Maldiciones</div>
+        <GameClock from={s.startedAt ?? startedAt.current} to={endedAt.current} />
         <span className="spacer" />
         <button className="round" title="Pausa" aria-label="Pausar la partida" onClick={() => setPause('menu')}>❚❚</button>
         <button className="round fs-only" title="Pantalla completa" aria-label="Pantalla completa" onClick={toggleFullscreen}>⛶</button>
@@ -1665,7 +1672,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {/* Elegir color: flecha de los tres colores desde mi mano hasta las gemas, como un efecto dirigido. */}
       {tinte && !envFx && pickReady && <PickArrow />}
       {/* Quién actúa sobre quién: flechas desde que empieza el efecto hasta que acaba (una por cada lanzador). */}
-      {!dealing && !finale && (() => {
+      {!dealing && !finale && arrowsOn && (() => {
         let pairs: [number, number][] = [];
         const to = (from: number, ts: number[]) => ts.forEach((t) => pairs.push([from, t]));
         if (ph.t === 'react' || ph.t === 'give') {
@@ -1731,7 +1738,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         </div>
       )}
       {finale && s.winner !== null && <Finale name={s.winner === ME ? '¡Has ganado!' : `¡Gana ${name(s.winner)}!`} why={s.log.some((l) => l.text.includes('3 Rituales')) ? 'Reúne los 3 Rituales' : s.log.some((l) => l.text.includes('único que queda')) ? 'Es el único que queda' : 'Última carta'} color={colors[s.winner]} />}
-      {ph.t === 'over' && !finale && !cfg.tutorial && <GameOver s={s} colors={colors} startedAt={startedAt.current} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
+      {ph.t === 'over' && !finale && !cfg.tutorial && <GameOver s={s} colors={colors} startedAt={s.startedAt ?? startedAt.current} endedAt={endedAt.current ?? Date.now()} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
       {tutor.view && !finale && <TutorOverlay view={tutor.view} finished={ph.t === 'over'} onExit={onExit} />}
       {pause && ph.t !== 'over' && (
         <div className="pause" role="dialog" aria-label="Partida en pausa">
@@ -1749,7 +1756,14 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
                     Tiempo máximo de 15 s para decidir{net ? ' (para todos)' : ''}
                   </label>
                 )}
+                {(!net || isHost) && (
+                  <label className="check pause-check">
+                    <input type="checkbox" checked={arrowsOn} onChange={(e) => (net ? net.opts({ arrows: e.target.checked }) : setLocalArrows(e.target.checked))} />
+                    Flechas de los efectos{net ? ' (para todos)' : ''}
+                  </label>
+                )}
                 {net && !isHost && <small className="pause-note">Tiempo máximo de 15 s: {timerOn ? 'activado' : 'desactivado'} (lo cambia el anfitrión).</small>}
+                {net && !isHost && <small className="pause-note">Flechas de los efectos: {arrowsOn ? 'activadas' : 'desactivadas'} (lo cambia el anfitrión).</small>}
                 <button onClick={() => setPause('bug')}>Reportar un fallo</button>
                 <button onClick={() => setPause('exit')}>Salir de la partida</button>
               </>
@@ -1910,19 +1924,38 @@ function ActionArrows({ pairs, colors }: { pairs: [number, number][]; colors: st
         return r ? { l: r.left - 14, t: r.top - 14, r: r.right + 14, b: r.bottom + 14 } : null;
       };
       const inside = (z: { l: number; t: number; r: number; b: number }, p: { x: number; y: number }) => p.x > z.l && p.x < z.r && p.y > z.t && p.y < z.b;
+      // Desde/hacia mi mano: cada flecha sale (o llega) de un punto distinto del borde de arriba de mi mano, según hacia
+      // qué lado va, para que las que van a varios jugadores no se crucen al salir.
+      const row = document.querySelector('.cards-row')?.getBoundingClientRect();
+      const spread = (pnt: { x: number; y: number }, other: { x: number; y: number }) => {
+        if (!row) return pnt;
+        const half = Math.min(row.width * 0.42, 220);
+        return { x: pnt.x + Math.max(-half, Math.min(half, (other.x - pnt.x) * 0.35)), y: pnt.y };
+      };
       setPaths(pairs.map(([f, t]) => {
-        const a = pt(f), b = pt(t);
+        let a = pt(f), b = pt(t);
         if (!a || !b) return null;
+        if (f === ME) a = spread(a, b);
+        else if (t === ME) b = spread(b, a);
         const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
         const dx = b.x - a.x, dy = b.y - a.y;
         const dist = Math.hypot(dx, dy);
         let qx: number, qy: number;
         if (Math.abs(dx) > Math.abs(dy) * 1.5) {
-          // De un lado al otro: arco por encima de la mesa.
-          qx = mx;
-          qy = my - Math.max(140, dist * 0.42);
-          // Que el punto más alto del arco quede dentro de la pantalla (a unos 40 px del borde de arriba).
-          qy = Math.max(qy, 80 - (a.y + b.y) / 2);
+          // De un lado al otro: el arco va por donde haya más hueco. Si los dos están arriba (mesas de 5-6), por
+          // debajo, entre ellos y el círculo; si no, por encima de la mesa.
+          const roomUp = Math.min(a.y, b.y);
+          const handTop = document.querySelector('.cards-row')?.getBoundingClientRect().top ?? H;
+          const roomDown = handTop - Math.max(a.y, b.y);
+          if (roomUp < 150 && roomDown > roomUp) {
+            qx = mx;
+            qy = my + Math.min(Math.max(90, dist * 0.32), roomDown * 0.6);
+          } else {
+            qx = mx;
+            qy = my - Math.max(140, dist * 0.42);
+            // Que el punto más alto del arco quede dentro de la pantalla (a unos 40 px del borde de arriba).
+            qy = Math.max(qy, 80 - (a.y + b.y) / 2);
+          }
         } else {
           // Hacia el centro de la mesa, con una curva mínima para que nunca vaya recta.
           qx = mx + (cx - mx) * 0.55;
@@ -1966,7 +1999,12 @@ function ActionArrows({ pairs, colors }: { pairs: [number, number][]; colors: st
               const sp = (((sd > 0 ? u1 - u2 : u2 - u1) % TAU0) + TAU0) % TAU0;
               return Math.sin(sd > 0 ? u1 - sp / 2 : u1 + sp / 2);
             };
-            const side = f !== ME && t !== ME ? (midY(1) <= midY(-1) ? 1 : -1)
+            // Entre dos rivales: por arriba (así no se cruza con las que bajan a mi mano), salvo que arriba vaya apretada
+            // contra el borde y abajo haya más hueco (mesas de 6 en pantallas bajas).
+            const handTop = document.querySelector('.cards-row')?.getBoundingClientRect().top ?? window.innerHeight;
+            const room = (sd: number) => { const yy = C.y + R2 * midY(sd); return yy < C.y ? yy : handTop - yy; };
+            const top = midY(1) <= midY(-1) ? 1 : -1;
+            const side = f !== ME && t !== ME ? (room(top) < 110 && room(-top) > room(top) ? -top : top)
               : b.x - C.x > 8 ? 1 : b.x - C.x < -8 ? -1 : (window.innerWidth - C.x) > C.x ? 1 : -1;
             // Por la derecha se recorre en sentido antihorario (ángulos decrecientes); por la izquierda, al revés.
             const t1 = side > 0 ? ta - fa : ta + fa, t2 = side > 0 ? tb + fb : tb - fb;
@@ -2426,10 +2464,33 @@ function NetToasts({ client }: { client: NetClient }) {
 
 // ───────────────────────── fin de partida ─────────────────────────
 
-function GameOver({ s, colors, startedAt, onExit, onRematch, onLobby }: { s: GameState; colors: string[]; startedAt: number; onExit: () => void; onRematch?: () => void; onLobby?: () => void }) {
+/** Duración siempre en hh:mm:ss (00:00:15 son 15 s). */
+const clockText = (ms: number) => {
+  const t = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+  return [h, m, sec].map((n) => String(n).padStart(2, '0')).join(':');
+};
+
+/** Temporizador de la partida (arriba a la izquierda): cuánto lleva; se para al terminar. */
+function GameClock({ from, to }: { from: number; to: number | null }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (to !== null) return;
+    const id = window.setInterval(() => tick((x) => x + 1), 1000);
+    return () => clearInterval(id);
+  }, [to]);
+  return (
+    <div className="brand clock" title="Tiempo de partida" aria-label={`Tiempo de partida: ${clockText((to ?? Date.now()) - from)}`}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2.5M9 2h6" /></svg>
+      {clockText((to ?? Date.now()) - from)}
+    </div>
+  );
+}
+
+function GameOver({ s, colors, startedAt, endedAt, onExit, onRematch, onLobby }: { s: GameState; colors: string[]; startedAt: number; endedAt: number; onExit: () => void; onRematch?: () => void; onLobby?: () => void }) {
   const [tab, setTab] = useState<'res' | 'log'>('res');
   const w = s.winner!;
-  const mins = Math.max(1, Math.round((Date.now() - startedAt) / 60000));
+  const dur = clockText(endedAt - startedAt);
   const ritual = s.log.some((l) => l.text.includes('reúne los 3 Rituales'));
   const names = s.players.map((p) => p.name);
   const ids = s.players.map((p) => p.id);
@@ -2463,7 +2524,7 @@ function GameOver({ s, colors, startedAt, onExit, onRematch, onLobby }: { s: Gam
         {tab === 'res' ? (
           <>
             <div className="over-stats">
-              <div><b>{mins}</b><span>{mins === 1 ? 'minuto' : 'minutos'}</span></div>
+              <div><b>{dur}</b><span>duración</span></div>
               <div><b>{s.stats.turns}</b><span>turnos</span></div>
               <div><b>{s.stats.played.reduce((a, b) => a + b, 0)}</b><span>cartas echadas</span></div>
               <div><b>{s.stats.drawn.reduce((a, b) => a + b, 0)}</b><span>cartas robadas</span></div>
@@ -2520,7 +2581,7 @@ function OnlineRoom({ client, onExit }: { client: NetClient; onExit: (error?: st
   if (!v?.game || v.you < 0) return <><Shell><Lobby client={client} onExit={() => onExit()} /></Shell><NetToasts client={client} /></>;
   setMe(v.you);
   const g = v.game;
-  const cfg: GameConfig = { name: g.players[v.you].name, players: g.players.length, level: v.opts.level, extraCurses: v.opts.extraCurses, condena: v.opts.condena, beta: v.opts.beta, timer: v.opts.timer !== false };
+  const cfg: GameConfig = { name: g.players[v.you].name, players: g.players.length, level: v.opts.level, extraCurses: v.opts.extraCurses, condena: v.opts.condena, beta: v.opts.beta, timer: v.opts.timer !== false, arrows: v.opts.arrows !== false };
   // Los avisos van en la misma posición en la sala y en la mesa, así no se pierden al cambiar de una a otra.
   return <><Game key={`${v.code}:${v.round}`} cfg={cfg} net={client} onExit={() => { client.leave(); onExit(); }} /><NetToasts client={client} /></>;
 }
