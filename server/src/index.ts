@@ -28,6 +28,33 @@ interface Env {
   NEON_AUTH_JWKS_URL?: string;
 }
 
+/**
+ * Neon Auth a través de nuestro propio dominio (/api/auth/*). Así la cookie de la sesión es «de este sitio» y
+ * no de un dominio ajeno: el navegador no la bloquea (Safari, la app instalada en el móvil…) y la sesión se
+ * mantiene al volver a entrar.
+ */
+async function proxyAuth(req: Request, url: URL, env: Env): Promise<Response> {
+  const base = (env.NEON_AUTH_JWKS_URL ?? '').replace(/\/\.well-known\/jwks\.json$/, '');
+  if (!base) return json({ error: 'Sin Neon Auth.' }, 503);
+  const target = base + url.pathname.slice('/api/auth'.length) + url.search;
+  const headers = new Headers(req.headers);
+  headers.delete('host');
+  const res = await fetch(target, {
+    method: req.method,
+    headers,
+    body: req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.arrayBuffer(),
+    redirect: 'manual',
+  });
+  const out = new Headers(res.headers);
+  out.delete('set-cookie');
+  for (const c of (res.headers as unknown as { getSetCookie(): string[] }).getSetCookie()) {
+    // La cookie pasa a ser de este dominio y de la ruta del proxy.
+    const parts = c.split(';').map((x: string) => x.trim()).filter((x: string) => !/^(domain|path|samesite)=/i.test(x));
+    out.append('set-cookie', [...parts, 'Path=/api/auth', 'SameSite=Lax'].join('; '));
+  }
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: out });
+}
+
 /** Cuerpo JSON de una petición, con un tamaño máximo. */
 async function body(req: Request, max: number): Promise<unknown> {
   const t = await req.text();
@@ -50,6 +77,7 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
+    if (url.pathname.startsWith('/api/auth/')) return proxyAuth(req, url, env);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...CORS, 'access-control-max-age': '86400' } });
 
     if (url.pathname === '/api/salas' && req.method === 'POST') {

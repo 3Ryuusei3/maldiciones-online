@@ -6,7 +6,16 @@ import { createAuthClient } from '@neon/auth';
 import { httpUrl, playerId } from './client';
 
 /** Dirección de Neon Auth de la rama de producción (es pública). VITE_NEON_AUTH_URL la cambia. */
-const AUTH_URL = (import.meta.env.VITE_NEON_AUTH_URL as string | undefined) ?? 'https://ep-sweet-bread-babz5160.neonauth.c-8.eu-central-1.aws.neon.tech/neondb/auth';
+const NEON_AUTH_URL = 'https://ep-sweet-bread-babz5160.neonauth.c-8.eu-central-1.aws.neon.tech/neondb/auth';
+/**
+ * Si la web y el servidor están en el mismo sitio, Neon Auth va a través de él (/api/auth): la cookie de la sesión
+ * es de este dominio y no se pierde (Safari y la app instalada bloquean las cookies de otros dominios).
+ */
+// (Misma regla que en client.ts para saber dónde está el servidor; aquí sin importarlo para no depender del orden de carga.)
+const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const apiBase = ((import.meta.env.VITE_API as string | undefined) ?? (import.meta.env.PROD && !isLocal ? 'https://maldiciones.ryuusei3.workers.dev' : '')).replace(/\/$/, '');
+const viaServer = new URL(`${apiBase}/api/auth`, location.href);
+const AUTH_URL = (import.meta.env.VITE_NEON_AUTH_URL as string | undefined) ?? (viaServer.origin === location.origin ? viaServer.href : NEON_AUTH_URL);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const auth = createAuthClient(AUTH_URL) as any;
