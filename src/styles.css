@@ -8121,3 +8121,18 @@ input[type="checkbox"]:focus-visible {
   .gem-under { left: auto; right: -6px; transform: none; animation: gem-glow 1.2s ease-in-out infinite alternate; }
   .gem-under .gem-hint { left: auto; right: 0; transform: none; }
 }
+
+/* ═════════ Pantallas con muesca (iPhone en horizontal, app instalada) ═════════ */
+/* La web ocupa la pantalla entera (viewport-fit=cover): los fondos llegan a los bordes y los controles se quedan
+   dentro de la zona segura (lejos de la muesca, la barra de estado y la barra de inicio). */
+body { background: #0a0e10; }
+.home,
+.game,
+.home-page,
+.over-page {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+}
