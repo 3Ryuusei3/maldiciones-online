@@ -14,14 +14,14 @@ import { CompendioButton } from './Compendium';
  * Fondo de la portada con su panel lateral. Lo pinta App una sola vez para la portada, la entrada online
  * y la sala de espera: al pasar de una a otra solo cambia el contenido del panel (el fondo no se recarga).
  */
-export function Shell({ children, onAccount }: { children: React.ReactNode; onAccount?: () => void }) {
+export function Shell({ children, onAccount, onBack }: { children: React.ReactNode; onAccount?: () => void; onBack?: () => void }) {
   return (
     <div className="home">
       <HomeBg />
       <div className="home-panel">
         {/* Cabecera del panel: la cuenta a la izquierda; compendio y pantalla completa a la derecha (en móvil, en su sitio, sin tapar nada). */}
         <div className="panel-top">
-          {onAccount ? <AccountChip onAccount={onAccount} /> : <span />}
+          {onBack ? <button className="panel-back" onClick={onBack}>← Volver</button> : onAccount ? <AccountChip onAccount={onAccount} /> : <span />}
           <div className="panel-tools">
             <CompendioButton icon />
             <button className="tool-btn fs-btn2" onClick={toggleFullscreen} title="Pantalla completa" aria-label="Pantalla completa">

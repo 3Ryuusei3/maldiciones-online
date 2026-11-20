@@ -4,6 +4,8 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ICONS, Profile, playAsGuest, saveGuest, saveProfile, signIn, signInGoogle, signOut, signUp, toEntry, useAccount } from '../net/auth';
+import { ATTR_NAME, Attr, KINDS, Kind } from '../game/cards';
+import { iconBase, iconTint, withTint } from '../game/icons';
 import { COLOR_ORDER, PCOL, asset, ink } from './shared';
 
 /** Selector de color (los 9 de los jugadores). */
@@ -15,16 +17,58 @@ function ColorPick({ value, onChange }: { value: number; onChange: (c: number) =
   );
 }
 
-/** Selector de icono (iconos de las cartas), sobre el color elegido. */
-function IconPick({ value, color, onChange }: { value: string; color: number; onChange: (k: string) => void }) {
+const hexRgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+const tintId = (color: string) => `tint-${color.replace('#', '')}`;
+/**
+ * Filtro SVG que tiñe una imagen con los tonos de un color: la pasa a grises y la reparte entre casi negro (sombras),
+ * el color (tonos medios) y el color muy aclarado (luces). Como un «cambio de tono» al color del jugador.
+ */
+function TintFilter({ color }: { color: string }) {
+  const [r, g, b] = hexRgb(color);
+  const ramp = (c: number) => `0.06 ${(c * 0.85).toFixed(3)} ${c.toFixed(3)} ${(c + (1 - c) * 0.7).toFixed(3)}`;
   return (
-    <div className="icon-pick" role="radiogroup" aria-label="Tu icono">
-      {ICONS.map((k) => (
-        <button key={k} type="button" role="radio" aria-checked={value === k} className={value === k ? 'on' : ''} style={value === k ? { background: PCOL[color] } : undefined} onClick={() => onChange(k)} title={k}>
-          <img src={asset(`icons/${k}.webp`)} alt="" />
-        </button>
-      ))}
-    </div>
+    <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+      <filter id={tintId(color)} colorInterpolationFilters="sRGB">
+        <feColorMatrix type="saturate" values="0" />
+        <feComponentTransfer>
+          <feFuncR type="table" tableValues={ramp(r)} />
+          <feFuncG type="table" tableValues={ramp(g)} />
+          <feFuncB type="table" tableValues={ramp(b)} />
+        </feComponentTransfer>
+      </filter>
+    </svg>
+  );
+}
+
+/** Nombre de un icono para su tooltip: la carta, el atributo o la Jerarquía. */
+const iconName = (k: string): string => k.startsWith('attr-') ? ATTR_NAME[k.slice(5) as Attr] : k === 'rank-d' ? 'Jerarquía Diamante' : k === 'rank-d-oscuro' ? 'Jerarquía Diamante (cartas oscuras)' : k === 'rank-d-arcana' ? 'Jerarquía Diamante (Arcanas)' : k.startsWith('rank-') ? `Jerarquía ${'I'.repeat(Number(k.slice(5)))}` : KINDS[k as Kind]?.name ?? k;
+
+/** Selector de icono (cartas, atributos y Jerarquías), sobre el color elegido. */
+function IconPick({ value, color, onChange }: { value: string; color: number; onChange: (k: string) => void }) {
+  const tint = iconTint(value);
+  const tc = tint === null ? null : PCOL[tint];
+  const base = iconBase(value);
+  return (
+    <>
+      {tc && <TintFilter color={tc} />}
+      <div className="icon-pick" role="radiogroup" aria-label="Tu icono">
+        {ICONS.map((k) => (
+          <button key={k} type="button" role="radio" aria-checked={base === k} className={base === k ? 'on' : ''} style={base === k ? { background: PCOL[color] } : undefined} onClick={() => onChange(withTint(k, tint))} title={iconName(k)} aria-label={iconName(k)}>
+            <img style={tc ? { filter: `url(#${tintId(tc)})` } : undefined} src={asset(`icons/${k}.webp`)} alt="" />
+          </button>
+        ))}
+      </div>
+      {/* Pintar el icono con los tonos de uno de los colores (sombras casi negras, medios del color, luces aclaradas). Por defecto, no. */}
+      <div className="field icon-tint">
+        Pintar el icono
+        <div className="color-pick" role="radiogroup" aria-label="Pintar el icono">
+          <button type="button" role="radio" aria-checked={tint === null} className={`tint-no ${tint === null ? 'on' : ''}`} onClick={() => onChange(withTint(base, null))} title="Sin pintar (con sus colores)" aria-label="Sin pintar" />
+          {COLOR_ORDER.map((i) => (
+            <button key={i} type="button" role="radio" aria-checked={tint === i} aria-label={`Pintar del color ${i + 1}`} className={tint === i ? 'on' : ''} style={{ background: PCOL[i] }} onClick={() => onChange(withTint(base, i))} />
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -35,11 +79,13 @@ export function Avatar({ p, size = 34 }: { p: Profile; size?: number }) {
 
 /** Hexágono con el icono del jugador sobre su color (también en la mesa, junto a los nombres). */
 export function HexIcon({ icon, color, size = 22 }: { icon: string; color: string; size?: number }) {
+  const t = iconTint(icon);
+  const tc = t === null ? null : PCOL[t];
   return (
     // La sombra va en un envoltorio sin recorte (el hexágono recortado no podría proyectarla).
     <span className="hex-wrap">
       <span className="hex-icon" style={{ width: size * 0.87, height: size }}>
-        <span className="hex-in" style={{ background: color }}><img src={asset(`icons/${icon}.webp`)} alt="" /></span>
+        <span className="hex-in" style={{ background: color }}>{tc && <TintFilter color={tc} />}<img style={tc ? { filter: `url(#${tintId(tc)})` } : undefined} src={asset(`icons/${iconBase(icon)}.webp`)} alt="" /></span>
       </span>
     </span>
   );
@@ -137,7 +183,7 @@ export function GuestScreen({ onDone }: { onDone?: () => void }) {
         <div className="play-row"><button className="play" type="submit">{cur ? 'Guardar' : 'Empezar a jugar'}</button></div>
       </form>
       <div className="home-links">
-        {cur && onDone && <button onClick={onDone}>Volver</button>}
+        {/* Editando el perfil, «Volver» va arriba a la izquierda, en la cabecera. */}
         <button onClick={toEntry}>{cur ? 'Iniciar sesión o crear cuenta' : 'Volver'}</button>
       </div>
     </>
@@ -175,7 +221,6 @@ export function ProfileScreen({ first, onDone }: { first?: boolean; onDone?: () 
         <div className="play-row"><button className="play" type="submit" disabled={busy}>{busy ? '…' : first ? 'Empezar a jugar' : 'Guardar'}</button></div>
       </form>
       <div className="home-links">
-        {!first && onDone && <button onClick={onDone}>Volver</button>}
         <button onClick={signOut}>Cerrar sesión</button>
       </div>
     </>

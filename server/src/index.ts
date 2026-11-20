@@ -17,7 +17,7 @@ import { BugReport } from '../../src/game/record';
 import { NICK_RE, cleanNick, getProfile, nickFree, saveBug, saveGame, saveProfile, validRecord } from './db';
 import { bearer, verifyUser } from './auth';
 
-import { ICONS } from '../../src/game/icons';
+import { isIcon } from '../../src/game/icons';
 
 interface Env {
   SALAS: DurableObjectNamespace<Sala>;
@@ -98,7 +98,7 @@ export default {
         if (!NICK_RE.test(nickname)) return json({ error: 'El nickname debe tener de 3 a 14 letras, números, espacios o _ . -' }, 400);
         const color = Number(b.color);
         if (!Number.isInteger(color) || color < 0 || color > 11) return json({ error: 'Color no válido.' }, 400);
-        const icon = typeof b.icon === 'string' && (ICONS as readonly string[]).includes(b.icon) ? b.icon : 'maldicion';
+        const icon = isIcon(b.icon) ? b.icon : 'maldicion';
         const r = await saveProfile(env.DATABASE_URL, uid, { nickname, color, icon }, typeof b.guestId === 'string' ? b.guestId : null);
         if (r === 'taken') return json({ error: 'Ese nickname ya lo tiene otro jugador.' }, 409);
         return json({ profile: { nickname, color, icon } });

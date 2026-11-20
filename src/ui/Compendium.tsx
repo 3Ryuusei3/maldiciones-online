@@ -3,14 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ATTR_HELP, ATTR_NAME, Attr, BETA, Color, HELP, KINDS, Kind, RANK_NAME, cardImage } from '../game/cards';
-import { AttrIcon, CATS, Icon, RankIcon, Triforce, asset, kindsOf, sample } from './shared';
+import { AttrIcon, CATS, Icon, PCOL, RankIcon, Triforce, asset, ink, kindsOf, sample } from './shared';
+import { HexIcon } from './Account';
 
 /** Color con el que se enseña cada carta de color en el compendio, para que no salgan todas iguales. */
 const HUE: Partial<Record<Kind, Color>> = { gema1: 'a', gema2: 'v', gema3: 'm', aplastar: 'a', cristalizar: 'm', travesura: 'v', codicia: 'a', adivinar: 'm', mutis: 'v' };
 /** Imagen de una carta en el compendio (`null`: la incolora, p. ej. la Travesura incolora). */
 const pic = (k: Kind, c?: Color | null) => asset(cardImage(c === null ? { id: 'x', kind: k, color: null } : sample(k, c ?? HUE[k] ?? 'm')));
-/** En las mini partidas todo va en morado, para que las cartas encadenen entre sí. */
-const dpic = (k: Kind) => pic(k, 'm');
 const BACK = 'cards/back.webp';
 
 /** Cuántas hay de cada carta en el Mazo. */
@@ -111,7 +110,6 @@ type Move = [Spot, Spot, number?, Kind?, boolean?];
 interface Step { t: string; m?: Move[]; mark?: [Spot, string][]; turn?: Spot; rev?: boolean; env?: Env[]; shield?: boolean; peek?: Kind[]; blind?: boolean }
 interface Script { hand?: Kind[]; steps: Step[] }
 
-const POS: Record<Spot, [number, number]> = { A: [50, 82], B: [15, 21], C: [85, 21], deck: [31, 47], pile: [50, 47] };
 const WHO: Record<'A' | 'B' | 'C', string> = { A: 'Tú', B: 'Lilith', C: 'Grimm' };
 
 const gem = (k: Kind): Script => ({ hand: [k, 'travesura', 'maldicion'], steps: [{ t: 'En tu turno encadenas la Gema: coincide en color o en símbolo con la Pila.', m: [['A', 'pile', 1, k]] }, { t: 'No tiene efecto: el turno pasa al siguiente jugador.', turn: 'B' }] });
@@ -255,23 +253,25 @@ const DEMOS: Record<Kind, Script> = {
 };
 
 type H = Kind | 'back';
-interface Sim { A: H[]; B: number; C: number; top: Kind }
+interface Sim { A: H[]; B: number; C: number; top: Kind; deck: number }
 
 /** Estado de la mini mesa al llegar al paso `upto`; `landed` indica si sus cartas en vuelo ya han aterrizado. */
 function simulate(kind: Kind, upto: number, landed: boolean): Sim {
   const sc = DEMOS[kind];
-  const s: Sim = { A: [...(sc.hand ?? [kind, 'gema2', 'codicia', 'maldicion'])], B: 4, C: 4, top: 'gema1' };
+  const s: Sim = { A: [...(sc.hand ?? [kind, 'gema2', 'codicia', 'maldicion'])], B: 4, C: 4, top: 'gema1', deck: 38 };
   for (let k = 0; k <= upto; k++) {
     const ms = sc.steps[k].m ?? [];
     for (const [from, , n = 1, face] of ms) {
       if (from === 'A') for (let i = 0; i < n; i++) { const j = face ? s.A.indexOf(face) : -1; s.A.splice(j >= 0 ? j : s.A.length - 1, 1); }
       else if (from === 'B' || from === 'C') s[from] = Math.max(0, s[from] - n);
+      else if (from === 'deck') s.deck = Math.max(0, s.deck - n);
     }
     if (k === upto && !landed) break;
     for (const [, to, n = 1, face, under] of ms) {
       if (to === 'A') for (let i = 0; i < n; i++) s.A.push(face ?? 'back');
       else if (to === 'B' || to === 'C') s[to] += n;
       else if (to === 'pile' && face && !under) s.top = face;
+      else if (to === 'deck') s.deck += n;
     }
   }
   return s;
@@ -280,11 +280,40 @@ function simulate(kind: Kind, upto: number, landed: boolean): Sim {
 const STEP_MS = 3600;
 const DFLY = 1050;
 
-export function Demo({ kind }: { kind: Kind }) {
+/**
+ * Mini mesa con el mismo aspecto que la partida: rivales a los lados con su abanico asomando por el borde y su
+ * nombre con hexágono, tu mano abajo, el Mazo con su contador, la Pila en el círculo con las flechas de sentido
+ * y la Trifuerza. Las posiciones van en % del escenario (así sirve igual de pequeña que en grande).
+ */
+const SPOT: Record<Spot, [number, number]> = { A: [50, 94], B: [3, 47], C: [97, 47], deck: [30, 46], pile: [50, 46] };
+/** Desde y hasta dónde van las flechas de acción (un poco hacia dentro de cada jugador). */
+const ARROW_AT: Record<'A' | 'B' | 'C', [number, number]> = { A: [50, 74], B: [12, 47], C: [88, 47] };
+/** Marcas que se dibujan como flecha del que actúa al objetivo, como en la partida. */
+const ARROW_MARKS = ['🎯', '⚠', '😱'];
+const SEAT_LOOK: Record<'A' | 'B' | 'C', { color: string; icon: string }> = {
+  A: { color: PCOL[9], icon: 'maldicion' },
+  B: { color: PCOL[3], icon: 'reflejo' },
+  C: { color: PCOL[2], icon: 'iman' },
+};
+
+export function Demo({ kind, big = false, onBig }: { kind: Kind; big?: boolean; onBig?: () => void }) {
   const steps = DEMOS[kind].steps;
+  // Color de la mini partida (el de la carta en el compendio; las incoloras, uno fijo según la carta): las cartas
+  // de color salen de ese color y el fondo de la mesa lo sigue, como en la partida.
+  const tone: Color = HUE[kind] ?? (['a', 'v', 'm'] as Color[])[[...kind].reduce((h, ch) => h + ch.charCodeAt(0), 0) % 3];
+  const dp = (k: Kind) => pic(k, tone);
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [landed, setLanded] = useState(-1);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ w: 600, h: 300 });
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBox({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   useEffect(() => { setI(0); setLanded(-1); setPlaying(true); }, [kind]);
   const n = Math.min(i, steps.length - 1);
   const st = steps[n];
@@ -296,40 +325,83 @@ export function Demo({ kind }: { kind: Kind }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [n, playing, kind]);
   const sim = simulate(kind, n, landed === n);
-  const at = (s: Spot) => ({ left: `${POS[s][0]}%`, top: `${POS[s][1]}%` });
+  const at = (s: Spot) => ({ left: `${SPOT[s][0]}%`, top: `${SPOT[s][1]}%` });
   const env = st.env ?? [];
   const hand = st.shield ? sim.A.filter((c) => c !== 'egida') : sim.A;
   const go = (k: number) => { setPlaying(false); setLanded(-1); setI((k + steps.length) % steps.length); };
+  // Tamaños en píxeles a partir del alto del escenario (el hexágono del nombre necesita un número).
+  const hex = Math.round(Math.min(40, Math.max(16, Math.min(box.h, box.w * 0.62) * 0.1)));
+  // Quién actúa en este paso (para las flechas): el primero que mueve una carta; si no, tú.
+  const actor = ((st.m ?? []).find(([f]) => f === 'A' || f === 'B' || f === 'C')?.[0] ?? 'A') as 'A' | 'B' | 'C';
+  const marks = st.mark ?? [];
+  const arrows = marks.filter(([s, e]) => ARROW_MARKS.includes(e) && (s === 'A' || s === 'B' || s === 'C') && s !== actor).map(([s]) => s as 'A' | 'B' | 'C');
+  const badges = marks.filter(([s, e]) => !(ARROW_MARKS.includes(e) && (s === 'A' || s === 'B' || s === 'C') && s !== actor));
+  const px = (p: [number, number]) => [(p[0] / 100) * box.w, (p[1] / 100) * box.h];
+  const arrowPath = (from: 'A' | 'B' | 'C', to: 'A' | 'B' | 'C') => {
+    const [x0, y0] = px(ARROW_AT[from]);
+    const [x1, y1] = px(ARROW_AT[to]);
+    const [cx, cy] = px([50, 46]);
+    // Curva que rodea el círculo central: el punto de control se aleja del centro.
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    let dx = mx - cx, dy = my - cy;
+    const len = Math.hypot(dx, dy) || 1;
+    if (len < 4) { dx = 0; dy = -1; } else { dx /= len; dy /= len; }
+    const push = box.h * 0.55;
+    return `M ${x0} ${y0} Q ${mx + dx * push} ${my + dy * push} ${x1} ${y1}`;
+  };
+  const rival = (p: 'B' | 'C') => (
+    <div key={p} className={`dz-seat dz-${p} ${st.turn === p ? 'turn' : ''}`}>
+      <div className="dz-fan" style={at(p)}>
+        {Array.from({ length: Math.min(sim[p], 9) }, (_, k) => <img key={k} src={asset(BACK)} alt="" style={{ '--k': k - (Math.min(sim[p], 9) - 1) / 2 } as React.CSSProperties} />)}
+      </div>
+      <span className="dz-pill" style={{ background: SEAT_LOOK[p].color, color: ink(SEAT_LOOK[p].color) }}><HexIcon icon={SEAT_LOOK[p].icon} color={SEAT_LOOK[p].color} size={hex} />{WHO[p]}<i>{sim[p]}</i></span>
+    </div>
+  );
   return (
-    <div className="demo" aria-label={`Ejemplo de ${KINDS[kind].name}`}>
-      <div className={`stage ${env.includes('tinieblas') ? 'dark' : ''}`}>
-        <div className="d-disc" style={at('pile')}>
-          <svg className={`d-flow ${st.rev ? 'rev' : ''}`} viewBox="0 0 200 200">
+    <div className={`demo demo2 ${big ? 'big' : ''}`} aria-label={`Ejemplo de ${KINDS[kind].name}`}>
+      <div ref={stageRef} className={`stage stage2 col-${tone} ${env.includes('tinieblas') ? 'dark' : ''}`}>
+        <div className="dz-rays" />
+        <div className="dz-disc" style={at('pile')}>
+          <svg className={`dz-flow ${st.rev ? 'rev' : ''}`} viewBox="0 0 200 200">
             <path className="arc" d="M 30 62 A 80 80 0 0 1 96 20" /><path className="tip" d="M 112 20 L 92 8 L 92 32 Z" />
             <path className="arc" d="M 170 138 A 80 80 0 0 1 104 180" /><path className="tip" d="M 88 180 L 108 168 L 108 192 Z" />
           </svg>
         </div>
-        <img className="d-c d-deck" style={at('deck')} src={asset(BACK)} alt="Mazo" />
-        <img className="d-c d-pile" key={sim.top} style={at('pile')} src={dpic(sim.top)} alt={KINDS[sim.top].name} />
-        <Triforce on={env} className="d-tri" />
-        {(['B', 'C'] as const).map((p) => (
-          <div key={p} className={`d-seat ${st.turn === p ? 'turn' : ''}`} style={at(p)}>
-            <div className="d-fan">{Array.from({ length: Math.min(sim[p], 9) }, (_, k) => <img key={k} src={asset(BACK)} alt="" />)}</div>
-            <span className="pill">{WHO[p]}<i>{sim[p]}</i></span>
-          </div>
-        ))}
-        <div className={`d-seat me ${st.turn === 'A' ? 'turn' : ''}`} style={at('A')}>
-          <div className="d-fan">
-            {hand.map((c, k) => <img key={k} src={c === 'back' || st.blind ? asset(BACK) : dpic(c)} alt="" />)}
-            {st.shield && <img className="d-shield" src={dpic('egida')} alt="Égida boca arriba" />}
-          </div>
-          <span className="pill">{WHO.A}<i>{sim.A.length}</i></span>
+        <div className="dz-deck" style={at('deck')}>
+          <img className="d3" src={asset(BACK)} alt="" /><img className="d2" src={asset(BACK)} alt="" /><img src={asset(BACK)} alt="Mazo" />
+          <span className="dz-count">{sim.deck}</span>
         </div>
-        {st.peek && <div className="d-peek">{st.peek.map((k, j) => <img key={j} src={dpic(k)} alt={KINDS[k].name} />)}</div>}
-        {(st.mark ?? []).map(([s, e], k) => <span key={`${n}-m${k}`} className={`d-mark ${s === 'A' ? 'low' : ''}`} style={at(s)}>{e}</span>)}
+        <img className="dz-pile" key={sim.top} style={at('pile')} src={dp(sim.top)} alt={KINDS[sim.top].name} />
+        <Triforce on={env} className="dz-tri" />
+        {rival('B')}
+        {rival('C')}
+        <div className={`dz-seat dz-A ${st.turn === 'A' ? 'turn' : ''}`}>
+          <div className="dz-hand" style={at('A')}>
+            {hand.map((c, k) => <img key={k} src={c === 'back' || st.blind ? asset(BACK) : dp(c)} alt="" style={{ '--k': k - (hand.length - 1) / 2 } as React.CSSProperties} />)}
+          </div>
+          {st.shield && <img className="dz-shield" src={dp('egida')} alt="Égida boca arriba" />}
+          <span className="dz-pill" style={{ background: SEAT_LOOK.A.color, color: ink(SEAT_LOOK.A.color) }}><HexIcon icon={SEAT_LOOK.A.icon} color={SEAT_LOOK.A.color} size={hex} />{WHO.A}<i>{sim.A.length}</i></span>
+        </div>
+        {st.peek && <div className="d-peek">{st.peek.map((k, j) => <img key={j} src={dp(k)} alt={KINDS[k].name} />)}</div>}
+        {arrows.length > 0 && (
+          <svg key={`ar${kind}-${n}`} className="dz-arrows" width={box.w} height={box.h} aria-hidden="true">
+            <defs>
+              <marker id={`dz-head-${actor}`} viewBox="-2 -2 14 14" refX="3" refY="5" markerWidth="5.6" markerHeight="5.6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill={SEAT_LOOK[actor].color} className="aa-head" />
+              </marker>
+            </defs>
+            {arrows.map((t) => (
+              <g key={t}>
+                <path d={arrowPath(actor, t)} className="aa-track" stroke={SEAT_LOOK[actor].color} />
+                <path d={arrowPath(actor, t)} className="aa-line" stroke={SEAT_LOOK[actor].color} markerEnd={`url(#dz-head-${actor})`} />
+              </g>
+            ))}
+          </svg>
+        )}
+        {badges.map(([s, e], k) => <span key={`${n}-m${k}`} className={`dz-mark dz-mark-${s}`} style={s === 'A' || s === 'B' || s === 'C' ? undefined : at(s)}>{e}</span>)}
         {landed !== n && flights.map((f, k) => (
-          <span key={`${kind}-${n}-${k}`} className="d-fx" style={{ '--x0': `${POS[f.from][0]}%`, '--x1': `${POS[f.to][0]}%`, '--y0': `${POS[f.from][1]}%`, '--y1': `${POS[f.to][1]}%`, '--dl': `${k * 150}ms` } as React.CSSProperties}>
-            <img src={f.face && !(st.blind && f.from !== 'deck' && f.to !== 'pile') ? dpic(f.face) : asset(BACK)} alt="" />
+          <span key={`${kind}-${n}-${k}`} className="d-fx" style={{ '--x0': `${SPOT[f.from][0]}%`, '--x1': `${SPOT[f.to][0]}%`, '--y0': `${SPOT[f.from][1]}%`, '--y1': `${SPOT[f.to][1]}%`, '--dl': `${k * 150}ms` } as React.CSSProperties}>
+            <img src={f.face && !(st.blind && f.from !== 'deck' && f.to !== 'pile') ? dp(f.face) : asset(BACK)} alt="" />
           </span>
         ))}
       </div>
@@ -339,8 +411,37 @@ export function Demo({ kind }: { kind: Kind }) {
         <div className="d-dots">{steps.map((_, k) => <button key={k} className={k === n ? 'on' : ''} onClick={() => go(k)} aria-label={`Paso ${k + 1}`} />)}</div>
         <button onClick={() => go(n + 1)} aria-label="Paso siguiente">›</button>
         <button className="pp" onClick={() => setPlaying((p) => !p)}>{playing ? 'Pausa' : 'Reproducir'}</button>
+        {onBig && (
+          <button className="d-big" onClick={onBig} title="Ver más grande" aria-label="Ver más grande">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg>
+          </button>
+        )}
       </div>
     </div>
+  );
+}
+
+/** Ejemplo en grande: la carta (con su carrusel de colores o versiones) y la mini partida, en una ventana. */
+function DemoModal({ kind, onClose }: { kind: Kind; onClose: () => void }) {
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [onClose]);
+  return createPortal(
+    <div className="demo-modal" role="dialog" aria-modal="true" aria-label={`Ejemplo de ${nameOf(kind)}`} onClick={onClose}>
+      <div className="dm-box" onClick={(e) => e.stopPropagation()}>
+        <div className="dm-head">
+          <b>{nameOf(kind)}</b>
+          <button className="dm-close" onClick={onClose} aria-label="Cerrar">×</button>
+        </div>
+        <div className="dm-body">
+          <RotCard kind={kind} className="dm-card2" />
+          <Demo kind={kind} big />
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -571,6 +672,7 @@ function Mechanics({ open }: { open: (k: Kind) => void }) {
 
 function CardsTab({ kind, setKind }: { kind: Kind; setKind: (k: Kind) => void }) {
   const [filter, setFilter] = useState<Filter>({ t: 'all' });
+  const [big, setBig] = useState(false);
   const list = ALL.filter((k) => passes(filter, k));
   const mid = (list.length - 1) / 2;
   const ov = list.length <= 8 ? -0.08 : list.length <= 12 ? -0.34 : -0.5;
@@ -624,7 +726,8 @@ function CardsTab({ kind, setKind }: { kind: Kind; setKind: (k: Kind) => void })
       <main className="card-main">
         <RotCard kind={kind} className="big" />
         <KindInfo kind={kind} full />
-        <Demo kind={kind} />
+        <Demo kind={kind} onBig={() => setBig(true)} />
+        {big && <DemoModal kind={kind} onClose={() => setBig(false)} />}
       </main>
       {/* Hueco que ocupa la fila de cartas; la fila va encima, en absoluto, con sitio de sobra para que la carta elegida suba sin cortarse */}
       <div className="comp-hand-space" aria-hidden="true" />
@@ -728,6 +831,7 @@ export function HelpDock({ kind, art, ping = 0, setKind, beta = true }: { kind: 
   /** Imagen de la carta concreta que se está mirando (con su color). */
   const [cardArt, setCardArt] = useState<string | undefined>();
   const [more, setMore] = useState<Kind | null>(null);
+  const [bigDemo, setBigDemo] = useState(false);
   const [open, setOpen] = useState(() => window.innerWidth >= 1000);
   const list = useRef<HTMLDivElement>(null);
   const lastPing = useRef(ping);
@@ -767,7 +871,8 @@ export function HelpDock({ kind, art, ping = 0, setKind, beta = true }: { kind: 
         <div className="dock-more">
           <RotCard kind={more} className="dm-card" />
           <KindInfo kind={more} full />
-          <Demo kind={more} />
+          <Demo kind={more} onBig={() => setBigDemo(true)} />
+          {bigDemo && <DemoModal kind={more} onClose={() => setBigDemo(false)} />}
         </div>
       ) : card ? (
         <div className="dock-peek">

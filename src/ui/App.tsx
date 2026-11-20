@@ -2565,7 +2565,7 @@ export default function App() {
   }
   switch (screen.k) {
     case 'account':
-      return <Shell>{acc.status === 'guest' ? <GuestScreen onDone={home} /> : <ProfileScreen onDone={home} />}</Shell>;
+      return <Shell onBack={home}>{acc.status === 'guest' ? <GuestScreen onDone={home} /> : <ProfileScreen onDone={home} />}</Shell>;
     case 'home':
       return <Shell onAccount={() => setScreen({ k: 'account' })}><Home onLocal={() => setScreen({ k: 'setup' })} onOnline={() => setScreen({ k: 'entry' })} onTutorial={() => setScreen({ k: 'local', n: 0, cfg: tutorialCfg() })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
     case 'setup':

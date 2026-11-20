@@ -7567,10 +7567,412 @@ input[type="checkbox"]:focus-visible {
 .rot-ctl span {
   flex: 1;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 .rot-ctl button {
   flex: none;
+}
+
+/* ───── Mini partidas con el aspecto de la mesa (Demo en Compendium.tsx) ───── */
+.stage.stage2 {
+  --k1: #9a82ad;
+  --k2: #42354e;
+  --d1: #d9c6ef;
+  --d2: #a385cc;
+  /* Unidad de tamaño: el alto del escenario, salvo si es muy estrecho (así no se amontona en el móvil). */
+  --u: min(var(--sh), 62cqw);
+  --dc: calc(var(--u) * 0.17);
+  height: min(var(--sh), 85cqw);
+  background: radial-gradient(circle at 50% 46%, var(--k1), var(--k2) 85%);
+}
+.demo2 {
+  container-type: inline-size;
+}
+.stage2 .dz-rays {
+  inset: 0;
+  background: repeating-conic-gradient(from 0deg at 50% 46%, rgba(255, 255, 255, 0.1) 0deg 9deg, transparent 9deg 18deg);
+  pointer-events: none;
+}
+.stage2 .dz-disc {
+  width: calc(var(--u) * 0.5);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 calc(var(--u) * 0.014) rgba(255, 255, 255, 0.18), 0 6px 18px rgba(0, 0, 0, 0.22);
+}
+.stage2 .dz-disc::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, var(--d1), var(--d2));
+  opacity: 0.55;
+}
+.stage2 .dz-flow {
+  position: absolute;
+  inset: -9%;
+  overflow: visible;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.3));
+  animation: turn 14s linear infinite;
+}
+.stage2 .dz-flow.rev {
+  animation-name: turn-rev;
+}
+.stage2 .dz-flow .arc {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 9;
+  stroke-linecap: round;
+}
+.stage2 .dz-flow .tip {
+  fill: #fff;
+  stroke: #fff;
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+/* Mazo: tres dorsos apilados y el contador, como en la mesa. */
+.stage2 .dz-deck {
+  width: var(--dc);
+  aspect-ratio: 178.6 / 249.4;
+  transform: translate(-50%, -50%);
+}
+.stage2 .dz-deck img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border-radius: 7%/5%;
+  border: max(1.5px, calc(var(--u) * 0.007)) solid #fff;
+  box-sizing: border-box;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+}
+.stage2 .dz-deck .d2 { transform: translate(2px, 2.5px); }
+.stage2 .dz-deck .d3 { transform: translate(4px, 5px); }
+.stage2 .dz-count {
+  position: absolute;
+  top: -7px;
+  right: -8px;
+  background: #fff;
+  color: #0a0e10;
+  font-size: clamp(8.5px, calc(var(--u) * 0.036), 13px);
+  font-weight: 600;
+  padding: 1px 4px;
+  line-height: 1.3;
+  z-index: 1;
+}
+.stage2 .dz-pile {
+  width: calc(var(--dc) * 1.05);
+  transform: translate(-50%, -50%) rotate(-4deg);
+  border-radius: 7%/5%;
+  border: max(1.5px, calc(var(--u) * 0.007)) solid #fff;
+  box-sizing: border-box;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.18), 0 3px 8px rgba(0, 0, 0, 0.2);
+  animation: d-land 0.3s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.stage2 .dz-tri {
+  left: 71%;
+  top: 46%;
+  width: calc(var(--u) * 0.24);
+  transform: translate(-50%, -50%);
+  filter: none;
+}
+/* Rivales: el abanico asoma por el borde (cartas de lado) y el nombre arriba, en su esquina. */
+.stage2 .dz-seat {
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.stage2 .dz-seat > * {
+  position: absolute;
+}
+.stage2 .dz-fan {
+  width: 0;
+  height: 0;
+}
+.stage2 .dz-fan img {
+  position: absolute;
+  width: calc(var(--dc) * 0.62);
+  left: 0;
+  top: 0;
+  border-radius: 7%/5%;
+  border: max(1px, calc(var(--u) * 0.005)) solid #fff;
+  box-sizing: border-box;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+  animation: fade-in 0.25s;
+}
+.stage2 .dz-B .dz-fan img {
+  transform: translate(-60%, -50%) translateY(calc(var(--k) * var(--dc) * 0.2)) rotate(calc(90deg + var(--k) * 4deg));
+}
+.stage2 .dz-C .dz-fan img {
+  transform: translate(-40%, -50%) translateY(calc(var(--k) * var(--dc) * 0.2)) rotate(calc(-90deg - var(--k) * 4deg));
+}
+.stage2 .dz-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  height: clamp(16px, calc(var(--u) * 0.068), 28px);
+  padding: 0 0.35em 0 0;
+  font-size: clamp(8.5px, calc(var(--u) * 0.034), 13px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.stage2 .dz-pill .hex-wrap {
+  margin-left: -0.35em;
+  margin-right: -0.1em;
+}
+.stage2 .dz-pill i {
+  font-style: normal;
+  background: #0a0e10;
+  color: #fff;
+  min-width: 1.8em;
+  text-align: center;
+  padding: 0 0.3em;
+  line-height: 1.45;
+}
+.stage2 .dz-B .dz-pill { left: 8px; top: 7px; }
+.stage2 .dz-C .dz-pill { right: 8px; top: 7px; flex-direction: row-reverse; padding: 0 0 0 0.35em; }
+.stage2 .dz-C .dz-pill .hex-wrap { margin-left: -0.1em; margin-right: -0.35em; }
+.stage2 .dz-A .dz-pill { left: 8px; bottom: 7px; }
+.stage2 .dz-seat.turn .dz-pill {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 2px #fff, 0 0 14px rgba(255, 255, 255, 0.8);
+}
+.stage2 .dz-B .dz-pill { transform-origin: left top; }
+.stage2 .dz-C .dz-pill { transform-origin: right top; }
+.stage2 .dz-A .dz-pill { transform-origin: left bottom; }
+/* Tu mano: abanico abajo, medio asomando por el borde como en la partida. */
+.stage2 .dz-hand {
+  width: 0;
+  height: 0;
+}
+.stage2 .dz-hand img {
+  position: absolute;
+  width: var(--dc);
+  left: 0;
+  top: 0;
+  border-radius: 7%/5%;
+  border: max(1.5px, calc(var(--u) * 0.006)) solid #fff;
+  box-sizing: border-box;
+  box-shadow: -2px 0 6px rgba(0, 0, 0, 0.3);
+  transform-origin: 50% 120%;
+  transform: translate(-50%, -52%) translateX(calc(var(--k) * var(--dc) * 0.62)) rotate(calc(var(--k) * 5deg)) translateY(calc(var(--k) * var(--k) * 1.2px));
+  animation: fade-in 0.25s;
+}
+.stage2 .dz-shield {
+  left: 66%;
+  top: 80%;
+  width: calc(var(--dc) * 0.8);
+  transform: translate(-50%, -50%) rotate(8deg);
+  border-radius: 7%/5%;
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 12px #7dffb8;
+}
+/* Marcas que no son flechas (✔, 🏆, ×3...): cajita blanca junto al jugador, como los avisos de la mesa. */
+.stage2 .dz-mark {
+  z-index: 6;
+  background: #fff;
+  color: #0a0e10;
+  font-size: clamp(10px, calc(var(--u) * 0.045), 16px);
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.25em 0.4em;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transform: translate(-50%, -50%);
+  animation: d-pop 0.35s 0.9s both;
+}
+.stage2 .dz-mark-B { left: 14%; top: 34%; }
+.stage2 .dz-mark-C { left: 86%; top: 34%; }
+.stage2 .dz-mark-A { left: 50%; top: 66%; }
+@keyframes d-pop {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+.stage2 .dz-arrows {
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  overflow: visible;
+  opacity: 0.8;
+  animation: fade-in 0.4s 0.9s both;
+}
+.stage2 .dz-arrows .aa-line {
+  fill: none;
+  stroke-width: max(2.5px, calc(var(--u) * 0.012));
+  stroke-linecap: round;
+  stroke-dasharray: 9 7;
+  animation: aa-flow 0.8s linear infinite;
+}
+.stage2 .dz-arrows .aa-track {
+  fill: none;
+  stroke-width: max(2.5px, calc(var(--u) * 0.012));
+  opacity: 0.3;
+}
+.stage2 .dz-arrows .aa-head {
+  stroke: rgba(255, 255, 255, 0.8);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+.stage2 .d-fx img {
+  width: calc(var(--dc) * 0.9);
+}
+/* Botón de ver en grande, a la derecha de los controles. */
+.d-ctl .d-big {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+/* Ventana del ejemplo en grande: la carta con su carrusel y la mini partida. */
+.demo-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: rgba(6, 8, 10, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fade-in 0.2s;
+}
+.dm-box {
+  background: #0a0e10;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  width: min(1180px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 14px 16px 16px;
+}
+.dm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.dm-head b {
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.dm-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  font-size: 20px;
+  line-height: 1;
+}
+.dm-body {
+  display: grid;
+  grid-template-columns: minmax(150px, 24%) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.dm-body .rot {
+  color: #fff;
+}
+.dm-body .rot img {
+  border-radius: 7%/5%;
+}
+.demo2.big .stage {
+  --sh: min(62vh, 560px);
+}
+.demo2.big .d-cap {
+  font-size: 15px;
+}
+@media (max-width: 720px) {
+  .dm-body {
+    grid-template-columns: 1fr;
+  }
+  .dm-body .rot {
+    width: min(46vw, 200px);
+    justify-self: center;
+  }
+  .demo2.big .stage {
+    --sh: min(52vh, 92vw * 0.62);
+  }
+}
+.dm-body > img.dm-card2,
+.dm-body .rot img {
+  width: 100%;
+  display: block;
+}
+.dm-body .rot {
+  width: 100%;
+  display: flex;
+}
+.dm-body > img.dm-card2 {
+  border-radius: 7%/5%;
+  border: 1px solid #0a0e10;
+  box-sizing: border-box;
+}
+/* Ventana grande: la carta centrada en su columna y con aire entre la carta y las flechas del carrusel. */
+.dm-body {
+  align-items: center;
+}
+.dm-body .rot,
+.dm-body > img.dm-card2 {
+  align-self: center;
+}
+.dm-body .rot {
+  gap: 14px;
+}
+/* Fondo de la mini partida del color de su Pila, con los mismos tonos que la mesa. */
+.stage.stage2.col-a { --k1: #d3b36f; --k2: #6b5734; --d1: #f9dc9a; --d2: #f5c767; }
+.stage.stage2.col-m { --k1: #9a82ad; --k2: #42354e; --d1: #b79bc8; --d2: #946cab; }
+.stage.stage2.col-v { --k1: #82b096; --k2: #344e3e; --d1: #a2d4b3; --d2: #72bf8c; }
+
+/* Mesa: los rivales de la derecha llevan el hexágono a la derecha (en espejo), como en las mini partidas. */
+.seat.right .pill:has(.hex-icon) {
+  flex-direction: row-reverse;
+  padding: 6px 26px 6px 7px;
+  margin-left: 0;
+  margin-right: 25px;
+}
+.seat.right .pill .hex-wrap {
+  margin: -13px calc(-26px - 24px) -13px 0;
+}
+
+/* Perfil: «Volver» arriba a la izquierda de la cabecera (como en el compendio). */
+.home-panel button.panel-back { height: 38px; padding: 0 14px; background: transparent; border: 1px solid rgba(255, 255, 255, 0.45); color: #fff; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; }
+.home-panel button.panel-back:hover:not(:disabled) { background: #fff; color: #0a0e10; border-color: #fff; }
+/* Selector de iconos algo más pequeño. */
+.icon-pick { grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 5px; }
+.icon-pick button { padding: 4px; }
+.home-panel .icon-neg { margin-top: 8px; }
+/* Pintar el icono: «sin pintar» (por defecto, un cuadrado con una X) y los 12 colores. */
+.home-panel .icon-tint .color-pick button.tint-no {
+  position: relative;
+  background: transparent;
+  /* Sin marcar: doble borde (blanco por dentro, negro por fuera), con el mismo grosor que marcado para que no cambie de tamaño. */
+  border: 2px solid #0a0e10;
+  box-shadow: inset 0 0 0 1px #fff;
+}
+.home-panel .icon-tint .color-pick button.tint-no::before,
+.home-panel .icon-tint .color-pick button.tint-no::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 70%;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.8);
+  translate: -50% -50%;
+  rotate: 45deg;
+}
+.home-panel .icon-tint .color-pick button.tint-no::after {
+  rotate: -45deg;
+}
+.home-panel .icon-tint .color-pick button.tint-no.on {
+  /* Marcado: como los colores elegidos, borde blanco gordo. */
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px #0a0e10 inset;
 }
