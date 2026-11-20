@@ -8,7 +8,7 @@ import { ME } from './useGame';
 
 /** Qué pueden hacer las máquinas en este paso: nada, todo, o solo lo de las ventanas (Aplastar, reacciones…). */
 export type TutorBots = 'off' | 'on' | 'windows';
-export interface TutorGate { bots: TutorBots; autoPass: boolean; slapFirst?: boolean; slow?: boolean }
+export interface TutorGate { bots: TutorBots; autoPass: boolean; slapFirst?: boolean; slow?: boolean; slowSlap?: boolean }
 
 interface Step {
   /** `msg`: se lee y se pulsa «Siguiente». `do`: hay que hacer algo. `watch`: juegan los demás. */
@@ -25,6 +25,12 @@ interface Step {
   slapFirst?: boolean;
   /** Las ventanas de reacción van despacio (para ver bien las flechas y lo que pasa). */
   slow?: boolean;
+  /** Solo la ronda de Aplastar va despacio (las máquinas pulsan una tras otra, con calma). */
+  slowSlap?: boolean;
+  /** Retiene la animación grande de los triángulos de entorno hasta el paso siguiente (para explicar antes la carta). */
+  holdEnv?: boolean;
+  /** Margen extra (px) alrededor de lo resaltado (p. ej. cuando se ven dos cartas a la vez, más anchas que el círculo). */
+  pad?: number;
   /** Espera (ms) antes de mostrar el paso: que termine antes la animación de lo que se señala. */
   wait?: number;
 }
@@ -51,11 +57,10 @@ const STEPS: Step[] = [
   { kind: 'do', target: card('gema2', 'v'), text: 'Arriba hay una **Gema II morada**. Tu **Gema II verde** no es del mismo color, pero sí del **mismo símbolo**: ¡juégala!', allow: plays('gema2', 'v'), done: (s) => !has(s, 'gema2', 'v') },
   { kind: 'watch', text: 'Atento a lo que juega Brujilda…', done: (s) => s.phase.t === 'aplastar', bots: 'on' },
   { kind: 'do', target: '.diana', text: '**¡Aplastar!** Todos tienen que pulsar la mano que aparece en la mesa. **El último roba 3.** ¡Púlsala rápido!', allow: (a) => a.type === 'slap', done: (s) => s.phase.t === 'turn' && s.turn === 2 },
-  { kind: 'msg', target: card('aplastar', 'v'), wait: 600, text: 'Úrsula ha sido la última: roba 3. Tú tienes otro **Aplastar verde**, idéntico al de la Pila (mismo color y símbolo). Una carta idéntica se puede **duplicar aunque no sea tu turno**, y si es un **Ataque**, **su efecto se repite**.' },
-  { kind: 'do', target: card('aplastar', 'v'), text: '¡Duplícalo! Pulsa tu **Aplastar verde**.', allow: (a, s) => a.type === 'dup' && a.cardId === idOf(s, 'aplastar', 'v'), done: (s) => !has(s, 'aplastar', 'v') },
-  { kind: 'watch', text: 'Otra ronda de Aplastar, **lanzada por ti**: esta vez no tienes que pulsar. Mira quién es el último…', done: (s) => s.phase.t === 'turn' && s.turn === 2, bots: 'windows', slow: true },
+  { kind: 'do', target: card('aplastar', 'v'), wait: 600, text: 'Úrsula ha sido la última: roba 3. Tú tienes otro **Aplastar verde**, idéntico al de la Pila. Una carta idéntica se puede **duplicar aunque no sea tu turno**, y si es un **Ataque**, **su efecto se repite**. ¡Duplícalo!', allow: (a, s) => a.type === 'dup' && a.cardId === idOf(s, 'aplastar', 'v'), done: (s) => !has(s, 'aplastar', 'v') },
+  { kind: 'watch', text: 'Otra ronda de Aplastar, **lanzada por ti**: esta vez no tienes que pulsar. Mira quién es el último…', done: (s) => s.phase.t === 'turn' && s.turn === 2, bots: 'windows', slowSlap: true },
   { kind: 'watch', text: 'Fíjate en lo que hace Merlín…', done: (s) => s.log.some((l) => l.text.includes('Merlín juega Antitodo junto')), bots: 'on' },
-  { kind: 'msg', target: CIRCLE, wait: 2600, text: 'Merlín ha jugado un **Antitodo junto a su Maldición**: ¡así se libra de ella! Tú también tienes un Antitodo. **Guárdalo para el final.**' },
+  { kind: 'msg', target: CIRCLE, wait: 2600, pad: 70, text: 'Merlín ha jugado un **Antitodo junto a su Maldición**: ¡así se libra de ella! Tú también tienes un Antitodo. **Guárdalo para el final.**' },
   { kind: 'watch', text: 'Sigue la partida…', done: (s) => s.phase.t === 'react' && s.phase.eff.targets.includes(ME), bots: 'on', react: true },
   { kind: 'do', target: card('egida'), text: '¡Úrsula te ataca con una **Travesura**! Tendrías que recibir una carta suya y robar 2. Pero puedes **defenderte**: pulsa tu **Égida**.', allow: (a) => a.type === 'react' && a.r === 'egida', done: (s) => s.phase.t === 'tinte', react: true },
   { kind: 'msg', target: '.my-egida', wait: 1200, text: 'La Égida tiene **2 usos**: tras el primero se queda **boca arriba** aquí, junto a tus cartas. Aún podrás usarla una vez más.' },
@@ -65,8 +70,8 @@ const STEPS: Step[] = [
   { kind: 'do', target: card('gema3', 'm'), wait: 400, text: 'Al jugar una carta de **Apoyo** puedes **descartar 1 Gema** debajo de ella: una carta menos. Descarta tu **Gema III morada**.', allow: (a, s) => a.type === 'choose' && a.value === idOf(s, 'gema3', 'm'), done: (s) => s.phase.t === 'adivinar' },
   { kind: 'do', target: '.tray | .banner button.primary', wait: 900, text: 'Con **Adivinar** ves las 3 siguientes cartas del Mazo. **Quédate la Codicia y la Gema III verde** («A la mano»), deja la otra «Al Mazo» y confirma.', allow: (a, s) => a.type === 'adivinar' && s.phase.t === 'adivinar' && s.phase.cards.filter((c) => c.kind === 'codicia' || (c.kind === 'gema3' && c.color === 'v')).every((c) => a.keep.includes(c.id)), done: (s) => s.phase.t !== 'adivinar' },
   { kind: 'watch', text: 'Juegan los demás…', done: (s) => s.env.mutis, bots: 'on' },
-  { kind: 'msg', target: CIRCLE, wait: 2400, text: 'Brujilda ha jugado **Mutis**, una carta de **Entorno**: cambia las reglas para toda la mesa. Con Mutis, **no se puede hablar**.' },
-  { kind: 'msg', target: '.tri', text: 'Por eso se ha encendido su **triángulo de entorno**. Si llega a haber **2 activos**, hay **Entorno maldito**: quien eche su última carta no gana y roba 1.' },
+  { kind: 'msg', target: CIRCLE, wait: 2400, holdEnv: true, text: 'Brujilda ha jugado **Mutis**, una carta de **Entorno**: cambia las reglas para toda la mesa. Con Mutis, **no se puede hablar**.' },
+  { kind: 'msg', target: '.tri', wait: 3600, text: 'Por eso se ha encendido su **triángulo de entorno**. Si llega a haber **2 activos**, hay **Entorno maldito**: quien eche su última carta no gana y roba 1.' },
   { kind: 'watch', text: 'Juegan los demás…', done: myTurn, bots: 'on' },
   { kind: 'do', target: card('codicia', 'a'), text: 'Juega tu **Codicia amarilla**.', allow: plays('codicia', 'a'), done: (s) => s.phase.t === 'choose' },
   { kind: 'do', target: '.seat:has([data-anchor="p2"])', text: 'La Codicia es una **Magia**: eliges contra quién. **Elige a Merlín.**', allow: (a) => a.type === 'choose' && a.value === 2, done: (s) => s.phase.t === 'codicia' },
@@ -95,7 +100,7 @@ export function useTutor(enabled: boolean, s: GameState, intro: string | null) {
     if (step?.done && step.kind !== 'msg' && step.done(s)) setIdx((i) => i + 1);
   }, [s, step]);
   // Por defecto, mientras se espera algo de mí las máquinas sí responden en las ventanas (no juegan su turno).
-  const gate: TutorGate = { bots: !enabled ? 'on' : step ? step.bots ?? (step.kind === 'do' ? 'windows' : 'off') : 'off', autoPass: !step?.react, slapFirst: !!step?.slapFirst, slow: !!step?.slow };
+  const gate: TutorGate = { bots: !enabled ? 'on' : step ? step.bots ?? (step.kind === 'do' ? 'windows' : 'off') : 'off', autoPass: !step?.react, slapFirst: !!step?.slapFirst, slow: !!step?.slow, slowSlap: !!step?.slowSlap };
   const allow = (a: Action) => {
     if (!enabled) return true;
     if (step?.kind === 'do' && step.allow?.(a, s)) return true;
@@ -147,8 +152,8 @@ export function TutorOverlay({ view, onExit, finished }: { view: NonNullable<Ret
     window.addEventListener('resize', place);
     return () => { clearInterval(id); window.removeEventListener('resize', place); };
   }, [target, view.idx]);
-  // Se coloca encima de lo señalado (o debajo si no cabe); sin objetivo, en el centro. Solo se mueve si lo señalado
-  // cambia de verdad (no por pequeños reajustes de la mesa).
+  // Se coloca en un sitio fijo (abajo a la izquierda); solo si lo señalado cae ahí, junto a ello. Solo se mueve si lo
+  // señalado cambia de verdad (no por pequeños reajustes de la mesa).
   const lastRect = useRef<DOMRect | null>(null);
   const lastIdx = useRef(-1);
   useLayoutEffect(() => {
@@ -159,8 +164,17 @@ export function TutorOverlay({ view, onExit, finished }: { view: NonNullable<Ret
     const lr = lastRect.current;
     if (pos && rect && lr && Math.abs(lr.left - rect.left) < 40 && Math.abs(lr.top - rect.top) < 40 && Math.abs(lr.width - rect.width) < 60) return;
     lastRect.current = rect;
-    // Sin nada señalado: los mensajes de «mira lo que pasa» van arriba, para no tapar la mesa; los demás, al centro.
-    if (!rect) return setPos({ left: (W - b.width) / 2, top: view.step?.kind === 'watch' ? 70 : H * 0.38 - b.height / 2 });
+    // Sitio fijo: abajo a la izquierda (donde va el historial, que en el tutorial no se muestra), encima de mi nombre.
+    // Así no tapa la mesa. Solo si lo señalado cae justo ahí, la caja se coloca junto a ello.
+    // Pasos 1 a 7 (presentación de la mesa): siempre en el centro, encima de mis cartas, como en el paso 1.
+    // (Los avisos del reparto, antes del paso 1, van abajo a la izquierda.)
+    if (view.idx <= 6 && !view.introText && !finished) {
+      const hand = document.querySelector('.cards-row')?.getBoundingClientRect();
+      if (hand) return setPos({ left: (W - b.width) / 2, top: Math.max(M, hand.top - 52 - b.height - 18) });
+    }
+    const dock = { left: M, top: H - b.height - 86 };
+    const overlaps = !!rect && rect.left < dock.left + b.width + 12 && rect.right > dock.left - 12 && rect.top < dock.top + b.height + 12 && rect.bottom > dock.top - 12;
+    if (!overlaps || !rect) return setPos(dock);
     let top = rect.top - b.height - 18;
     if (top < M) top = rect.bottom + 18;
     if (top + b.height > H - M) top = Math.max(M, (H - b.height) / 2);
@@ -172,7 +186,7 @@ export function TutorOverlay({ view, onExit, finished }: { view: NonNullable<Ret
   const hidden = !view.ready || (!!target && !rect);
   if (!text || hidden) return null;
   const step = view.step;
-  const pad = 8;
+  const pad = 8 + (step?.pad ?? 0);
   return (
     <div className="tutor" aria-live="polite">
       {rects.length > 0 && (

@@ -111,9 +111,21 @@ const fanSlot = (p: number, k = 0, w = ghostW()) => {
 const elRot = (el?: HTMLElement | null) => parseFloat(el?.style.transform.match(/rotate\((-?[\d.]+)deg/)?.[1] ?? '0') || 0;
 
 /** Duración del vuelo de una carta y de su presentación en grande sobre la Pila. */
-const FLY_MS = 1060;
-const SHOW_MS = 940;
-const SETTLE_MS = 520;
+let FLY_MS = 1060;
+let SHOW_MS = 940;
+let SETTLE_MS = 520;
+let CALLOUT_MS = 3600;
+/**
+ * Velocidad de las animaciones de cartas y carteles: 1 = la base. La partida normal va un 10 % más pausada y el
+ * tutorial, más todavía (es para aprender).
+ */
+function setAnimSpeed(f: number) {
+  FLY_MS = 1060 * f;
+  SHOW_MS = 940 * f;
+  SETTLE_MS = 520 * f;
+  CALLOUT_MS = 3600 * f;
+}
+setAnimSpeed(1.1);
 /** Lo que tarda una mano en abrir hueco antes de que salga la carta que va a ocuparlo. */
 const ROOM_MS = 300;
 
@@ -238,7 +250,6 @@ export function playGroup(s: GameState): { from: Anchor; fx: Fx[]; cards: Card[]
 }
 
 /** Lo que dura el cartel de la carta jugada. */
-const CALLOUT_MS = 3600;
 
 /** Lo que tarda una carta en deslizarse por debajo de la Pila. */
 const TUCK_MS = 700;
@@ -616,6 +627,8 @@ type Fate = 'back' | 'keep' | 'discard';
 const FATE_LABEL: Record<Fate, string> = { back: 'Al Mazo', keep: 'A la mano', discard: 'Descartar' };
 
 function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => void; onRematch?: () => void; net?: NetClient }) {
+  // El tutorial va más despacio (es para aprender); la partida normal, un 10 % más pausada que la base.
+  setAnimSpeed(cfg.tutorial ? 1.4 : 1.1);
   /** Entrada de la partida: cada jugador tiene su Maldición boca arriba y recibe 6 cartas boca abajo; luego se giran. */
   // Quien entra o vuelve a una partida online ya repartida no ve el reparto otra vez.
   const [intro, setIntro] = useState<Intro>(() => (net?.getSnap().view?.dealt ? null : 'deal'));
@@ -689,8 +702,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const origins = useRef<Record<string, DOMRect>>({});
   const tutor = useTutor(!!cfg.tutorial, s, intro);
   useEffect(() => {
-    if (tutor.gate.bots !== tgate.bots || tutor.gate.autoPass !== tgate.autoPass || tutor.gate.slapFirst !== tgate.slapFirst || tutor.gate.slow !== tgate.slow) setTgate(tutor.gate);
-  }, [tutor.gate.bots, tutor.gate.autoPass, tutor.gate.slapFirst, tutor.gate.slow, tgate]);
+    if (tutor.gate.bots !== tgate.bots || tutor.gate.autoPass !== tgate.autoPass || tutor.gate.slapFirst !== tgate.slapFirst || tutor.gate.slow !== tgate.slow || tutor.gate.slowSlap !== tgate.slowSlap) setTgate(tutor.gate);
+  }, [tutor.gate.bots, tutor.gate.autoPass, tutor.gate.slapFirst, tutor.gate.slow, tutor.gate.slowSlap, tgate]);
   const send = (a: Action) => {
     // En el tutorial solo se puede hacer lo que pide el paso.
     if (!tutor.allow(a)) return;
@@ -933,6 +946,17 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   /** Cambio de Entorno: la trifuerza crece en el centro y se dan la vuelta, uno tras otro, los Indicadores que cambian. */
   const envNow: EnvState = { mutis: s.env.mutis, inutilizar: s.env.inutilizar, tinieblas: !!s.env.tinieblas, centro: isCursedEnv(s) };
   const [envFx, setEnvFx] = useState<{ key: number; steps: EnvStep[]; before: EnvState } | null>(null);
+  /** Tutorial: animación de los triángulos retenida hasta que el paso la suelte. */
+  const envHold = useRef(false);
+  envHold.current = !!tutor.view?.step?.holdEnv;
+  const pendingEnv = useRef<{ key: number; steps: EnvStep[]; before: EnvState } | null>(null);
+  useEffect(() => {
+    if (!envHold.current && pendingEnv.current) {
+      const p = pendingEnv.current;
+      pendingEnv.current = null;
+      setEnvFx(p);
+    }
+  }, [tutor.view?.step?.holdEnv]);
   /** Lo que enseña la trifuerza pequeña mientras se espera (o se ve) la animación: el estado de antes. */
   const [triHold, setTriHold] = useState<EnvState | null>(null);
   const lastEnvKey = useRef(0);
@@ -973,7 +997,11 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       // Los avisos van de uno en uno: el del Entorno espera a que termine el de la carta jugada.
       const wait = Math.max(f ? FLY_MS + SHOW_MS + SETTLE_MS : 200, calloutUntil.current - Date.now() + 150);
       envBusyUntil.current = Date.now() + wait + ENV_GROW + steps.length * ENV_STEP + ENV_HOLD + ENV_BACK;
-      window.setTimeout(() => setEnvFx({ key, steps, before }), wait);
+      window.setTimeout(() => {
+        // En el tutorial, a veces se explica antes la carta: la animación espera a que se pase al paso siguiente.
+        if (envHold.current) pendingEnv.current = { key, steps, before };
+        else setEnvFx({ key, steps, before });
+      }, wait);
     }
     if (prevDir.current !== s.dir) {
       prevDir.current = s.dir;
@@ -1414,7 +1442,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const seats = SEATS[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
-    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${dealing ? 'dealing' : ''} ${spinPhase === 'run' ? 'spinning' : ''} ${spin?.done ? 'spin-dir-on' : ''} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
+    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${cfg.tutorial ? 'tutorial' : ''} ${dealing ? 'dealing' : ''} ${spinPhase === 'run' ? 'spinning' : ''} ${spin?.done ? 'spin-dir-on' : ''} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
       <div className="rays" />
       <div className="shade" />
       <div className="flights" ref={flights} />
@@ -1550,7 +1578,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         <div className={`banner ${alert ? 'alert' : ''} ${s.turn === ME && !dealing ? 'mine' : ''} ${underAttack ? 'attack' : myTurn && !dealing ? 'myturn' : ''}`}>
           {s.announce?.n !== muted && s.announce?.player === ME && <span key={s.announce.n} className="say">{s.announce.text}</span>}
           {/* El texto va en su propio span: dentro de la caja (flex) se perderían los espacios junto a los nombres. */}
-          <span className="msg"><span>{rich(text, names, colors, true)}</span></span>
+          {text && <span className="msg"><span>{rich(text, names, colors, true)}</span></span>}
           {btns}
         </div>
         {/* Cartel de lo que me toca, debajo del aviso (sobre mis cartas): mi turno o algo contra mí. */}
@@ -1932,9 +1960,18 @@ function ActionArrows({ pairs, colors }: { pairs: [number, number][]; colors: st
             db = Math.hypot(b.x - C.x, b.y - C.y);
           }
           if (hits && da > R2 + 20 && db > R2 + 20) {
-            const side = b.x - C.x > 8 ? 1 : b.x - C.x < -8 ? -1 : (window.innerWidth - C.x) > C.x ? 1 : -1;
             const ta = Math.atan2(a.y - C.y, a.x - C.x), tb = Math.atan2(b.y - C.y, b.x - C.x);
             const fa = Math.acos(R2 / da), fb = Math.acos(R2 / db);
+            // Por qué lado rodear: entre dos rivales (de un lado a otro), siempre por ARRIBA del círculo, para no cruzarse
+            // con las flechas que bajan hacia mi mano; si interviene mi mano, por el lado del otro jugador.
+            const TAU0 = Math.PI * 2;
+            const midY = (sd: number) => {
+              const u1 = sd > 0 ? ta - fa : ta + fa, u2 = sd > 0 ? tb + fb : tb - fb;
+              const sp = (((sd > 0 ? u1 - u2 : u2 - u1) % TAU0) + TAU0) % TAU0;
+              return Math.sin(sd > 0 ? u1 - sp / 2 : u1 + sp / 2);
+            };
+            const side = f !== ME && t !== ME ? (midY(1) <= midY(-1) ? 1 : -1)
+              : b.x - C.x > 8 ? 1 : b.x - C.x < -8 ? -1 : (window.innerWidth - C.x) > C.x ? 1 : -1;
             // Por la derecha se recorre en sentido antihorario (ángulos decrecientes); por la izquierda, al revés.
             const t1 = side > 0 ? ta - fa : ta + fa, t2 = side > 0 ? tb + fb : tb - fb;
             const P = (t: number) => ({ x: C.x + R2 * Math.cos(t), y: C.y + R2 * Math.sin(t) });

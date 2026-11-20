@@ -141,16 +141,16 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
       // Tutorial: sin relojes; las máquinas juegan su plan solo cuando el paso lo permite, y en las ventanas
       // en las que no se espera nada de mí, paso solo.
       if (gate?.autoPass && pend.includes(ME) && (ph.t === 'react' || ph.t === 'gemas'))
-        later(gate.slow ? 3200 : 700, () => dispatch(ph.t === 'react' ? { type: 'react', player: ME, r: 'pass' } : { type: 'gemas', player: ME, ids: [] }));
+        later(gate.slow ? 3200 : 1300, () => dispatch(ph.t === 'react' ? { type: 'react', player: ME, r: 'pass' } : { type: 'gemas', player: ME, ids: [] }));
       // «windows»: solo lo que no es jugar un turno (ventanas, elegir en una Codicia…).
       const can = gate?.bots === 'on' || (gate?.bots === 'windows' && ph.t !== 'turn');
       const meToSlap = !gate?.slapFirst && ph.t === 'aplastar' && ph.players.includes(ME) && !ph.slapped.includes(ME);
       if (can && !meToSlap) {
-        const key = `${s.seq}:${gate?.slow ? 's' : ''}`;
+        const key = `${s.seq}:${gate?.slow ? 's' : ''}${gate?.slowSlap ? 'a' : ''}`;
         if (plan.current.key !== key) plan.current = { key, at: {} };
         pend.filter((p) => s.players[p].bot).forEach((p, i) => {
           let at = plan.current.at[p];
-          if (at === undefined) at = plan.current.at[p] = now + (ph.t === 'aplastar' ? (gate?.slow ? 1300 + i * 1000 : 500 + i * 450) : windowed ? (gate?.slow ? 2600 + i * 500 : 900) : 1700);
+          if (at === undefined) at = plan.current.at[p] = now + (ph.t === 'aplastar' ? (gate?.slow || gate?.slowSlap ? 1300 + i * 1000 : 700 + i * 600) : windowed ? (gate?.slow ? 2600 + i * 500 : 1500) : 2700);
           later(at - now, () => {
             const a = tutorBot(ref.current, p);
             if (a) dispatch(a);
@@ -226,7 +226,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
     }
     return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, timer, ready, paused, cfg.timer, gate?.bots, gate?.autoPass, gate?.slapFirst, gate?.slow]);
+  }, [state, timer, ready, paused, cfg.timer, gate?.bots, gate?.autoPass, gate?.slapFirst, gate?.slow, gate?.slowSlap]);
 
   const ph = state.phase;
   const windowed = ph.t === 'react' || ph.t === 'aplastar' || ph.t === 'gemas';

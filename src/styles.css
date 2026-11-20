@@ -7475,3 +7475,6 @@ input[type="checkbox"]:focus-visible {
 
 /* Sala de espera: el icono pegado al nombre (sin margen extra además del hueco de la fila). */
 .lobby-seats .hex-wrap { margin-right: -2px; }
+/* Tutorial: por encima de todo lo de la mesa (nombres, contadores…), y sin el historial abajo a la izquierda (ahí va la caja). */
+.tutor { z-index: 5000; }
+.game.tutorial .mini-log { display: none; }
