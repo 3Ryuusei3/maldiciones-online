@@ -2,6 +2,7 @@
 // y la pastilla de la cuenta en la portada.
 
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ICONS, Profile, playAsGuest, saveGuest, saveProfile, signIn, signInGoogle, signOut, signUp, toEntry, useAccount } from '../net/auth';
 import { COLOR_ORDER, PCOL, asset, ink } from './shared';
 
@@ -188,6 +189,33 @@ const ExitIcon = () => (
   </svg>
 );
 
+/**
+ * Botón de la cuenta en la cabecera (el último, a la derecha): con sesión, salir (pidiendo confirmación);
+ * como invitado, entrar (iniciar sesión o crear cuenta).
+ */
+export function AccountExit() {
+  const acc = useAccount();
+  const [ask, setAsk] = useState(false);
+  if (acc.status === 'guest') return <button className="tool-btn" onClick={toEntry} title="Iniciar sesión o crear cuenta" aria-label="Iniciar sesión o crear cuenta"><EnterIcon /></button>;
+  if (acc.status !== 'in') return null;
+  return (
+    <>
+      <button className="tool-btn" onClick={() => setAsk(true)} title="Cerrar sesión" aria-label="Cerrar sesión"><ExitIcon /></button>
+      {ask && createPortal(
+        <div className="opts-modal" role="dialog" aria-label="Cerrar sesión" onClick={() => setAsk(false)}>
+          <div className="opts-box" onClick={(e) => e.stopPropagation()}>
+            <h2>¿Cerrar sesión?</h2>
+            <p className="opts-note">Tus partidas y tu perfil se quedan guardados en tu cuenta.</p>
+            <button type="button" className="play" onClick={() => { setAsk(false); void signOut(); }}>Cerrar sesión</button>
+            <button type="button" className="opts-cancel" onClick={() => setAsk(false)}>Cancelar</button>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 /** Icono de entrar (flecha hacia dentro). */
 const EnterIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -204,7 +232,6 @@ export function AccountChip({ onAccount }: { onAccount: () => void }) {
         <Avatar p={acc.profile} size={42} />
         <b>{acc.profile.nickname}</b>
       </button>
-      <button className="account-exit" onClick={signOut} title="Cerrar sesión" aria-label="Cerrar sesión"><ExitIcon /></button>
     </div>
   );
   if (acc.status === 'guest' && acc.guest) return (
@@ -214,7 +241,6 @@ export function AccountChip({ onAccount }: { onAccount: () => void }) {
         <b>{acc.guest.nickname}</b>
         <small className="guest-tag">invitado</small>
       </button>
-      <button className="account-exit enter" onClick={toEntry} title="Iniciar sesión o crear cuenta" aria-label="Iniciar sesión o crear cuenta"><EnterIcon /></button>
     </div>
   );
   return null;

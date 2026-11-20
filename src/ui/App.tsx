@@ -447,7 +447,6 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
 function Home({ onLocal, onOnline, onTutorial, onAccount }: { onLocal: () => void; onOnline: () => void; onTutorial: () => void; onAccount: () => void }) {
   return (
     <>
-      <AccountChip onAccount={onAccount} />
       <h1>Maldiciones</h1>
       <p className="tagline">El juego de cartas maldito</p>
       <div className="play-row">
@@ -455,7 +454,6 @@ function Home({ onLocal, onOnline, onTutorial, onAccount }: { onLocal: () => voi
         <button className="play" onClick={onOnline}>Jugar online</button>
       </div>
       <div className="home-links">
-        <CompendioButton />
         <button onClick={onTutorial}>Tutorial</button>
       </div>
     </>
@@ -478,7 +476,6 @@ function LocalSetup({ onStart, onBack, onAccount }: { onStart: (c: GameConfig) =
     <>
       <h1>En local</h1>
       <p className="tagline">Contra las máquinas</p>
-      {onAccount && <AccountChip onAccount={onAccount} />}
       {prof ? null : <>
       <label>
         Tu nombre
@@ -496,7 +493,6 @@ function LocalSetup({ onStart, onBack, onAccount }: { onStart: (c: GameConfig) =
         <button className="play" onClick={start}>Empezar</button>
       </div>
       <div className="home-links">
-        <CompendioButton />
         <button onClick={onBack}>Volver</button>
       </div>
     </>
@@ -2571,11 +2567,11 @@ export default function App() {
     case 'account':
       return <Shell>{acc.status === 'guest' ? <GuestScreen onDone={home} /> : <ProfileScreen onDone={home} />}</Shell>;
     case 'home':
-      return <Shell><Home onLocal={() => setScreen({ k: 'setup' })} onOnline={() => setScreen({ k: 'entry' })} onTutorial={() => setScreen({ k: 'local', n: 0, cfg: tutorialCfg() })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
+      return <Shell onAccount={() => setScreen({ k: 'account' })}><Home onLocal={() => setScreen({ k: 'setup' })} onOnline={() => setScreen({ k: 'entry' })} onTutorial={() => setScreen({ k: 'local', n: 0, cfg: tutorialCfg() })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
     case 'setup':
-      return <Shell><LocalSetup onBack={home} onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
+      return <Shell onAccount={() => setScreen({ k: 'account' })}><LocalSetup onBack={home} onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
     case 'entry':
-      return <Shell><OnlineEntry initialCode={screen.code} initialError={screen.error} onBack={home} onJoin={(code, name) => setScreen({ k: 'room', client: new NetClient(code, name) })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
+      return <Shell onAccount={() => setScreen({ k: 'account' })}><OnlineEntry initialCode={screen.code} initialError={screen.error} onBack={home} onJoin={(code, name) => setScreen({ k: 'room', client: new NetClient(code, name) })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
     case 'room':
       return <OnlineRoom client={screen.client} onExit={leaveRoom} />;
     case 'local':

@@ -1,7 +1,7 @@
 // Partidas online: crear o unirse a una sala y sala de espera.
 
 import { myProfile, useAccount } from '../net/auth';
-import { AccountChip, HexIcon } from './Account';
+import { AccountChip, AccountExit, HexIcon } from './Account';
 import { useState } from 'react';
 import { NetClient, createRoom, roomInfo, useNet } from '../net/client';
 import { COLOR_ORDER, PCOL, asset, toggleFullscreen } from './shared';
@@ -14,12 +14,24 @@ import { CompendioButton } from './Compendium';
  * Fondo de la portada con su panel lateral. Lo pinta App una sola vez para la portada, la entrada online
  * y la sala de espera: al pasar de una a otra solo cambia el contenido del panel (el fondo no se recarga).
  */
-export function Shell({ children }: { children: React.ReactNode }) {
+export function Shell({ children, onAccount }: { children: React.ReactNode; onAccount?: () => void }) {
   return (
     <div className="home">
       <div className="home-bg" style={{ backgroundImage: `url(${asset('ui/fondo.webp')})` }} />
-      <button className="fs-btn" onClick={toggleFullscreen} title="Pantalla completa" aria-label="Pantalla completa">⛶</button>
-      <div className="home-panel">{children}</div>
+      <div className="home-panel">
+        {/* Cabecera del panel: la cuenta a la izquierda; compendio y pantalla completa a la derecha (en móvil, en su sitio, sin tapar nada). */}
+        <div className="panel-top">
+          {onAccount ? <AccountChip onAccount={onAccount} /> : <span />}
+          <div className="panel-tools">
+            <CompendioButton icon />
+            <button className="tool-btn fs-btn2" onClick={toggleFullscreen} title="Pantalla completa" aria-label="Pantalla completa">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></svg>
+            </button>
+            {onAccount && <AccountExit />}
+          </div>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
@@ -71,7 +83,6 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack, onAccou
     <>
       <h1>Online</h1>
       <p className="tagline">Juega con amigos</p>
-      {onAccount && <AccountChip onAccount={onAccount} />}
       {prof ? null : (
       <label>
         Tu nombre
@@ -89,7 +100,6 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack, onAccou
       <button className="play" disabled={busy || code.length !== 4} onClick={join}>Unirse a la sala</button>
       {error && <p className="net-error" role="alert">{error}</p>}
       <div className="home-links">
-        <CompendioButton />
         <button onClick={onBack}>Volver</button>
       </div>
     </>
@@ -109,18 +119,19 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
       else {
         await navigator.clipboard.writeText(link);
         setCopied(true);
-        setTimeout(() => setCopied(false), 1800);
+        setTimeout(() => setCopied(false), 2200);
       }
     } catch { /* cancelado o sin permiso */ }
   };
   const bots = Math.max(0, o.size - v.seats.length);
   return (
     <>
-      <h1>Sala</h1>
-      <div className="room-code">
-        <span>{v.code}</span>
-        <button onClick={copy}>{copied ? 'Enlace copiado' : 'Invitar'}</button>
+      {/* Título y, a su derecha, el código: pulsándolo se copia el enlace de invitación. */}
+      <div className="room-head">
+        <h1>Sala</h1>
+        <button className="room-code-btn" onClick={copy} title="Copiar el enlace para invitar" aria-label={`Sala ${v.code}: copiar el enlace para invitar`}>{v.code}</button>
       </div>
+      {copied && <div className="toast-copied" role="status">Enlace copiado</div>}
       <div className="field">
         Jugadores ({v.seats.length}/{o.size})
         <ul className="lobby-seats">
@@ -178,7 +189,6 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
       )}
       {(status !== 'open' || error) && <p className="net-error" role="alert">{status !== 'open' ? 'Reconectando…' : error}</p>}
       <div className="home-links">
-        <CompendioButton />
         <button onClick={() => { client.leave(); onExit(); }}>Salir de la sala</button>
       </div>
     </>
