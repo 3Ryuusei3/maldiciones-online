@@ -2678,6 +2678,8 @@ export default function App() {
   // (Las partidas abiertas por enlace de prueba —tutorial, ?demo— no pasan por aquí.)
   if (screen.k === 'home' || screen.k === 'setup' || screen.k === 'entry' || screen.k === 'account') {
     if (acc.status === 'loading') return <Shell><p className="tagline">Cargando…</p></Shell>;
+    // Safari, al volver de Google para la app instalada en iPhone: la sesión se termina de abrir en la app.
+    if (acc.status === 'handoff') return <Shell><h1>Listo</h1><p className="tagline">Vuelve a la app de Maldiciones</p><p className="as-account">Ya puedes cerrar esta ventana: la app termina de iniciar tu sesión.</p></Shell>;
     if (acc.status === 'out') return <Shell><EntryScreen /></Shell>;
     if (acc.status === 'in' && acc.profile === undefined) return <Shell><p className="tagline">Cargando tu cuenta…</p></Shell>;
     if (acc.status === 'in' && acc.profile === null) return <Shell><ProfileScreen first /></Shell>;

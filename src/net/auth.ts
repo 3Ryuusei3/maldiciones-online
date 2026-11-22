@@ -23,7 +23,7 @@ const auth = createAuthClient(AUTH_URL) as any;
 export interface Profile { nickname: string; color: number; icon: string }
 export interface Account {
   /** `loading`: comprobando la sesión. `out`: sin sesión ni invitado (pantalla de entrada). */
-  status: 'loading' | 'out' | 'guest' | 'in';
+  status: 'loading' | 'out' | 'guest' | 'in' | 'handoff';
   email?: string;
   /** Nombre que da Google (para proponerlo como nickname). */
   suggested?: string;
@@ -108,6 +108,7 @@ const errText = (e: unknown, fallback: string) => {
 
 /** Comprueba la sesión al cargar la página (también al volver de iniciar sesión con Google). */
 export async function initAccount() {
+  if (await handoffFromSafari()) return;
   try {
     const r = await auth.getSession();
     const user = r?.data?.user;
@@ -167,8 +168,72 @@ export async function signIn(email: string, password: string): Promise<string | 
   return null;
 }
 
+/** App instalada en iPhone: ahí Google se abre en Safari, que no comparte la sesión con la app. */
+const iosApp = () => {
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes('Macintosh') && navigator.maxTouchPoints > 1);
+  const standalone = matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || (navigator as { standalone?: boolean }).standalone === true;
+  return ios && standalone;
+};
+const HANDOFF = 'handoff';
+const VERIFIER = 'neon_auth_session_verifier';
+
+/**
+ * Si esta página la ha abierto Safari al volver de Google para la app instalada (lleva `handoff`), no entra aquí:
+ * deja el código para que la app termine de entrar y dice que se vuelva a la app. Devuelve true si era el caso.
+ */
+async function handoffFromSafari(): Promise<boolean> {
+  const q = new URLSearchParams(location.search);
+  const id = q.get(HANDOFF), v = q.get(VERIFIER);
+  if (!id || !/^[a-f0-9]{32}$/.test(id)) return false;
+  if (v) {
+    try { await fetch(httpUrl(`/api/handoff/${id}`), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ v }) }); } catch { /* sin conexión */ }
+  }
+  history.replaceState(history.state, '', location.pathname);
+  set({ status: 'handoff' });
+  return true;
+}
+
+/** En la app: espera a que Safari deje el código del inicio de sesión con Google y termina de entrar. */
+async function waitHandoff(id: string): Promise<string | null> {
+  const until = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const r = await fetch(httpUrl(`/api/handoff/${id}`));
+      const j = (await r.json()) as { v?: string | null };
+      if (j.v) {
+        // El cliente de Neon Auth recoge el código de la dirección de la página al pedir la sesión.
+        const u = new URL(location.href);
+        u.searchParams.set(VERIFIER, j.v);
+        history.replaceState(history.state, '', u.href);
+        jwt = null;
+        await initAccount();
+        return state.status === 'in' ? null : 'No se ha podido terminar de entrar con Google. Prueba otra vez.';
+      }
+    } catch { /* se reintenta */ }
+  }
+  return 'Se ha agotado el tiempo para entrar con Google.';
+}
+
 /** Iniciar sesión con Google: va a Google y vuelve a esta misma página. */
 export async function signInGoogle(): Promise<string | null> {
+  if (iosApp()) {
+    // Google se abre en Safari; al volver, Safari deja el código y la app (que lo espera aquí) termina de entrar.
+    const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+    // La ventana se abre ya, con la pulsación (si se abriera tras esperar al servidor, iOS la bloquearía).
+    const win = window.open('about:blank', '_blank');
+    try {
+      const r = await auth.signIn.social({ provider: 'google', callbackURL: `${location.origin}${location.pathname}?${HANDOFF}=${id}`, disableRedirect: true });
+      const url = r?.data?.url as string | undefined;
+      if (r?.error || !url) { win?.close(); return errText(r?.error, 'No se ha podido iniciar sesión con Google.'); }
+      if (win) win.location.href = url;
+      else window.open(url, '_blank');
+    } catch (e) {
+      win?.close();
+      return errText(e, 'No se ha podido iniciar sesión con Google.');
+    }
+    return waitHandoff(id);
+  }
   try {
     const r = await auth.signIn.social({ provider: 'google', callbackURL: location.origin + location.pathname });
     if (r?.error) return errText(r.error, 'No se ha podido iniciar sesión con Google.');

@@ -79,6 +79,16 @@ export default {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     if (url.pathname.startsWith('/api/auth/')) return proxyAuth(req, url, env);
+    // Traspaso del inicio de sesión con Google (app instalada en iPhone): Safari deja el código y la app lo recoge.
+    const ho = url.pathname.match(/^\/api\/handoff\/([a-f0-9]{32})$/);
+    if (ho && req.method === 'POST') {
+      let b: { v?: unknown };
+      try { b = (await body(req, 4000)) as { v?: unknown }; } catch { return json({ error: 'No válido.' }, 400); }
+      if (typeof b?.v !== 'string' || !b.v || b.v.length > 2000) return json({ error: 'No válido.' }, 400);
+      await env.SALAS.getByName(`handoff:${ho[1]}`).handoffPut(b.v);
+      return json({ ok: true });
+    }
+    if (ho && req.method === 'GET') return json({ v: await env.SALAS.getByName(`handoff:${ho[1]}`).handoffTake() });
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...CORS, 'access-control-max-age': '86400' } });
 
     if (url.pathname === '/api/salas' && req.method === 'POST') {
@@ -173,6 +183,18 @@ export class Sala extends DurableObject<Env> {
       if (t) out.add(t);
     }
     return out;
+  }
+
+  // ── Entrar con Google desde la app instalada en iPhone: Google se abre en Safari (otra «caja» de cookies) y
+  //    desde ahí se le pasa a la app el código de un solo uso para terminar de entrar. Se guarda aquí un momento.
+  async handoffPut(v: string) {
+    await this.ctx.storage.put('handoff', { v, at: Date.now() });
+  }
+  async handoffTake(): Promise<string | null> {
+    const h = await this.ctx.storage.get<{ v: string; at: number }>('handoff');
+    if (!h) return null;
+    await this.ctx.storage.deleteAll();
+    return Date.now() - h.at < 10 * 60 * 1000 ? h.v : null;
   }
 
   async init(code: string): Promise<boolean> {
