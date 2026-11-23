@@ -10,6 +10,8 @@ npm run build      # web estática en dist/
 npm run sim 500    # 500 partidas solo de máquinas para comprobar que el motor no se rompe
 ```
 
+Documentación de referencia: [reglas de las cartas](docs/cartas.md) · [cómo funciona la app](docs/app.md).
+
 ## Estructura
 
 | Ruta | Qué es |
