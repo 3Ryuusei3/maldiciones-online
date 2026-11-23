@@ -166,7 +166,7 @@ export function GuestScreen({ onDone }: { onDone?: () => void }) {
   const [color, setColor] = useState(cur?.color ?? savedColor());
   const [icon, setIcon] = useState(cur?.icon ?? 'maldicion');
   const [error, setError] = useState<string | null>(null);
-  const preview: Profile = { nickname: nick || '…', color, icon };
+  const preview: Profile = { nickname: nick || 'Tu nombre', color, icon };
   return (
     <>
       <h1>{cur ? 'Tu perfil' : 'Jugar como invitado'}</h1>
@@ -203,7 +203,7 @@ export function ProfileScreen({ first, onDone }: { first?: boolean; onDone?: () 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const preview: Profile = { nickname: nick || '…', color, icon };
+  const preview: Profile = { nickname: nick || 'Tu nombre', color, icon };
   return (
     <>
       <h1>{first ? 'Tu perfil' : 'Mi cuenta'}</h1>

@@ -3346,16 +3346,10 @@ h3 {
   white-space: nowrap;
 }
 @media (max-width: 1100px) {
-  /* No cabe en una fila: se desliza de lado, con los bordes difuminados. */
+  /* No cabe en una fila: se desliza de lado. (Sin difuminar los bordes: la máscara también borraba el fondo y,
+     al desplazar, el texto de debajo asomaba por los lados del menú fijo.) */
   .top-nav {
-    mask-image: linear-gradient(
-      90deg,
-      transparent,
-      #000 24px,
-      #000 calc(100% - 24px),
-      transparent
-    );
-    padding-inline: 24px;
+    justify-content: flex-start;
   }
 }
 .hier .hier-row {
@@ -8260,4 +8254,892 @@ body { background: #0a0e10; }
   .banner { flex-wrap: wrap; max-width: 100%; box-sizing: border-box; }
   .banner .msg { flex: 1 1 55%; min-width: 0; }
   .banner button, .banner button.primary { flex: 0 1 auto; white-space: nowrap; font-size: 11.5px; padding: 5px 9px; }
+}
+
+/* ═════════ Móvil, segunda versión: menos elementos, rivales en fila, mano a la vista y compendio en cuadrícula ═════════ */
+/* Botón de menú, entrada de registro y reloj en la pausa: solo en el móvil. */
+.topbar .menu-btn,
+.pause-box .phone-only,
+.pause-clock { display: none; }
+.pause-clock .brand.clock { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+/* Emoticonos: botón propio junto a mi nombre. */
+.emote-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  line-height: 1;
+  background: rgba(10, 14, 16, 0.75);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.emote-btn[aria-expanded="true"] { background: #fff; color: #0a0e10; }
+/* El cartel de quién empieza se puede quitar tocándolo cuando ya se sabe. */
+.spin-box.done { pointer-events: auto; cursor: pointer; }
+
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  /* Arriba solo el menú (pausa, compendio, registro, salir); el reloj se ve dentro. */
+  .topbar .round:not(.menu-btn),
+  .topbar .brand.clock { display: none !important; }
+  .topbar .menu-btn { display: grid; place-items: center; width: 36px; height: 36px; font-size: 17px; }
+  .pause-box .phone-only { display: block; }
+  .pause-clock { display: flex; justify-content: center; margin-top: -4px; }
+  .pause-box { padding: 20px 18px; gap: 8px; max-height: calc(100dvh - 32px); overflow-y: auto; }
+  .pause-box button { padding: 10px; }
+  .me-tag .start-tag,
+  .plate .start-tag { display: none !important; }
+
+  /* Rivales: en fila arriba, solo su ficha. El abanico no se ve, pero sigue ahí (del tamaño de la ficha)
+     porque las cartas que reciben o dan vuelan desde y hacia él. */
+  .seat.top {
+    top: calc(env(safe-area-inset-top) + 16px);
+    width: auto;
+    height: auto;
+    transform: translateX(-50%);
+  }
+  .seat .fanbox {
+    display: block !important;
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
+    transform: none !important;
+  }
+  .seat .fanbox img { bottom: 25%; }
+  .seat.top .plate,
+  .table.k4 .seat.top:nth-child(even) .plate,
+  .table.k5 .seat.top:nth-child(even) .plate {
+    position: relative;
+    top: 0;
+    left: 0;
+    transform: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+  .seat .pn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .seat-reveal { top: 100% !important; bottom: auto !important; }
+  .mini-log, .line1 { display: none !important; }
+}
+
+/* ───── Móvil en vertical ───── */
+@media (orientation: portrait) and (max-width: 600px) {
+  .game {
+    --card-w: clamp(58px, 19.5vw, 96px);
+    --table-card: clamp(66px, 23vw, 104px);
+  }
+  .topbar { padding: calc(env(safe-area-inset-top) + 6px) 8px 0; border-top: 0; }
+  /* Ficha de rival: el hexágono arriba con su número de cartas y el nombre debajo. */
+  .seat .pill,
+  .seat .pill:has(.hex-icon) {
+    position: relative;
+    flex-direction: column;
+    gap: 3px;
+    padding: 0;
+    margin: 0;
+    background: none !important;
+    box-shadow: none !important;
+    max-width: none;
+  }
+  .seat .pill .hex-wrap { margin: 0; }
+  .seat .pill .hex-icon { width: 32px !important; height: 37px !important; }
+  .seat .pill .pn {
+    background: var(--gc);
+    padding: 2px 5px;
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    max-width: 17vw;
+  }
+  .seat .pill i {
+    position: absolute;
+    top: -4px;
+    left: calc(50% + 9px);
+    min-width: 17px;
+    font-size: 10px;
+    padding: 1px 3px;
+    box-shadow: 0 0 0 1.5px var(--gc);
+  }
+  .seat.turn .pill { box-shadow: none !important; }
+  .seat.turn .pill .pn { box-shadow: 0 0 0 2px #fff, 0 0 12px rgba(255, 255, 255, 0.85); }
+  .seat.turn .pill .hex-wrap { filter: drop-shadow(0 0 7px #fff); }
+  .seat .pickme { margin-top: 1px; }
+  /* Mesa: más arriba y algo más grande; los avisos encima de la mano; la mano entera a la vista. */
+  .center { top: 50%; }
+  .disc { width: clamp(160px, 58vw, 260px); }
+  .msgzone { height: auto; min-height: 0; padding: 0 8px 40px; gap: 4px; }
+  .hand {
+    height: calc(var(--card-w) * 1.42 + 34px + env(safe-area-inset-bottom));
+    padding: 8px 6px env(safe-area-inset-bottom);
+    align-items: flex-start;
+  }
+  .me-tag { left: 8px; top: -34px; bottom: auto; gap: 6px; }
+  .emote-btn { width: 28px; height: 28px; font-size: 16px; }
+}
+
+/* ───── Móvil en horizontal ───── */
+@media (orientation: landscape) and (max-height: 520px) {
+  .game {
+    --card-w: clamp(48px, 16vh, 76px);
+  }
+  .topbar { padding: calc(env(safe-area-inset-top) + 6px) 8px 0; border-top: 0; }
+  .seat .pill .pn { max-width: 16vw; }
+  .seat.turn .pill { box-shadow: 0 0 0 2px #fff, 0 0 12px rgba(255, 255, 255, 0.8); }
+  /* Mesa centrada entre la fila de rivales y la mano, algo más grande. */
+  .center { top: 50%; }
+  .disc { width: clamp(110px, 44vh, 190px); }
+  .game { --table-card: clamp(48px, 18vh, 84px); }
+  .msgzone { height: auto; min-height: 0; padding: 0 8px 4px; gap: 4px; }
+  .msgzone .banner { width: auto; max-width: min(600px, 72vw); margin: 0 auto; }
+  .hand {
+    height: calc(var(--card-w) * 1.42 + 14px + env(safe-area-inset-bottom));
+    padding: 8px 8px env(safe-area-inset-bottom);
+    align-items: flex-start;
+  }
+  .me-tag { left: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); gap: 6px; }
+  .callout { bottom: auto; }
+}
+
+/* ───── Fin de partida en el móvil: cabecera baja y los botones siempre a la vista ───── */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .over { padding: calc(env(safe-area-inset-top) + 8px) 8px calc(env(safe-area-inset-bottom) + 8px); }
+  .over-box { max-height: 100%; }
+  .over-box header { padding: 14px 14px 10px; }
+  .over-box h2 { font-size: 24px; margin: 2px 0; }
+  .over-stats b { font-size: 22px !important; }
+  .over-btns {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    padding: 10px 12px 12px;
+    background: #0a0e10;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+  }
+  .over-btns button { padding: 10px 8px; font-size: 11px; letter-spacing: 0.08em; }
+}
+
+/* ───── Compendio en el móvil ───── */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .page.comp { padding: calc(env(safe-area-inset-top) + 8px) 10px 0; }
+  /* Cabecera en una línea (volver + título) y las pestañas en una fila fina, todas del mismo ancho. */
+  .comp > header { display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; margin-bottom: 8px; padding-bottom: 8px; }
+  .comp > header > button { padding: 6px 10px; font-size: 11px; letter-spacing: 0.08em; }
+  .comp > header h1 { font-size: 15px; letter-spacing: 0.3em; margin: 0; }
+  .comp > header .tabs { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 0; flex-wrap: nowrap; }
+  .comp > header .tabs button {
+    justify-content: center;
+    padding: 8px 2px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    margin-left: -1px;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  /* Cuadrícula de cartas y ficha a pantalla completa. */
+  .cards-tab.phone { overflow-y: auto; gap: 8px; padding-bottom: calc(env(safe-area-inset-bottom) + 16px); scrollbar-width: none; }
+  .cards-tab.phone .attr-nav { position: sticky; top: 0; z-index: 2; background: var(--ink); padding: 2px 0 6px; }
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 12px 8px;
+    padding: 2px 2px 8px;
+  }
+  .card-grid button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 0;
+    background: none;
+    border: 0;
+    color: #fff;
+  }
+  .card-grid img { width: 100%; aspect-ratio: 404 / 566; border-radius: 7%/5%; box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4); }
+  .card-grid button.on img { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .card-grid small { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; text-align: center; line-height: 1.2; }
+  .card-grid .beta { margin-left: 4px; }
+  .sheet-bar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0 8px;
+    background: var(--ink);
+  }
+  .sheet-bar button { padding: 6px 12px; font-size: 11px; letter-spacing: 0.08em; }
+  .sheet-bar span { text-align: center; font-size: 11px; color: var(--muted); letter-spacing: 0.1em; }
+  .card-sheet { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+  .card-sheet > .big,
+  .card-sheet > .rot.big { width: min(56vw, 230px); max-width: none; align-self: center; }
+  .card-sheet .kinfo { background: #f1eef6; padding: 14px; font-size: 14px; }
+  .card-sheet .demo { width: 100%; }
+  /* Las guías (Cómo jugar, Mecánicas, Jerarquía) con menos relleno para aprovechar el ancho. */
+  .guide section { padding: 16px 14px; margin-bottom: 12px; }
+  .guide h2 { font-size: 17px; margin-bottom: 10px; }
+  .top-nav { gap: 4px; }
+  .top-nav button { padding: 6px 10px; font-size: 10.5px; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .comp > header { grid-template-columns: auto auto 1fr; }
+  .comp > header .tabs { grid-column: 3; }
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+  .card-grid small { font-size: 9.5px; letter-spacing: 0.02em; }
+  /* Ficha en horizontal: carta a la izquierda, explicación y mini partida a la derecha. */
+  .card-sheet { display: grid; grid-template-columns: 150px 1fr; align-items: start; }
+  .card-sheet > .big,
+  .card-sheet > .rot.big { width: 150px; grid-row: span 2; align-self: start; position: sticky; top: 44px; }
+}
+
+/* ───── Portada, entrada e invitado en el móvil ───── */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  /* El compendio ya está en el icono de arriba. */
+  .home-panel .entry-comp { display: none; }
+  /* Iconos en dos filas que se deslizan de lado, en vez de una cuadrícula enorme. */
+  .icon-pick {
+    display: grid;
+    grid-template-rows: repeat(2, auto);
+    grid-auto-flow: column;
+    grid-auto-columns: 48px;
+    grid-template-columns: none;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 6px;
+    scrollbar-width: none;
+  }
+  .icon-pick::-webkit-scrollbar { display: none; }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  /* Contenido centrado en la pantalla (no pegado arriba con media pantalla vacía debajo). */
+  /* (con márgenes automáticos: si el contenido es más alto que la pantalla, se desplaza sin cortarse por arriba) */
+  .home-panel { justify-content: flex-start; }
+  .home-panel > .panel-top + * { margin-top: auto; }
+  .home-panel > :last-child { margin-bottom: auto; }
+}
+/* Con el menú de emoticonos abierto, la mano (que lo contiene) pasa por encima de los avisos. */
+.hand:has(.emote-pick) { z-index: 30; }
+/* Móvil: mi Égida boca arriba, pequeña junto a mi nombre (sin quitar sitio a la mano). */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .my-egida { position: absolute; left: auto; right: 8px; top: -58px; bottom: auto; z-index: 7; display: flex; align-items: center; gap: 4px; }
+  .my-egida .card.small { width: 34px !important; }
+  .my-egida small { font-size: 9px; letter-spacing: 0.04em; white-space: nowrap; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .my-egida { top: auto; bottom: calc(52px + env(safe-area-inset-bottom)); left: 8px; right: auto; }
+}
+
+/* ═════════ Móvil, tercera versión: rivales con avatar grande y sus cartas a la vista, mano grande ═════════ */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  /* Cada rival: su ficha (hexágono con el número, nombre debajo) y, al lado, un abanico pequeño con sus cartas. */
+  .table .seat,
+  .table .seat.top {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    width: auto !important;
+    height: auto !important;
+  }
+  .table .seat .fanbox {
+    position: relative !important;
+    inset: auto !important;
+    flex: none;
+    opacity: 1 !important;
+    transform: none !important;
+    width: calc(var(--seat-card) * 3.4);
+    height: calc(var(--seat-card) * 1.75);
+    filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45));
+  }
+  .table .seat .fanbox img {
+    bottom: 0;
+    width: var(--seat-card);
+    border-width: 1px;
+    border-radius: 3px;
+    transform-origin: 50% 230%;
+  }
+  .table .seat.turn .fanbox { filter: drop-shadow(0 0 8px #fff) drop-shadow(0 0 14px var(--gold)); }
+  .table .seat .plate,
+  .table .seat.top .plate,
+  .table .seat.left .plate,
+  .table .seat.right .plate {
+    position: relative;
+    inset: auto;
+    top: 0;
+    left: 0;
+    right: auto;
+    bottom: auto;
+    transform: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+  /* El abanico, hacia el centro de la mesa. */
+  .table .seat.left { flex-direction: row-reverse; }
+  /* Ficha de rival en vertical (también en horizontal). */
+  .seat .pill,
+  .seat .pill:has(.hex-icon),
+  .seat.right .pill:has(.hex-icon) {
+    position: relative;
+    flex-direction: column;
+    gap: 3px;
+    padding: 0;
+    margin: 0;
+    background: none !important;
+    box-shadow: none !important;
+    max-width: none;
+  }
+  .seat .pill .hex-wrap,
+  .seat.right .pill .hex-wrap { margin: 0; }
+  .seat .pill .pn {
+    background: var(--gc);
+    padding: 2px 6px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    max-width: 22vw;
+  }
+  .seat .pill i {
+    position: absolute;
+    top: -4px;
+    left: calc(50% + 10px);
+    min-width: 18px;
+    font-size: 11px;
+    padding: 1px 3px;
+    box-shadow: 0 0 0 1.5px var(--gc);
+  }
+  .seat.turn .pill { box-shadow: none !important; }
+  .seat.turn .pill .pn { box-shadow: 0 0 0 2px #fff, 0 0 12px rgba(255, 255, 255, 0.85); }
+  .seat.turn .pill .hex-wrap { filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 10px #fff); }
+  /* «Su turno» / «Después» pequeños bajo el nombre: se entiende de un vistazo quién juega y quién va luego. */
+  .plate .turn-tag,
+  .plate .next-tag { display: inline-block !important; font-size: 8.5px; padding: 1px 5px; letter-spacing: 0.08em; margin: 0; }
+
+  /* Mi ficha: grande abajo a la izquierda, como la de los rivales, con el botón de emoticonos al lado. */
+  .me-tag .pill {
+    position: relative;
+    flex-direction: column;
+    gap: 3px;
+    padding: 0;
+    margin: 0;
+    background: none !important;
+    box-shadow: none !important;
+  }
+  .me-tag .pill .hex-wrap { margin: 0; }
+  .me-tag .pill .pn { background: var(--gc); padding: 2px 8px; font-size: 11px; letter-spacing: 0.06em; }
+  .me-tag .pill i { position: absolute; top: -4px; left: calc(50% + 12px); min-width: 18px; font-size: 11px; padding: 1px 3px; box-shadow: 0 0 0 1.5px var(--gc); }
+  .me-tag .pill.on .pn { box-shadow: 0 0 0 2px #fff, 0 0 12px rgba(255, 255, 255, 0.85); }
+  .me-tag .pill.on .hex-wrap { filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 10px var(--me)); }
+  .me-tag { align-items: flex-end; }
+
+  /* Anuncio de la carta jugada: a lo ancho, más bajo y sin reducir. */
+  /* (sigue encima de los avisos, centrado con su animación: solo cambia el ancho) */
+  .msgzone .callout {
+    zoom: 1 !important;
+    left: 50%;
+    width: calc(100% - 16px);
+    max-width: 640px;
+    box-sizing: border-box;
+    padding: 6px 12px 8px;
+    gap: 1px;
+  }
+  .msgzone .callout small { font-size: 10px; }
+  .msgzone .callout strong { font-size: 17px; letter-spacing: 0.14em; margin-right: 0; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .msgzone .callout > span { font-size: 12.5px; line-height: 1.3; max-width: none; }
+}
+
+/* ───── Vertical ───── */
+@media (orientation: portrait) and (max-width: 600px) {
+  .table, .table.k4, .table.k5 { --seat-card: 15px; }
+  /* Fila de arriba: ficha y, debajo, su abanico. */
+  .table .seat.top { flex-direction: column; gap: 0; }
+  .table .seat.top .fanbox { width: calc(var(--seat-card) * 3.6); height: calc(var(--seat-card) * 1.6); }
+  .seat .pill .hex-icon { width: 34px !important; height: 39px !important; }
+  .seat .pill .pn { max-width: 17vw; font-size: 9.5px; }
+  .me-tag .pill .hex-icon { width: 34px !important; height: 39px !important; }
+  .me-tag { top: -56px; }
+  .center { top: 53%; }
+  .msgzone { padding-bottom: 62px; }
+}
+
+/* ───── Horizontal: rivales alrededor de la mesa, como en grande ───── */
+@media (orientation: landscape) and (max-height: 520px) {
+  .game { --card-w: clamp(54px, 19.5vh, 90px); }
+  .table, .table.k4, .table.k5 { --seat-card: clamp(16px, 5.2vh, 24px); }
+  .seat .pill .hex-icon { width: 40px !important; height: 46px !important; }
+  .me-tag .pill .hex-icon { width: 46px !important; height: 53px !important; }
+  .table .seat.top { top: calc(env(safe-area-inset-top) + 16px); }
+  .table .seat.left { left: calc(env(safe-area-inset-left) + 10px); top: 46%; transform: translateY(-50%); }
+  .table .seat.right { right: calc(env(safe-area-inset-right) + 10px); top: 46%; transform: translateY(-50%); }
+  /* Mesa bajo la fila de arriba, centrada en lo que queda; algo más pequeña para no pisar a nadie. */
+  .center { top: calc(50% + 36px); gap: 14px; }
+  .disc { width: clamp(104px, 34vh, 160px); }
+  .game { --table-card: clamp(46px, 16vh, 76px); }
+  /* La mano, grande y centrada; mi ficha a su izquierda. */
+  .hand {
+    height: calc(var(--card-w) * 1.3 + 10px + env(safe-area-inset-bottom));
+    padding: 10px 8px env(safe-area-inset-bottom);
+  }
+  .me-tag { left: calc(env(safe-area-inset-left) + 12px); bottom: calc(env(safe-area-inset-bottom) + 14px); }
+  .msgzone { padding: 0 8px 2px; }
+  .msgzone .banner { max-width: min(560px, 66vw); }
+  /* Anuncio en horizontal: quién arriba; carta y efecto en una línea. */
+  /* (en dos líneas: «quién juega CARTA» y, debajo, el efecto; así tapa poco la mesa) */
+  .msgzone .callout { max-width: min(680px, 74vw); padding: 4px 14px 6px; flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 10px; row-gap: 0; }
+  .msgzone .callout > span { flex-basis: 100%; }
+  .msgzone .callout strong { font-size: 15px; }
+  .msgzone .callout > span { font-size: 12px; }
+  .my-egida { bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
+
+/* ═════════ Móvil, cuarta versión: abanicos que salen del hexágono y mensajes a la derecha en horizontal ═════════ */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  /* El abanico gira alrededor del centro del hexágono y apunta hacia la Pila (--fa, calculado en Game). */
+  .hex-hold { position: relative; display: inline-flex; z-index: 0; --fo: 13px; }
+  .hex-hold .hex-wrap { position: relative; z-index: 1; }
+  .table .seat .hex-hold .fanbox,
+  .table .seat.top .hex-hold .fanbox {
+    position: absolute !important;
+    inset: auto !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: 0 !important;
+    height: 0 !important;
+    z-index: 0;
+    opacity: 1 !important;
+    transform: rotate(calc(var(--fa) + 90deg)) !important;
+    filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.45));
+  }
+  .table .seat .hex-hold .fanbox img {
+    left: 0;
+    bottom: var(--fo);
+    width: var(--seat-card);
+    border-width: 1px;
+    border-radius: 3px;
+    transform-origin: 50% calc(100% + var(--fo));
+  }
+  .table .seat.turn .hex-hold .fanbox { filter: drop-shadow(0 0 6px #fff) drop-shadow(0 0 12px var(--gold)); }
+  /* Los de arriba: nombre (y «Su turno») encima del hexágono, para que el abanico baje libre hacia la mesa. */
+  .table .seat.top .plate { flex-direction: column-reverse; }
+  .table .seat.top .pill { flex-direction: column-reverse !important; }
+}
+
+/* ───── Vertical: mensajes más contenidos ───── */
+@media (orientation: portrait) and (max-width: 600px) {
+  .table, .table.k4, .table.k5 { --seat-card: 19px; }
+  .table .seat.top { top: calc(env(safe-area-inset-top) + 8px); }
+  .table .seat.top .pill i { top: auto; bottom: 26px; }
+  .center { top: 55%; }
+  .msgzone .callout { padding: 4px 10px 6px; }
+  .msgzone .callout small { font-size: 9.5px; }
+  .msgzone .callout strong { font-size: 14px; }
+  .msgzone .callout > span { font-size: 11.5px; }
+  .msgzone .banner { font-size: 11.5px; }
+  .msgzone .banner .msg { padding: 5px 8px; }
+}
+
+/* ───── Horizontal: mensajes en una columna a la derecha; la mesa, centrada y más grande ───── */
+@keyframes callout-side {
+  0% { opacity: 0; transform: translateX(14px); }
+  8%, 90% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-6px); }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .game { --msg-w: min(232px, 28vw); }
+  .table, .table.k4, .table.k5 { --seat-card: clamp(18px, 6.4vh, 28px); }
+  .table .seat.top { top: calc(env(safe-area-inset-top) + 6px); }
+  .table .seat.top .pill i { top: auto; bottom: 32px; }
+  .table .seat.left, .table .seat.right { top: 40%; }
+  .center { top: calc(50% + 22px); gap: 16px; }
+  .disc { width: clamp(130px, 46vh, 210px); }
+  .game { --table-card: clamp(52px, 20vh, 92px); }
+  /* La mano entre mi ficha (izquierda) y los mensajes (derecha). */
+  .hand { padding-left: calc(env(safe-area-inset-left) + 96px); padding-right: calc(var(--msg-w) + 16px + env(safe-area-inset-right)); }
+  .msgzone {
+    position: absolute;
+    right: calc(env(safe-area-inset-right) + 8px);
+    bottom: calc(env(safe-area-inset-bottom) + 10px);
+    width: var(--msg-w);
+    height: auto;
+    min-height: 0;
+    margin: 0 !important;
+    padding: 0 !important;
+    align-items: stretch;
+    justify-content: flex-end;
+    gap: 6px;
+    z-index: 12;
+  }
+  .msgzone .banner {
+    width: auto;
+    max-width: none !important;
+    margin: 0;
+    flex-direction: column;
+    align-items: stretch;
+    font-size: 11.5px;
+    line-height: 1.3;
+  }
+  .msgzone .banner .msg { flex: none; padding: 6px 9px; }
+  .msgzone .banner button,
+  .msgzone .banner button.primary { width: 100%; flex: none; padding: 7px 8px; font-size: 11.5px; white-space: normal; }
+  .msgzone .callout {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    width: auto;
+    max-width: none !important;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    padding: 5px 9px 7px !important;
+    animation-name: callout-side;
+  }
+  .msgzone .callout small { font-size: 9.5px; }
+  .msgzone .callout strong { font-size: 14px; letter-spacing: 0.1em; justify-content: flex-start; }
+  .msgzone .callout > span { flex-basis: auto; font-size: 11px; }
+  .peek-banner { font-size: 11px; }
+}
+
+/* Compendio en el móvil: cabecera y menú de secciones más pequeños (dejan más sitio al contenido). */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .comp > header { margin-bottom: 6px; padding-bottom: 6px; gap: 6px 10px; }
+  .comp > header > button { padding: 4px 8px; font-size: 10px; }
+  .comp > header h1 { font-size: 13px; }
+  .comp > header .tabs button { padding: 5px 2px; font-size: 9.5px; }
+  .top-nav { gap: 4px; padding: 4px 0 6px; margin-bottom: 10px; }
+  .top-nav button { padding: 4px 8px; font-size: 9.5px; gap: 5px; }
+  .top-nav button svg, .top-nav button img { width: 14px; height: 14px; }
+  .sheet-bar button { padding: 4px 10px; font-size: 10px; }
+  .cards-tab.phone .attr-nav button { padding: 3px 7px; font-size: 9.5px; }
+}
+
+/* Compendio en el móvil: botones de arriba más estrechos (menos altos); en vertical, «Compendio» a la derecha del todo. */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .comp > header > button { padding: 3px 8px; }
+  .comp > header .tabs button { padding: 3px 2px; line-height: 1.2; }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  .comp > header h1 { justify-self: end; text-align: right; margin-right: -0.3em; }
+}
+/* Partida en el móvil: los nombres de arriba sin cortarse y «Su turno» / «Después» como cinta sobre el hexágono
+   (fuera del flujo, para que todas las fichas de la fila queden a la misma altura). */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .table .seat.top { top: calc(env(safe-area-inset-top) + 16px); }
+  .table .seat .plate { position: relative; }
+  .table .seat.top .plate .turn-tag,
+  .table .seat.top .plate .next-tag {
+    position: absolute;
+    top: calc(100% - 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    white-space: nowrap;
+  }
+  /* Los mensajes de la columna derecha, siempre dentro de ella. */
+  .msgzone .banner { box-sizing: border-box; }
+  .msgzone .banner .msg { white-space: normal; min-width: 0; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .msgzone .banner { width: 100%; }
+}
+/* Vertical: abanicos algo más grandes para que asomen bajo el hexágono. */
+@media (orientation: portrait) and (max-width: 600px) {
+  .table, .table.k4, .table.k5 { --seat-card: 23px; }
+  .hex-hold { --fo: 8px; }
+}
+/* (la regla que recorta el nombre con «…» no debe recortar el abanico) */
+.seat .pill > .hex-hold { overflow: visible !important; }
+
+/* ═════════ Móvil, quinta versión: nombre al lado del hexágono, aviso sobre la mano ═════════ */
+/* Ficha: hexágono (algo más pequeño) y, a su lado, pegado al borde superior, el nombre con su número de cartas. */
+@media (orientation: landscape) and (max-height: 520px), (orientation: portrait) and (max-width: 600px) {
+  .hex-hold { z-index: 2; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .seat .pill,
+  .seat .pill:has(.hex-icon),
+  .seat.right .pill:has(.hex-icon),
+  .table .seat.top .pill,
+  .me-tag .pill {
+    flex-direction: row !important;
+    align-items: flex-start;
+    gap: 0;
+  }
+  .table .seat.right .pill { flex-direction: row-reverse !important; }
+  .seat .pill .hex-icon { width: 35px !important; height: 40px !important; }
+  .me-tag .pill .hex-icon { width: 40px !important; height: 46px !important; }
+  .seat .pill .pn,
+  .me-tag .pill .pn {
+    position: relative;
+    z-index: 1;
+    margin: 4px 0 0 -7px;
+    padding: 2px 6px 2px 10px;
+    font-size: 10px;
+    line-height: 14px;
+    max-width: 16vw;
+  }
+  .table .seat.right .pill .pn { margin: 4px -7px 0 0; padding: 2px 10px 2px 6px; }
+  .seat .pill i,
+  .table .seat.top .pill i,
+  .me-tag .pill i {
+    position: relative;
+    z-index: 1;
+    top: auto;
+    left: auto;
+    bottom: auto;
+    margin-top: 4px;
+    min-width: 0;
+    padding: 2px 5px;
+    font-size: 10px;
+    line-height: 14px;
+    box-shadow: none;
+  }
+  /* «Su turno» / «Después», bajo el nombre (también al lado del hexágono). */
+  .table .seat .plate .turn-tag,
+  .table .seat .plate .next-tag,
+  .table .seat.top .plate .turn-tag,
+  .table .seat.top .plate .next-tag {
+    position: absolute;
+    top: 24px;
+    left: 31px;
+    right: auto;
+    transform: none;
+  }
+  .table .seat.right .plate .turn-tag,
+  .table .seat.right .plate .next-tag { left: auto; right: 31px; }
+  .table .seat.top .plate { flex-direction: column; }
+  .table .seat .plate { align-items: flex-start; }
+  .table .seat.right .plate { align-items: flex-end; }
+
+  /* Aviso de lo que se me pide: centrado justo encima de mi mano. El anuncio de la carta, en la columna derecha. */
+  .msgzone {
+    position: absolute;
+    left: calc(env(safe-area-inset-left) + 96px);
+    right: calc(var(--msg-w) + 16px + env(safe-area-inset-right));
+    bottom: calc(var(--card-w) * 1.3 + 14px + env(safe-area-inset-bottom));
+    width: auto;
+    align-items: center;
+  }
+  .msgzone .banner {
+    width: auto !important;
+    max-width: 100% !important;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: stretch;
+  }
+  .msgzone .banner .msg { flex: 1 1 auto; padding: 5px 10px; text-align: center; }
+  .msgzone .banner button,
+  .msgzone .banner button.primary { width: auto; flex: 0 0 auto; padding: 5px 12px; white-space: nowrap; }
+  .msgzone .callout {
+    position: fixed;
+    left: auto;
+    right: calc(env(safe-area-inset-right) + 8px);
+    bottom: calc(env(safe-area-inset-bottom) + 10px);
+    width: var(--msg-w);
+    padding: 10px 10px 8px !important;
+  }
+  /* Compendio: pestañas compactas, a la derecha. */
+  .comp > header .tabs { justify-self: end; grid-template-columns: repeat(4, auto); }
+  .comp > header .tabs button { padding: 3px 10px; }
+}
+/* Vertical con pocos rivales (hay sitio): también el nombre al lado del hexágono. Con 4 o más, encima. */
+@media (orientation: portrait) and (max-width: 600px) {
+  .seat .pill .hex-icon { width: 30px !important; height: 35px !important; }
+  .me-tag .pill .hex-icon { width: 32px !important; height: 37px !important; }
+  .table.k2 .seat.top .pill,
+  .table.k3 .seat.top .pill,
+  .me-tag .pill { flex-direction: row !important; align-items: flex-start; gap: 0; }
+  .table.k2 .seat .pill .pn,
+  .table.k3 .seat .pill .pn,
+  .me-tag .pill .pn { position: relative; z-index: 1; margin: 3px 0 0 -6px; padding: 2px 5px 2px 9px; line-height: 13px; }
+  .table.k2 .seat .pill i,
+  .table.k3 .seat .pill i,
+  .me-tag .pill i { position: relative; z-index: 1; top: auto; bottom: auto; left: auto; margin-top: 3px; padding: 2px 4px; line-height: 13px; box-shadow: none; }
+  .me-tag { top: -44px; }
+}
+
+/* ═════════ Móvil, ajustes: bordes finos, mano centrada, nombre por encima del abanico ═════════ */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  /* Bordes blancos de las cartas más finos (los de 3 px se ven gruesos en una carta pequeña). */
+  .hc .card img,
+  .hc.playable .card img,
+  .hc.picked .card img,
+  .hc.shown .card img,
+  .hc.given .card img,
+  .pile .pc .card img,
+  .deck img,
+  .ghost,
+  .tray .card img { border-width: 1.5px !important; }
+  /* Capas de la ficha: abanico detrás, nombre encima y el hexágono delante de todo. */
+  .seat .pill { z-index: 0; }
+  .hex-hold { z-index: auto !important; }
+  .table .seat .hex-hold .fanbox { z-index: 0 !important; }
+  .seat .pill .pn,
+  .seat .pill i { z-index: 1; }
+  .hex-hold .hex-wrap { z-index: 2; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  /* Columna de avisos más estrecha y con letra más pequeña: la mano y su aviso quedan centrados en la pantalla. */
+  .game { --msg-w: min(196px, 23vw); }
+  .hand {
+    padding-left: calc(var(--msg-w) + 16px + env(safe-area-inset-left));
+    padding-right: calc(var(--msg-w) + 16px + env(safe-area-inset-right));
+  }
+  .msgzone { left: calc(var(--msg-w) + 16px + env(safe-area-inset-left)); }
+  .msgzone .callout { padding: 9px 9px 7px !important; }
+  .msgzone .callout small { font-size: 9px; }
+  .msgzone .callout strong { font-size: 12.5px; letter-spacing: 0.08em; }
+  .msgzone .callout strong svg, .msgzone .callout strong img { width: 18px; height: 18px; }
+  .msgzone .callout > span { font-size: 10.5px; line-height: 1.3; }
+  .msgzone .banner { font-size: 11px; }
+}
+/* Horizontal: los de los lados, con el nombre (y su número) encima del hexágono y por delante de sus cartas. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .table .seat.left .pill,
+  .table .seat.right .pill {
+    display: grid !important;
+    grid-template-columns: auto auto;
+    grid-template-areas: "n c" "h h";
+    justify-content: center;
+    align-items: start;
+  }
+  .table .seat.left .pill .hex-hold,
+  .table .seat.right .pill .hex-hold { grid-area: h; justify-self: center; margin-top: 2px; }
+  .table .seat.left .pill .pn,
+  .table .seat.right .pill .pn { grid-area: n; margin: 0; padding: 2px 6px; }
+  .table .seat.left .pill i,
+  .table .seat.right .pill i { grid-area: c; margin: 0; }
+  .table .seat.left .plate,
+  .table .seat.right .plate { align-items: center; }
+  .table .seat.left .plate .turn-tag,
+  .table .seat.left .plate .next-tag,
+  .table .seat.right .plate .turn-tag,
+  .table .seat.right .plate .next-tag { top: calc(100% - 4px); left: 50%; right: auto; transform: translateX(-50%); }
+}
+/* Móvil: el aviso con sus botones a la derecha, en la misma fila (como en escritorio), aunque haya varios. */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .msgzone .banner {
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: stretch !important;
+    justify-content: center;
+  }
+  .msgzone .banner .msg { flex: 1 1 auto !important; min-width: 0; }
+  .msgzone .banner button,
+  .msgzone .banner button.primary {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+  }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  .msgzone .banner button,
+  .msgzone .banner button.primary { padding: 5px 9px !important; font-size: 11px !important; white-space: normal; max-width: 34vw; text-align: center; }
+}
+/* El anuncio de la carta no pisa su franja de color de arriba. */
+@media (orientation: portrait) and (max-width: 600px) {
+  .msgzone .callout { padding: 10px 10px 6px !important; }
+}
+
+/* Móvil: elegir color en un recuadro centrado sobre la mesa (bajo el triángulo no cabía y pisaba el aviso). */
+@keyframes gem-modal-in { from { opacity: 0; transform: translate(-50%, -50%) scale(0.85); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .gem-under.gem-modal,
+  .game.cursed .gem-under.gem-modal {
+    position: fixed;
+    left: 50% !important;
+    right: auto !important;
+    top: 50% !important;
+    bottom: auto !important;
+    transform: translate(-50%, -50%) !important;
+    z-index: 95;
+    padding: 12px 18px 10px !important;
+    gap: 8px !important;
+    background: rgba(10, 14, 16, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+    animation: gem-modal-in 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2) both !important;
+  }
+  .gem-under .gem-pick { gap: 18px !important; }
+  .gem-under .gem-btn svg { width: 40px !important; }
+  .gem-under .gem-hint {
+    position: static !important;
+    order: -1;
+    transform: none !important;
+    background: none !important;
+    font-size: 11px !important;
+    letter-spacing: 0.18em;
+  }
+}
+
+/* La tarjeta del nombre sale de detrás del hexágono, a media altura (no pegada a su borde). */
+@media (orientation: landscape) and (max-height: 520px) {
+  .table .seat.top .pill,
+  .me-tag .pill { align-items: center !important; }
+  .table .seat.top .pill .pn,
+  .me-tag .pill .pn { margin: 0 0 0 -18px !important; padding: 2px 6px 2px 22px !important; }
+  .table .seat.top .pill i,
+  .me-tag .pill i { margin: 0 !important; }
+  .table .seat.top .plate .turn-tag,
+  .table .seat.top .plate .next-tag { top: 30px; left: 22px; }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  .table.k2 .seat.top .pill,
+  .table.k3 .seat.top .pill,
+  .me-tag .pill { align-items: center !important; }
+  .table.k2 .seat .pill .pn,
+  .table.k3 .seat .pill .pn,
+  .me-tag .pill .pn { margin: 0 0 0 -15px !important; padding: 2px 5px 2px 19px !important; }
+  .table.k2 .seat .pill i,
+  .table.k3 .seat .pill i,
+  .me-tag .pill i { margin: 0 !important; }
+}
+
+/* Mi ficha: el hexágono por delante de la tarjeta del nombre. */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .me-tag .pill { z-index: 0; }
+  .me-tag .pill .hex-wrap { position: relative; z-index: 2; }
+  .me-tag .pill .pn, .me-tag .pill i { position: relative; z-index: 1; }
+  .gem-modal { top: 46% !important; }
+}
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .gem-under.gem-modal { display: flex; flex-direction: column !important; align-items: center; }
+}
+/* Móvil: anuncio de la carta más limpio (separación bajo «quién juega», iconos pequeños, letras menos espaciadas
+   y el «+» de las cartas jugadas juntas en la misma línea que la siguiente). */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .msgzone .callout small { margin-bottom: 4px; letter-spacing: 0.08em; }
+  .msgzone .callout strong { letter-spacing: 0.04em !important; gap: 2px 10px !important; line-height: 1.2; }
+  .msgzone .callout strong > span { display: inline-flex; align-items: center; gap: 5px; }
+  .msgzone .callout strong svg,
+  .msgzone .callout strong img { width: 16px !important; height: 16px !important; flex: none; }
+  .msgzone .callout strong em { font-style: normal; opacity: 0.6; margin: 0 2px 0 0; }
+  .msgzone .callout > span { margin-top: 3px; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .msgzone .callout strong { flex-direction: column; align-items: flex-start !important; }
+}
+/* Móvil: círculo central algo más pequeño (la Pila conserva su tamaño), flechas de sentido más finas
+   y, en horizontal, el Mazo un poco más a la izquierda. */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .disc .flow .arc,
+  .game.col-a .disc .flow .arc { stroke-width: 6 !important; }
+  .disc .flow .tip,
+  .game.col-a .disc .flow .tip { stroke-width: 2 !important; }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  .disc { width: clamp(150px, 50vw, 230px); }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .disc { width: clamp(124px, 40vh, 184px); }
+  .center .deck { margin-right: 26px; }
+}
+/* Móvil: el borde del círculo central más estrecho. */
+@media (orientation: portrait) and (max-width: 600px), (orientation: landscape) and (max-height: 520px) {
+  .game:not(.col-n):not(.cursed) .disc { box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18), 0 10px 24px rgba(0, 0, 0, 0.22); }
+  .game.cursed .disc { box-shadow: 0 0 0 4px var(--cz, #b07d06), 0 10px 24px rgba(0, 0, 0, 0.22); }
 }

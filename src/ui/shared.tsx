@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Attr, Card, Color, KINDS, Kind, cardImage, cardName } from '../game/cards';
 
 export const asset = (p: string) => `${import.meta.env.BASE_URL}${p}`;
@@ -128,4 +129,18 @@ export function rich(text: string, players: string[], colors?: string[], keys = 
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
+}
+
+/** Pantalla de móvil (estrecha en vertical, o baja en horizontal): la mesa y el compendio se reorganizan. */
+export const PHONE_Q = '(max-width: 600px) and (orientation: portrait), (max-height: 520px) and (orientation: landscape)';
+/** Si se cumple una media query (y se actualiza al girar o cambiar el tamaño de la ventana). */
+export function useMedia(q: string) {
+  const [on, setOn] = useState(() => matchMedia(q).matches);
+  useEffect(() => {
+    const m = matchMedia(q);
+    const f = () => setOn(m.matches);
+    m.addEventListener('change', f);
+    return () => m.removeEventListener('change', f);
+  }, [q]);
+  return on;
 }

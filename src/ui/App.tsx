@@ -14,7 +14,7 @@ import type { RoomView } from '../game/room';
 import { Lobby, OnlineEntry, Shell } from './Online';
 import { SetupFields } from './Setup';
 import type { RoomOpts } from '../game/room';
-import { COLOR_ORDER, CardView, Icon, PCOL, asset, ink, rich, toggleFullscreen } from './shared';
+import { COLOR_ORDER, CardView, Icon, PCOL, PHONE_Q, asset, ink, rich, toggleFullscreen, useMedia } from './shared';
 import { PEEK_VISIBLE_MS } from '../game/timing';
 import { EMOTES } from '../game/emotes';
 
@@ -560,26 +560,11 @@ const TRI_COLOR: ['tinieblas' | 'mutis' | 'inutilizar', Color][] = [['tinieblas'
 
 
 /** Dónde se sienta cada rival: borde izquierdo, arriba (con su posición horizontal) o borde derecho, en sentido horario. */
-/** Móvil en vertical: todos los rivales arriba, en fila (a los lados no caben sin pisar la mesa). */
-const SEATS_TALL: Record<number, [string, number][]> = {
-  2: [['top', 27], ['top', 73]],
-  3: [['top', 18], ['top', 50], ['top', 82]],
-  4: [['top', 13], ['top', 38], ['top', 62], ['top', 87]],
-  5: [['top', 14], ['top', 32], ['top', 50], ['top', 68], ['top', 86]],
-};
-/** Pantalla de móvil (estrecha, o en horizontal con poca altura): sin flechas y con lo justo. */
-const PHONE_Q = '(max-width: 600px) and (orientation: portrait), (max-height: 520px) and (orientation: landscape)';
-const TALL_Q = '(max-width: 600px) and (orientation: portrait)';
-function useMedia(q: string) {
-  const [on, setOn] = useState(() => matchMedia(q).matches);
-  useEffect(() => {
-    const m = matchMedia(q);
-    const f = () => setOn(m.matches);
-    m.addEventListener('change', f);
-    return () => m.removeEventListener('change', f);
-  }, [q]);
-  return on;
-}
+/**
+ * Móvil en vertical: todos los rivales arriba, en una fila repartida entre el 4 % y el 86 % del ancho
+ * (a la derecha queda el botón de menú). A los lados no caben sin pisar la mesa ni la mano.
+ */
+const SEATS_ROW: Record<number, [string, number][]> = Object.fromEntries([2, 3, 4, 5].map((k) => [k, Array.from({ length: k }, (_, i) => ['top', 4 + (82 * (i + 0.5)) / k] as [string, number])]));
 const SEATS: Record<number, [string, number][]> = {
   2: [['left', 0], ['right', 0]],
   3: [['left', 0], ['top', 50], ['right', 0]],
@@ -602,7 +587,7 @@ const STATE_TAG: Record<'wait' | 'auto' | 'out', [string, string]> = {
   out: ['fuera', 'Ha quedado fuera de la partida'],
 };
 
-function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, state, onKick, egidaAir, color, next, glow, icon }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; state?: SeatState; onKick?: () => void; egidaAir: string[]; color: string; next: boolean; glow?: boolean; icon?: string }) {
+function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro, say, room, reveal, state, onKick, egidaAir, color, next, glow, icon, phone, fa }: { s: GameState; p: number; side: string; x: number; selectable: boolean; onPick?: () => void; onFoul?: () => void; slapped: boolean; shown: number; intro: Intro; say: boolean; room: number; reveal: Card[]; state?: SeatState; onKick?: () => void; egidaAir: string[]; color: string; next: boolean; glow?: boolean; icon?: string; phone?: boolean; fa?: number }) {
   const pl = s.players[p];
   // Durante el reparto su Maldición está aparte, boca arriba, así que no cuenta en el abanico.
   const have = Math.max(0, Math.min(shown - (curseApart(intro) ? 1 : 0), 14));
@@ -610,22 +595,26 @@ function Seat({ s, p, side, x, selectable, onPick, onFoul, slapped, shown, intro
   const n = Math.min(have + room, 14);
   const mid = (n - 1) / 2;
   const spread = Math.min(11, 70 / Math.max(n, 1));
-  return (
-    <div className={`seat ${side} ${s.turn === p && !intro ? 'turn' : ''} ${selectable ? 'selectable' : ''} ${state ? `away ${state}` : ''}`} style={side === 'top' ? { left: `${x}%` } : undefined} onClick={selectable ? onPick : undefined}>
-      <div className="fanbox" data-anchor={`p${p}`}>
+  // Abanico de sus cartas. En el móvil sale de su hexágono, apuntando hacia la Pila (--fa: ángulo calculado en Game).
+  const fan = (
+    <div className="fanbox" data-anchor={`p${p}`}>
         {Array.from({ length: n }, (_, i) => (
           <img key={i} src={asset('cards/back.webp')} alt="" draggable={false} style={{ transform: `translateX(-50%) rotate(${(i - mid) * spread}deg)`, opacity: i < have ? 1 : 0 }} />
         ))}
         {/* Égida ya usada una vez: boca arriba, al final de su abanico. */}
         {pl.egida && <img className={`fan-egida ${egidaAir.includes(pl.egida.id) ? 'air' : ''}`} data-egida={p} src={asset('cards/egida.webp')} alt="Égida boca arriba (le queda 1 uso)" title="Égida boca arriba: le queda 1 uso" draggable={false} style={{ transform: `translateX(-50%) rotate(${(n - mid) * spread}deg)` }} />}
-      </div>
+    </div>
+  );
+  return (
+    <div data-p={p} className={`seat ${side} ${s.turn === p && !intro ? 'turn' : ''} ${selectable ? 'selectable' : ''} ${state ? `away ${state}` : ''}`} style={{ ...(side === 'top' ? { left: `${x}%` } : {}), '--fa': `${fa ?? 90}deg` } as React.CSSProperties} onClick={selectable ? onPick : undefined}>
+      {!phone && fan}
       {reveal.length > 0 && (
         <div className="seat-reveal" aria-label={`${pl.name} enseña ${reveal.length} carta(s)`}>
           {reveal.map((c) => <img key={c.id} src={asset(cardImage(c))} alt={cardName(c)} />)}
         </div>
       )}
       <div className="plate">
-        <span className={`pill ${glow ? 'spin-glow' : ''}`} style={{ background: color, color: ink(color), '--gc': color } as React.CSSProperties}>{icon && <HexIcon icon={icon} color={color} size={46} />}{pl.name}<i>{shown}</i></span>
+        <span className={`pill ${glow ? 'spin-glow' : ''}`} style={{ background: color, color: ink(color), '--gc': color } as React.CSSProperties}>{phone ? <span className="hex-hold">{fan}{icon && <HexIcon icon={icon} color={color} size={46} />}</span> : icon && <HexIcon icon={icon} color={color} size={46} />}<span className="pn">{pl.name}</span><i>{shown}</i></span>
         {glow && <span className="start-tag" style={{ background: color, color: ink(color) }}>¡Empieza!</span>}
         {s.turn === p && !intro && s.phase.t !== 'over' && <span className="turn-tag" style={{ background: color, color: ink(color), boxShadow: `0 0 18px ${color}` }}>Su turno</span>}
         {next && s.turn !== p && !intro && <span className="next-tag" style={{ borderColor: color }}>Después</span>}
@@ -721,7 +710,36 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     else showEmote(ME, e);
   };
   const phone = useMedia(PHONE_Q);
-  const tall = useMedia(TALL_Q);
+  /** Móvil en vertical: los rivales en fila arriba (en horizontal se sientan alrededor de la mesa, como en grande). */
+  const tall = useMedia('(max-width: 600px) and (orientation: portrait)');
+  /** Móvil: hacia dónde apunta el abanico de cada rival (desde el centro de su hexágono hacia la Pila), en grados. */
+  const [fanAngles, setFanAngles] = useState<Record<number, number>>({});
+  useEffect(() => {
+    if (!phone) return;
+    const calc = () => {
+      const pile = document.querySelector('[data-anchor="pile"]')?.getBoundingClientRect();
+      if (!pile) return;
+      const px = pile.left + pile.width / 2, py = pile.top + pile.height / 2;
+      const out: Record<number, number> = {};
+      document.querySelectorAll<HTMLElement>('.seat[data-p] .hex-hold').forEach((h) => {
+        const r = h.getBoundingClientRect();
+        const p = Number(h.closest<HTMLElement>('.seat')!.dataset.p);
+        out[p] = Math.round((Math.atan2(py - (r.top + r.height / 2), px - (r.left + r.width / 2)) * 180) / Math.PI);
+      });
+      setFanAngles((v) => (JSON.stringify(v) === JSON.stringify(out) ? v : out));
+    };
+    calc();
+    const t = window.setTimeout(calc, 500);
+    window.addEventListener('resize', calc);
+    return () => { clearTimeout(t); window.removeEventListener('resize', calc); };
+  }, [phone, tall, s.players.length, intro]);
+  // El menú de emoticonos se cierra al tocar en cualquier otro sitio.
+  useEffect(() => {
+    if (!emoteOpen) return;
+    const off = (e: PointerEvent) => { if (!(e.target as Element).closest?.('.emote-pick, .emote-btn')) setEmoteOpen(false); };
+    document.addEventListener('pointerdown', off);
+    return () => document.removeEventListener('pointerdown', off);
+  }, [emoteOpen]);
   const seatState = (p: number): SeatState => (net && rv ? rv.seats[p]?.state : s.players[p].out ? 'out' : undefined);
   // Online: se avisa al servidor cuando ya se ha visto el reparto, para que empiece a correr el juego.
   useEffect(() => { if (net && intro === null && spinPhase === 'off') net.send({ t: 'ready' }); }, [net, intro, spinPhase]);
@@ -738,11 +756,13 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     setSpin({ cur: s.turn, done: false, reel: seq, go: false });
     timers.push(window.setTimeout(() => setSpin((v) => v && { ...v, go: true }), 120));
     timers.push(window.setTimeout(() => setSpin((v) => v && { ...v, done: true }), 120 + REEL_MS));
-    timers.push(window.setTimeout(() => { setSpin(null); setSpinPhase('off'); }, 120 + REEL_MS + 2600));
+    timers.push(window.setTimeout(endSpin, 120 + REEL_MS + 1600));
     spinTimers.current = timers;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intro, spinPhase]);
   useEffect(() => () => spinTimers.current.forEach(clearTimeout), []);
+  /** Quita el cartel de quién empieza (al acabar su tiempo o al tocarlo, una vez parada la ruleta). */
+  const endSpin = () => { spinTimers.current.forEach(clearTimeout); setSpin(null); setSpinPhase('off'); };
   const startedAt = useRef(Date.now());
   /** Cuándo terminó (para parar el temporizador y enseñar la duración en la pantalla final). */
   const endedAt = useRef<number | null>(null);
@@ -756,6 +776,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const send = (a: Action) => {
     // En el tutorial solo se puede hacer lo que pide el paso.
     if (!tutor.allow(a)) return;
+    // Mientras sale el cartel de quién empieza no se juega (el cartel tapa la mesa): se quita tocándolo.
+    if (spinPhase !== 'off') return;
     // Antes de cada acción mía se anota dónde está cada carta de mi mano, para animarla desde ahí.
     document.querySelectorAll<HTMLElement>('[data-card]').forEach((el) => (origins.current[el.dataset.card!] = el.getBoundingClientRect()));
     dispatch(a);
@@ -1484,7 +1506,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       i = j;
     }
   }
-  const step = Math.min(0.5, 4.6 / Math.max(n, 1)); // fracción del ancho de carta entre una carta y la siguiente
+  // fracción del ancho de carta entre una carta y la siguiente (en el móvil en vertical, más juntas para que quepan)
+  const step = Math.min(0.5, (tall ? 3.9 : 4.6) / Math.max(n, 1));
   const mid = (n - 1) / 2;
 
   const cursed = isCursedEnv(s);
@@ -1492,7 +1515,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   /** Cartas que se ven en el Mazo (en el reparto boca abajo, también las que aún no se han repartido). */
   const deckN = facedown ? s.deck.length + s.players.reduce((a, p) => a + p.hand.length - shown(p.id), 0) + 1 : s.deck.length;
 
-  const seats = (tall ? SEATS_TALL : SEATS)[rivals.length];
+  const seats = (tall ? SEATS_ROW : SEATS)[rivals.length];
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
     <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${cfg.tutorial ? 'tutorial' : ''} ${dealing ? 'dealing' : ''} ${spinPhase === 'run' ? 'spinning' : ''} ${spin?.done ? 'spin-dir-on' : ''} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
@@ -1507,6 +1530,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         <button className="round" title="Compendio de cartas" onClick={() => setComp(true)}>?</button>
         <button className="round" title="Registro de la partida" onClick={() => setShowLog((v) => !v)}>≡</button>
         <button className="round" title="Salir" onClick={() => (ph.t === 'over' ? onExit() : setPause('exit'))}>×</button>
+        {/* Móvil: todo lo anterior dentro de un único menú. */}
+        <button className="round menu-btn" title="Menú" aria-label="Menú de la partida" onClick={() => (ph.t === 'over' ? onExit() : setPause('menu'))}>{ph.t === 'over' ? '×' : '☰'}</button>
       </div>
 
       {emotes.map((m) => <span key={m.k} className="emote-bubble" style={{ left: m.x, top: m.y }} aria-label={`${m.p === ME ? 'Tú' : s.players[m.p]?.name}: ${m.e}`}>{m.e}</span>)}
@@ -1534,6 +1559,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             room={facedown ? p.hand.length - shown(p.id) : room[p.id] ?? 0}
             glow={!!spin?.done && spin.cur === p.id}
             icon={icons[p.id]}
+            phone={phone}
+            fa={fanAngles[p.id]}
           />
         ))}
 
@@ -1587,7 +1614,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
               return <img key={k} style={spin} className={`t-${k} ${on ? 'on' : ''}`} src={asset(`ui/${k}-${on ? 'on' : 'off'}.webp`)} alt={`${label}: ${on ? 'activo' : 'inactivo'}`} title={`${label}: ${on ? 'activo' : 'inactivo'}`} />;
             })}
             {/* Elegir color: gemas pequeñas debajo de la trifuerza, cuando ya ha terminado la animación de la carta. */}
-            {tinte && !envFx && pickReady && (
+            {tinte && !envFx && pickReady && !phone && (
               <div className="gem-under">
                 <GemPicker size={40} onPick={(c) => send({ type: 'color', player: ME, color: c })} />
                 <span className="gem-hint">Elige color</span>
@@ -1653,7 +1680,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       <div className={`hand ${s.turn === ME && !dealing ? 'turn' : ''}`}>
         <div className="me-tag">
           {/* Pulsando mi nombre se abre el menú de emoticonos (encima de él). */}
-          <span role="button" tabIndex={0} title="Enviar un emoticono" aria-expanded={emoteOpen} onClick={() => setEmoteOpen((v) => !v)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setEmoteOpen((v) => !v)} className={`pill emote-pill ${s.turn === ME && !dealing ? 'on' : ''} ${spin?.done && spin.cur === ME ? 'spin-glow' : ''}`} style={{ background: colors[ME], color: ink(colors[ME]), '--gc': colors[ME] } as React.CSSProperties}><HexIcon icon={icons[ME]} color={colors[ME]} size={46} />{me.name}<i>{shown(ME)}</i><b className="emote-hint" aria-hidden="true">☺</b></span>
+          <span className={`pill ${s.turn === ME && !dealing ? 'on' : ''} ${spin?.done && spin.cur === ME ? 'spin-glow' : ''}`} style={{ background: colors[ME], color: ink(colors[ME]), '--gc': colors[ME] } as React.CSSProperties}><HexIcon icon={icons[ME]} color={colors[ME]} size={46} /><span className="pn">{me.name}</span><i>{shown(ME)}</i></span>
+          {/* Emoticonos: su propio botón, junto a mi nombre (así no se abre sin querer al tocar cerca de la mano). */}
+          <button className="emote-btn" title="Enviar un emoticono" aria-label="Enviar un emoticono" aria-expanded={emoteOpen} onClick={() => setEmoteOpen((v) => !v)}>☺</button>
           {emoteOpen && (
             <div className="emote-pick" role="menu" aria-label="Emoticonos">
               {EMOTES.map((e) => <button key={e} role="menuitem" onClick={() => sendEmote(e)}>{e}</button>)}
@@ -1728,6 +1757,13 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       )}
       {ph.t === 'adivinar' && ph.player !== ME && <AdivinarFx key={`adiv${ph.player}`} actor={ph.player} name={name(ph.player)} n={ph.cards.length} />}
       {countText && <div key={countText} className="count-big" aria-live="assertive">{countText}</div>}
+      {/* Móvil: elegir color en un recuadro centrado sobre la mesa (bajo la trifuerza no cabe). */}
+      {tinte && !envFx && pickReady && phone && (
+        <div className="gem-under gem-modal" role="dialog" aria-label="Elige color">
+          <span className="gem-hint">Elige color</span>
+          <GemPicker size={40} onPick={(c) => send({ type: 'color', player: ME, color: c })} />
+        </div>
+      )}
       {/* Elegir color: flecha de los tres colores desde mi mano hasta las gemas, como un efecto dirigido. */}
       {tinte && !envFx && pickReady && !phone && <PickArrow />}
       {/* Quién actúa sobre quién: flechas desde que empieza el efecto hasta que acaba (una por cada lanzador). */}
@@ -1783,7 +1819,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {net && rv && rv.waiting.length > 0 && ph.t !== 'over' && <WaitBox rv={rv} recvAt={remote.recvAt} isHost={isHost} decide={(p, how) => net.send({ t: 'drop', p, how })} />}
       {net && rv && rv.you >= 0 && rv.seats[rv.you]?.state === 'out' && ph.t !== 'over' && <div className="net-banner" role="status">Has quedado fuera de la partida: puedes seguir mirando.</div>}
       {spin && (
-        <div className={`spin-box ${spin.done ? 'done' : ''}`} style={{ '--sc': colors[spin.cur], '--n': spin.reel.length } as React.CSSProperties} aria-live="polite">
+        <div className={`spin-box ${spin.done ? 'done' : ''}`} style={{ '--sc': colors[spin.cur], '--n': spin.reel.length } as React.CSSProperties} aria-live="polite" onClick={spin.done ? endSpin : undefined}>
           <small>{spin.done ? 'Empieza' : '¿Quién empieza?'}</small>
           {/* Ventana de la tragaperras (tamaño fijo): la tira baja y se para en quien empieza. */}
           <div className="reel-win" aria-label={spin.done ? `Empieza ${spin.cur === ME ? 'tú' : name(spin.cur)}` : undefined}>
@@ -1805,10 +1841,13 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             {pause === 'menu' ? (
               <>
                 <h2>Pausa</h2>
+                {/* En el móvil el reloj de la partida no está en pantalla: se ve aquí. */}
+                <div className="pause-clock"><GameClock from={s.startedAt ?? startedAt.current} to={endedAt.current} /></div>
                 <p>{net ? 'Es una partida online: aunque tengas este menú abierto, la partida sigue.' : 'La partida está detenida: nadie juega y los tiempos no corren.'}</p>
                 <button className="primary" onClick={() => setPause(null)}>Continuar</button>
                 <button className="fs-only" onClick={toggleFullscreen}>Pantalla completa</button>
                 <button onClick={() => { setPause(null); setComp(true); }}>Compendio</button>
+                <button className="phone-only" onClick={() => { setPause(null); setShowLog(true); }}>Registro de la partida</button>
                 {(!net || isHost) && (
                   <label className="check pause-check">
                     <input type="checkbox" checked={timerOn} onChange={(e) => (net ? net.opts({ timer: e.target.checked }) : setLocalTimer(e.target.checked))} />

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ATTR_HELP, ATTR_NAME, Attr, BETA, Color, HELP, KINDS, Kind, RANK_NAME, cardImage } from '../game/cards';
-import { AttrIcon, CATS, Icon, PCOL, RankIcon, Triforce, asset, ink, kindsOf, sample } from './shared';
+import { AttrIcon, CATS, Icon, PCOL, PHONE_Q, RankIcon, Triforce, asset, ink, kindsOf, sample, useMedia } from './shared';
 import { HexIcon } from './Account';
 
 /** Color con el que se enseña cada carta de color en el compendio, para que no salgan todas iguales. */
@@ -670,9 +670,10 @@ function Mechanics({ open }: { open: (k: Kind) => void }) {
   );
 }
 
-function CardsTab({ kind, setKind }: { kind: Kind; setKind: (k: Kind) => void }) {
+function CardsTab({ kind, setKind, sheet, setSheet }: { kind: Kind; setKind: (k: Kind) => void; sheet: boolean; setSheet: (v: boolean) => void }) {
   const [filter, setFilter] = useState<Filter>({ t: 'all' });
   const [big, setBig] = useState(false);
+  const phone = useMedia(PHONE_Q);
   const list = ALL.filter((k) => passes(filter, k));
   const mid = (list.length - 1) / 2;
   const ov = list.length <= 8 ? -0.08 : list.length <= 12 ? -0.34 : -0.5;
@@ -711,18 +712,22 @@ function CardsTab({ kind, setKind }: { kind: Kind; setKind: (k: Kind) => void })
   const F = (f: Filter, label: React.ReactNode, key: string) => (
     <button key={key} className={same(filter, f) ? 'on' : ''} onClick={() => pickFilter(f)}>{label}</button>
   );
+  const filters = (
+    <nav className="attr-nav" aria-label="Filtrar cartas">
+      {F({ t: 'all' }, 'Todas', 'all')}
+      <i className="sep" />
+      {CATS.map((a) => F({ t: 'attr', a }, <><AttrIcon attr={a} size={20} />{ATTR_NAME[a]}</>, a))}
+      <i className="sep" />
+      {RANKS.map(([r, label]) => F({ t: 'rank', r }, <>{r > 0 && <RankIcon rank={r} size={18} />}{label}</>, `r${r}`))}
+      <i className="sep" />
+      {F({ t: 'beta' }, <>Arcanas <i className="beta">Beta</i></>, 'beta')}
+    </nav>
+  );
+  if (phone) return <PhoneCards list={list} kind={kind} setKind={setKind} sheet={sheet} setSheet={setSheet} filters={filters} />;
   return (
     // --ch (alto de referencia de las cartas de abajo) lo usan la fila y el hueco que le guarda sitio.
     <div className="cards-tab" style={{ '--ch': `clamp(${62 * zoom}px, ${6.4 * zoom}vw, ${118 * zoom}px)` } as React.CSSProperties}>
-      <nav className="attr-nav" aria-label="Filtrar cartas">
-        {F({ t: 'all' }, 'Todas', 'all')}
-        <i className="sep" />
-        {CATS.map((a) => F({ t: 'attr', a }, <><AttrIcon attr={a} size={20} />{ATTR_NAME[a]}</>, a))}
-        <i className="sep" />
-        {RANKS.map(([r, label]) => F({ t: 'rank', r }, <>{r > 0 && <RankIcon rank={r} size={18} />}{label}</>, `r${r}`))}
-        <i className="sep" />
-        {F({ t: 'beta' }, <>Arcanas <i className="beta">Beta</i></>, 'beta')}
-      </nav>
+      {filters}
       <main className="card-main">
         <RotCard kind={kind} className="big" />
         <KindInfo kind={kind} full />
@@ -747,6 +752,63 @@ function CardsTab({ kind, setKind }: { kind: Kind; setKind: (k: Kind) => void })
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Cartas en el móvil: primero todas en cuadrícula (con los filtros en una fila que se desliza) y, al tocar una,
+ * su ficha a pantalla completa: carta, explicación y mini partida una debajo de otra. Se pasa de carta con las
+ * flechas o deslizando el dedo a los lados.
+ */
+function PhoneCards({ list, kind, setKind, sheet, setSheet, filters }: { list: Kind[]; kind: Kind; setKind: (k: Kind) => void; sheet: boolean; setSheet: (v: boolean) => void; filters: React.ReactNode }) {
+  const [big, setBig] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const touch = useRef<{ x: number; y: number } | null>(null);
+  // Al abrir la ficha o pasar de carta, arriba del todo; al volver a la cuadrícula, la carta que se miraba a la vista.
+  useEffect(() => {
+    if (sheet) box.current?.scrollTo({ top: 0 });
+    else box.current?.querySelector('.card-grid button.on')?.scrollIntoView({ block: 'center' });
+  }, [sheet, kind]);
+  const i = Math.max(0, list.indexOf(kind));
+  const go = (d: number) => list.length && setKind(list[(i + d + list.length) % list.length]);
+  if (sheet) return (
+    <div className="cards-tab phone" ref={box}>
+      <div className="sheet-bar">
+        <button onClick={() => setSheet(false)}>← Todas</button>
+        <span>{i + 1} / {list.length}</span>
+        <button onClick={() => go(-1)} aria-label="Carta anterior">‹</button>
+        <button onClick={() => go(1)} aria-label="Carta siguiente">›</button>
+      </div>
+      <main
+        className="card-sheet"
+        onTouchStart={(e) => { touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
+        onTouchEnd={(e) => {
+          const t = touch.current;
+          touch.current = null;
+          if (!t || (e.target as Element).closest('.demo, .rot-ctl')) return;
+          const dx = e.changedTouches[0].clientX - t.x, dy = e.changedTouches[0].clientY - t.y;
+          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 2) go(dx < 0 ? 1 : -1);
+        }}
+      >
+        <RotCard kind={kind} className="big" />
+        <KindInfo kind={kind} full />
+        <Demo kind={kind} onBig={() => setBig(true)} />
+        {big && <DemoModal kind={kind} onClose={() => setBig(false)} />}
+      </main>
+    </div>
+  );
+  return (
+    <div className="cards-tab phone" ref={box}>
+      {filters}
+      <div className="card-grid">
+        {list.map((k) => (
+          <button key={k} className={k === kind ? 'on' : ''} onClick={() => { setKind(k); setSheet(true); }}>
+            <img src={pic(k)} alt="" loading="lazy" />
+            <small>{nameOf(k)}{BETA.includes(k) && <i className="beta">Beta</i>}</small>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -797,6 +859,9 @@ function Hierarchy({ open }: { open: (k: Kind) => void }) {
 export function Compendium({ start, tab: tab0, onClose }: { start?: Kind; tab?: CompTab; onClose: () => void }) {
   const [tab, setTab] = useState<CompTab>(tab0 ?? 'cartas');
   const [kind, setKind] = useState<Kind>(repOf(start ?? 'travesura'));
+  /** Móvil: la ficha de la carta abierta (si no, se ve la cuadrícula). Se abre directamente si se llega desde una carta. */
+  const [sheet, setSheet] = useState(!!start);
+  const openCard = (k: Kind) => { setKind(k); setSheet(true); setTab('cartas'); };
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => { body.current?.scrollTo({ top: 0 }); }, [tab]);
   return (
@@ -805,12 +870,12 @@ export function Compendium({ start, tab: tab0, onClose }: { start?: Kind; tab?: 
         <button onClick={onClose}>← Volver</button>
         <h1>Compendio</h1>
         <div className="tabs">
-          {TABS.map(([t, label]) => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{label}</button>)}
+          {TABS.map(([t, label]) => <button key={t} className={tab === t ? 'on' : ''} onClick={() => { setTab(t); if (t === 'cartas' && tab === 'cartas') setSheet(false); }}>{label}</button>)}
         </div>
       </header>
-      {tab === 'cartas' ? <CardsTab kind={kind} setKind={setKind} /> : (
+      {tab === 'cartas' ? <CardsTab kind={kind} setKind={setKind} sheet={sheet} setSheet={setSheet} /> : (
         <div className="guide-scroll" ref={body}>
-          {tab === 'jugar' ? <HowTo /> : tab === 'jerarquia' ? <Hierarchy open={(k) => { setKind(k); setTab('cartas'); }} /> : <Mechanics open={(k) => { setKind(k); setTab('cartas'); }} />}
+          {tab === 'jugar' ? <HowTo /> : tab === 'jerarquia' ? <Hierarchy open={openCard} /> : <Mechanics open={openCard} />}
         </div>
       )}
     </div>

@@ -99,11 +99,27 @@ URLs de depuración: `?demo=N` (partida directa con N jugadores), `&mano=carta,c
   - `/api` nunca pasa por la caché;
   - cada versión nueva tiene su propia caché.
 - **Pantallas con muesca:** `viewport-fit=cover`; los fondos llegan a los bordes y los controles usan `env(safe-area-inset-*)`.
-- **Móvil** (media queries «vertical estrecho» y «horizontal bajo», al final de `styles.css`):
-  - tamaños según la pantalla;
-  - en vertical, los rivales en fila arriba (`SEATS_TALL`);
-  - sin flechas ni botón de pantalla completa;
-  - bandejas compactas.
+- **Móvil** (media queries «vertical estrecho» y «horizontal bajo», al final de `styles.css`; en código, `PHONE_Q` / `useMedia`
+  de `shared.tsx`):
+  - tamaños según la pantalla; la mano se ve entera;
+  - cada rival es un hexágono grande con su número de cartas, su nombre y un abanico pequeño con sus cartas que sale del
+    hexágono apuntando a la Pila (en el móvil el abanico va dentro de `.hex-hold`; el ángulo lo calcula `Game` en `fanAngles`
+    y llega como `--fa`). En horizontal: los de arriba con el nombre al lado del hexágono, pegado a su borde superior; los
+    de los lados, con el nombre encima. En vertical van en fila arriba (`SEATS_ROW`; con 2-3 rivales, nombre al lado; con
+    más, encima); en horizontal, alrededor de la mesa como en grande (`SEATS`). Mi ficha, abajo a la izquierda;
+  - mensajes: el aviso de lo que se me pide va justo encima de mi mano, con sus botones a la derecha en la misma fila
+    (como en escritorio). En horizontal, el anuncio de la carta jugada va en una columna estrecha abajo a la derecha y la
+    mano queda centrada; en vertical, encima del aviso;
+  - bordes blancos de las cartas más finos (1,5 px);
+  - elegir color: recuadro centrado sobre la mesa (`gem-modal`), en vez de las gemas bajo la trifuerza;
+  - arriba solo un botón de menú (☰): la pausa incluye el reloj de la partida, el compendio y el registro;
+  - sin flechas, sin mini historial y sin botón de pantalla completa;
+  - bandejas compactas; fin de partida con los botones siempre a la vista;
+  - compendio: cabecera compacta («Compendio» a la derecha) y pestañas en una fila fina; «Cartas» es una cuadrícula y al tocar una carta se abre su ficha a pantalla
+    completa (se pasa de carta con las flechas o deslizando el dedo) (`PhoneCards` en `Compendium.tsx`);
+  - portada: sin el enlace repetido al compendio y con el contenido centrado; iconos de jugador en dos filas que se deslizan.
+- **En todas las pantallas:** los emoticonos tienen su propio botón junto a mi nombre (el menú se cierra al tocar fuera), y el
+  cartel de «¿Quién empieza?» se cierra al tocarlo; mientras está, no se puede jugar.
 - El ajuste del móvil de «reducir movimiento» se ignora a propósito: el juego se explica con sus animaciones.
 
 ## 7. Arte
