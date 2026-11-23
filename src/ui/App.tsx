@@ -6,7 +6,7 @@ import { Level } from '../game/bot';
 import { Compendium, CompendioButton, HelpDock } from './Compendium';
 import { TutorGate, TutorOverlay, useTutor } from './Tutorial';
 import { AccountChip, EntryScreen, GuestScreen, HexIcon, ProfileScreen } from './Account';
-import { initAccount, myProfile, useAccount } from '../net/auth';
+import { finishHandoffHere, initAccount, myProfile, useAccount } from '../net/auth';
 import { randomIcon } from '../game/icons';
 import { GameConfig, ME, Timer, setMe, useGame } from './useGame';
 import { BUILD, NetClient, playerId, sendLocalBug, useNet } from '../net/client';
@@ -2679,7 +2679,7 @@ export default function App() {
   if (screen.k === 'home' || screen.k === 'setup' || screen.k === 'entry' || screen.k === 'account') {
     if (acc.status === 'loading') return <Shell><p className="tagline">Cargando…</p></Shell>;
     // Safari, al volver de Google para la app instalada en iPhone: la sesión se termina de abrir en la app.
-    if (acc.status === 'handoff') return <Shell><h1>Listo</h1><p className="tagline">Vuelve a la app de Maldiciones</p><p className="as-account">Ya puedes cerrar esta ventana: la app termina de iniciar tu sesión.</p></Shell>;
+    if (acc.status === 'handoff') return <Shell><h1>Listo</h1><p className="tagline">Sesión iniciada con Google</p><p className="as-account">Si esta ventana no se cierra sola, ciérrala para volver a la app o sigue desde aquí.</p><div className="play-row"><button className="play" onClick={() => void finishHandoffHere()}>Ir al inicio</button></div></Shell>;
     if (acc.status === 'out') return <Shell><EntryScreen /></Shell>;
     if (acc.status === 'in' && acc.profile === undefined) return <Shell><p className="tagline">Cargando tu cuenta…</p></Shell>;
     if (acc.status === 'in' && acc.profile === null) return <Shell><ProfileScreen first /></Shell>;

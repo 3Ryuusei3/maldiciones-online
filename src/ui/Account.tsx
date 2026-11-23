@@ -223,9 +223,7 @@ export function ProfileScreen({ first, onDone }: { first?: boolean; onDone?: () 
         {saved && !first && <p className="ok">Guardado.</p>}
         <div className="play-row"><button className="play" type="submit" disabled={busy}>{busy ? '…' : first ? 'Empezar a jugar' : 'Guardar'}</button></div>
       </form>
-      <div className="home-links">
-        <button onClick={signOut}>Cerrar sesión</button>
-      </div>
+
     </>
   );
 }

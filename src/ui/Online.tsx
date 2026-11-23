@@ -27,7 +27,8 @@ export function Shell({ children, onAccount, onBack }: { children: React.ReactNo
             <button className="tool-btn fs-btn2" onClick={toggleFullscreen} title="Pantalla completa" aria-label="Pantalla completa">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></svg>
             </button>
-            {onAccount && <AccountExit />}
+            {/* Salir (o entrar, si es invitado) siempre en la cabecera, también en «Mi cuenta». */}
+            {(onAccount || onBack) && <AccountExit />}
           </div>
         </div>
         {children}

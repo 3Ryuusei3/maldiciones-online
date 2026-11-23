@@ -189,8 +189,35 @@ async function handoffFromSafari(): Promise<boolean> {
     try { await fetch(httpUrl(`/api/handoff/${id}`), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ v }) }); } catch { /* sin conexión */ }
   }
   history.replaceState(history.state, '', location.pathname);
+  handoffId = id;
   set({ status: 'handoff' });
+  // Esta ventana la abrió la app: se cierra sola para volver a ella (si iOS no deja, queda el botón).
+  setTimeout(() => { try { window.close(); } catch { /* nada */ } }, 700);
   return true;
+}
+let handoffId: string | null = null;
+
+/**
+ * Botón «Ir al inicio» de la página de traspaso: si la app no ha recogido aún el código, se termina de entrar aquí
+ * mismo; si ya lo recogió, se va al inicio sin más.
+ */
+export async function finishHandoffHere() {
+  const id = handoffId;
+  handoffId = null;
+  if (id) {
+    try {
+      const r = await fetch(httpUrl(`/api/handoff/${id}`));
+      const j = (await r.json()) as { v?: string | null };
+      if (j.v) {
+        const u = new URL(location.href);
+        u.searchParams.set(VERIFIER, j.v);
+        history.replaceState(history.state, '', u.href);
+      }
+    } catch { /* sin conexión */ }
+  }
+  jwt = null;
+  set({ status: 'loading' });
+  await initAccount();
 }
 
 /** En la app: espera a que Safari deje el código del inicio de sesión con Google y termina de entrar. */
