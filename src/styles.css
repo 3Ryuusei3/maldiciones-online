@@ -9143,3 +9143,24 @@ body { background: #0a0e10; }
   .game:not(.col-n):not(.cursed) .disc { box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18), 0 10px 24px rgba(0, 0, 0, 0.22); }
   .game.cursed .disc { box-shadow: 0 0 0 4px var(--cz, #b07d06), 0 10px 24px rgba(0, 0, 0, 0.22); }
 }
+
+/* Tinieblas: cuando alguien falla a ciegas fuera de su turno, el aviso se realza para recordarlo. */
+.blind-hint.miss {
+  animation: blind-miss 1.6s ease-out;
+}
+@keyframes blind-miss {
+  0%, 40% {
+    background: #b98af0;
+    color: #14101c;
+    box-shadow: 0 0 0 3px rgba(185, 138, 240, 0.5), 0 0 26px rgba(185, 138, 240, 0.8);
+    scale: 1.08;
+  }
+  100% {
+    scale: 1;
+  }
+}
+
+/* El menú de emoticonos, por encima de todo lo de la mesa (el mini historial se oculta mientras está abierto). */
+.hand:has(.emote-pick) {
+  z-index: 320;
+}

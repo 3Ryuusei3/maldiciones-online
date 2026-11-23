@@ -81,7 +81,7 @@ Columnas: cuántas hay · atributo · Jerarquía. Colores: a = amarillo, m = mor
 | --- | --- | --- | --- |
 | **Aplastar** (arte: «Embestida») | 2 por color · I | Todos menos el lanzador pulsan la mano en la Pila; el último roba 3. Descarta las Égidas boca arriba. | Fase `aplastar`. El robo se puede defender o reflejar. Duplicarlo (solo cuando el anterior acabó) = otra ronda completa (`queue`). Con Inutilizar, el de color saca la mano igual y quien la pulse roba 3 (`fake`). |
 | **Cristalizar** | 1 de cada color del cristal · II | Los oponentes roban 3 salvo que dejen una Gema del color del cristal, una Gema Tricolor o una Égida. | La carta es incolora con `tone` (color del cristal). **No se puede reflejar.** Con Antitodo, todos quedan exentos. El lanzador también puede dejar sus Gemas. |
-| **Travesura** | 2 por color + 3 incoloras · III | El siguiente recibe 1 carta tuya y roba 2. | Se encadena con otras Travesuras acumulando (1 carta + 2 robos por cada una). Las cartas se eligen y se dan al final (fase `give`). Reflejada: solo cuenta la última de la cadena; no se puede encadenar a un Reflejo. Con Inutilizar, quien la recibiría decide si acepta el efecto (si acepta, roba 3). |
+| **Travesura** | 2 por color + 3 incoloras · III | El siguiente recibe 1 carta tuya y roba 2. | Se encadena con otras Travesuras acumulando (1 carta + 2 robos por cada una). Las cartas se eligen y se dan al final (fase `give`). Reflejada: solo cuenta la última de la cadena; no se puede encadenar a un Reflejo. **Turno:** quien encadena pasa el turno (después juega quien la recibe). Reflejada a quien echó la última, el turno es suyo; a otro, juega el siguiente a quien la reflejó en el sentido de antes del Reflejo (`s.after` en el caso `reflejo` de `handleReact`). Con Inutilizar, quien la recibiría decide si acepta el efecto (si acepta, roba 3). |
 | **Trastada** (beta) | 1 · ◆ | Como Travesura, más fuerte: recibe 2 cartas tuyas y roba 3. | Se encadena con Travesuras y Trastadas. |
 
 ### Defensa (no se echan solas)
@@ -89,7 +89,7 @@ Columnas: cuántas hay · atributo · Jerarquía. Colores: a = amarillo, m = mor
 | Carta | Cuántas · Jerarquía | Efecto | Detalles |
 | --- | --- | --- | --- |
 | **Égida** | 3 · II | Protege de un Ataque, Magia o Reflejo. 2 usos. | Tras el primer uso queda boca arriba junto a su dueño (`player.egida`); en el segundo se descarta encima de la Pila y su dueño elige color. Antitodo y Aplastar eliminan las boca arriba. Contra el Imán, quien se protege queda fuera del todo (tampoco recibe reparto). |
-| **Reflejo** | 6 · III | Refleja el último Ataque a un jugador a elegir, o la última Magia a todos. Cambia el sentido. | Se pueden reflejar efectos propios u otros Reflejos, pero no un Antitodo. Una Magia reflejada cambia de efecto (ver columna «reflejada» abajo). |
+| **Reflejo** | 6 · III | Refleja el último Ataque a un jugador a elegir, o la última Magia a todos. Cambia el sentido. | Se pueden reflejar efectos propios u otros Reflejos, pero no un Antitodo. El Ataque (también una Travesura predestinada) va a quien se elija; en Tinieblas, al acertarlo a ciegas, también se elige (`aim` en la fase `react`; si pasa o se acaba el tiempo, va a quien lo lanzó). Una Magia reflejada cambia de efecto (ver columna «reflejada» abajo). |
 
 ### Magia (se dirige a cualquier jugador; reflejada afecta a todos)
 
@@ -117,7 +117,7 @@ Con **Inutilizar** activo, la Codicia de color no tiene efecto: quien la juega d
 | --- | --- | --- | --- |
 | **Mutis** | 2 por color · I | Silencio: no se anuncian las cartas (quien hable roba 3). | Con Inutilizar no se puede activar ni desactivar (se pregunta; si dice que sí, roba 3). |
 | **Inutilizar** | 3 · II | Las cartas de color se pueden jugar pero no tienen efecto (fase `inutil`). | Pone a prueba la atención: Aplastar de color saca la mano igual; Travesura, Codicia, Adivinar o Mutis de color preguntan si se empieza o se recibe el efecto (quien diga que sí roba 3). |
-| **Tinieblas** | 3 · III | Todos juegan con las cartas boca abajo hasta que el turno vuelve 3 veces al lanzador. | Al caer hay una cuenta atrás para memorizar la mano (durante ella no se puede jugar ni usar cartas). En tu turno juegas a ciegas o robas 3. Si la carta no encadena, vuelve a tu mano, robas 1 y pierdes el turno. Fuera de tu turno puedes probar una carta (duplicar, Antitodo, defenderte…); si no sirve, robas 1. Lo que se entrega viaja boca abajo; el historial dice «una carta (???)» y se cuenta al disiparse (`logSecret` / `revealSecrets`). Estado en `s.env.tinieblas`. |
+| **Tinieblas** | 3 · III | Todos juegan con las cartas boca abajo hasta que el turno vuelve 3 veces al lanzador. | Al caer hay una cuenta atrás para memorizar la mano (durante ella no se puede jugar ni usar cartas, salvo duplicar la Tinieblas, que la desactiva). En tu turno juegas a ciegas o robas 3. Si la carta no encadena, vuelve a tu mano, robas 1 y pierdes el turno. Fuera de tu turno puedes probar una carta (duplicar, Antitodo, defenderte…); si no sirve, robas 1. Lo que se entrega viaja boca abajo; el historial dice «una carta (???)» y se cuenta al disiparse (`logSecret` / `revealSecrets`). Estado en `s.env.tinieblas`. |
 
 ### Sagrada y Malditas (míticas, Jerarquía ◆)
 

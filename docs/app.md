@@ -32,7 +32,7 @@ Navegador (React + Vite, src/)                Cloudflare (server/, plan gratuito
 | `src/game/view.ts` | Lo que ve cada jugador online (sin manos ajenas, Mazo, semilla ni secretos de Tinieblas; ids ocultos cambiados) |
 | `src/game/record.ts` | Registro de partida (estado inicial + acciones) para guardarla y reproducirla |
 | `src/game/tutorial.ts` | Partida guiada (manos y Mazo fijos) |
-| `src/game/icons.ts`, `emotes.ts` | Iconos de jugador elegibles (cartas, atributos, Jerarquías, con teñido `:tN`) y emoticonos |
+| `src/game/icons.ts`, `emotes.ts`, `banter.ts` | Iconos de jugador elegibles (cartas, atributos, Jerarquías, con teñido `:tN`), emoticonos y cuándo los mandan las máquinas |
 | `src/ui/App.tsx` | Todo lo de la partida (mesa, animaciones `launch`/`useFlights`, avisos, bandejas, flechas, pantalla final) y el enrutado de pantallas |
 | `src/ui/useGame.ts` | «Anfitrión» local: aplica acciones, mueve a las máquinas, lleva los relojes y guarda la partida |
 | `src/ui/Online.tsx` | Cabecera del panel (`Shell`), crear/unirse a sala, sala de espera |
@@ -118,8 +118,14 @@ URLs de depuración: `?demo=N` (partida directa con N jugadores), `&mano=carta,c
   - compendio: cabecera compacta («Compendio» a la derecha) y pestañas en una fila fina; «Cartas» es una cuadrícula y al tocar una carta se abre su ficha a pantalla
     completa (se pasa de carta con las flechas o deslizando el dedo) (`PhoneCards` en `Compendium.tsx`);
   - portada: sin el enlace repetido al compendio y con el contenido centrado; iconos de jugador en dos filas que se deslizan.
-- **En todas las pantallas:** los emoticonos tienen su propio botón junto a mi nombre (el menú se cierra al tocar fuera), y el
+- **En todas las pantallas:** los emoticonos tienen su propio botón junto a mi nombre (el menú se cierra al tocar fuera y,
+  mientras está abierto, se oculta el mini historial), y el
   cartel de «¿Quién empieza?» se cierra al tocarlo; mientras está, no se puede jugar.
+- **Emoticonos de las máquinas** (`src/game/banter.ts`): de vez en cuando reaccionan a lo que pasa (al echar Travesura,
+  Magia, Antitodo…; al robar 3 o más; al fallar a ciegas; al acabar). La elección sale del número de jugada y del jugador,
+  así que en online todos ven lo mismo sin que el servidor envíe nada; `Game` limita a uno cada 10 s (25 s por máquina) y
+  nunca en el tutorial.
+- **Tinieblas:** cuando alguien falla a ciegas fuera de su turno, el aviso de abajo (`.blind-hint`) se realza un momento.
 - El ajuste del móvil de «reducir movimiento» se ignora a propósito: el juego se explica con sus animaciones.
 
 ## 7. Arte

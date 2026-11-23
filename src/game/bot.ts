@@ -171,6 +171,8 @@ function reactChoice(s: GameState, p: number, lvl: Level, r: Rnd): Action {
   const ph = s.phase;
   const pass: Action = { type: 'react', player: p, r: 'pass' };
   if (ph.t !== 'react') return pass;
+  // Acertó un Reflejo a ciegas y falta elegir contra quién: al pasar, va contra quien lanzó el efecto.
+  if (ph.aim === p) return pass;
   const opts = reactOptions(s, p);
   const eff = ph.eff;
   const hand = s.players[p].hand;

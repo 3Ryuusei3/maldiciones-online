@@ -68,7 +68,8 @@ export type Phase =
   /** `dupd`: el jugador del turno ya ha duplicado; puede seguir jugando o terminar su turno sin robar. */
   | { t: 'turn'; drawn: string | null; dupd?: boolean }
   | { t: 'choose'; player: number; need: 'target' | 'card' | 'gem'; options: (string | number)[]; pp: PendingPlay }
-  | { t: 'react'; eff: Effect; waiting: number[]; exempt: number[]; win: number }
+  /** `aim`: quien ha acertado a ciegas (Tinieblas) un Reflejo y está eligiendo contra quién lo dirige. */
+  | { t: 'react'; eff: Effect; waiting: number[]; exempt: number[]; win: number; aim?: number }
   /** `queue`: cada Aplastar duplicado es otra ronda completa, que se juega cuando acaba esta (lanzada por quien duplicó). */
   /** `fake`: Aplastar de color con Inutilizar activo: no tiene efecto, y quien pulse la mano (por despiste) roba 3. */
   | { t: 'aplastar'; launcher: number; amount: number; players: number[]; slapped: number[]; win: number; queue?: number[]; fake?: boolean }
@@ -978,12 +979,28 @@ function buildImanPool(s: GameState) {
   s.phase = { t: 'iman', launcher: ph.source, pool: shuffle(s, pool), to: ph.targets.filter((t) => t !== ph.source) };
 }
 
+/** Contra quién va un Reflejo a ciegas si no se elige: quien lanzó el efecto (o otro al azar si fue uno mismo). */
+function blindReflTarget(s: GameState, p: number, eff: Effect): number {
+  const src = eff.k === 'trav' ? eff.launchers[eff.launchers.length - 1] : eff.source;
+  const others = inGame(s).filter((x) => x.id !== p).map((x) => x.id);
+  return src !== p ? src : others[Math.floor(rnd(s) * others.length)];
+}
+
 function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guessed = false): boolean {
   const ph = s.phase;
   if (ph.t !== 'react' || !ph.waiting.includes(a.player)) return false;
   const p = a.player;
   const pl = s.players[p];
   const eff = ph.eff;
+  if (ph.aim === p) {
+    // Ha acertado un Reflejo a ciegas: solo falta elegir contra quién (si pasa o se acaba el tiempo, va al lanzador).
+    if (a.r !== 'reflejo' && a.r !== 'pass') return false;
+    ph.aim = undefined;
+    const target = a.r === 'reflejo' && a.target !== undefined ? a.target : blindReflTarget(s, p, eff);
+    if (handleReact(s, { type: 'react', player: p, r: 'reflejo', target }, true)) return true;
+    ph.aim = p;
+    return false;
+  }
   if (!guessed && a.r !== 'pass' && !reactOptionsFor(s, p, eff).includes(a.r)) return false;
   if (a.r === 'blind') {
     const c = pl.hand.find((x) => x.id === a.cardId);
@@ -1003,10 +1020,12 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       return true;
     }
     log(s, `${nm(s, p)} acierta a ciegas con ${cardName(c)}.`);
-    // A ciegas el Reflejo vuelve contra quien lanzó el efecto (o contra otro al azar si fue uno mismo).
-    const src = eff.k === 'trav' ? eff.launchers[eff.launchers.length - 1] : eff.source;
-    const others = inGame(s).filter((x) => x.id !== p).map((x) => x.id);
-    const target = a.target ?? (src !== p ? src : others[Math.floor(rnd(s) * others.length)]);
+    if (as === 'reflejo' && (eff.k === 'draw' || eff.k === 'trav') && a.target === undefined) {
+      // Un Reflejo de Ataque se dirige a quien quiera: se queda eligiendo.
+      ph.aim = p;
+      return true;
+    }
+    const target = a.target ?? blindReflTarget(s, p, eff);
     if (as === 'egida' && !pl.egida) {
       // Se usa exactamente la carta elegida.
       takeFromHand(s, p, c.id);
@@ -1135,6 +1154,12 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       const needsTarget = eff.k === 'draw' || eff.k === 'trav';
       if (needsTarget && (a.target === undefined || a.target === p || !s.players[a.target] || s.players[a.target].out)) return false;
       const c = pl.hand.find((x) => x.kind === 'reflejo')!;
+      if (eff.k === 'trav') {
+        // Travesura reflejada: si vuelve a quien echó la última, el turno es suyo; si va a otro, el turno pasa al
+        // siguiente de quien la refleja (en el sentido de antes del Reflejo).
+        const last = eff.launchers[eff.launchers.length - 1];
+        s.after = { turnTo: a.target === last ? last : nextPlayer(s, p) };
+      }
       takeFromHand(s, p, c.id);
       putOnPile(s, p, c);
       s.undo?.spent.push({ p, card: c, from: 'pile' });
@@ -1362,11 +1387,13 @@ function step(s: GameState, a: Action): boolean {
     }
     case 'dup': {
       const c = s.players[a.player].hand.find((x) => x.id === a.cardId);
-      if (!c || !canDup(s, a.player, c)) return false;
+      // La Tinieblas se puede duplicar a la vista mientras se memoriza la mano (otra igual la desactiva).
+      const tin = !!c && c.kind === 'tinieblas' && isBlind(s);
+      if (!c || !canDup(s, a.player, c, tin)) return false;
       // Varias copias a la vez: todas a la Pila juntas; el efecto, una vez (multiplicado si es un Ataque).
       const extra = joinable(s, a.player, c, a.with);
       for (const x of extra) { takeFromHand(s, a.player, x.id); putOnPile(s, a.player, x); }
-      if (!handleDup(s, a.player, a.cardId)) return false;
+      if (!handleDup(s, a.player, a.cardId, tin)) return false;
       if (extra.length) multiplyJoined(s, a.player, c, extra.length);
       return true;
     }
@@ -1720,7 +1747,12 @@ function step(s: GameState, a: Action): boolean {
       return true;
     }
     case 'timeout': {
-      if (ph.t === 'react') { resolve(s, ph.eff, ph.exempt); return true; }
+      if (ph.t === 'react') {
+        // Quien estaba eligiendo contra quién va su Reflejo a ciegas: se dirige al lanzador.
+        if (ph.aim !== undefined) return handleReact(s, { type: 'react', player: ph.aim, r: 'pass' });
+        resolve(s, ph.eff, ph.exempt);
+        return true;
+      }
       if (ph.t === 'aplastar') { endAplastar(s); return true; }
       if (ph.t === 'gemas') { applyGemas(s); return true; }
       return false;

@@ -17,6 +17,7 @@ import type { RoomOpts } from '../game/room';
 import { COLOR_ORDER, CardView, Icon, PCOL, PHONE_Q, asset, ink, rich, toggleFullscreen, useMedia } from './shared';
 import { PEEK_VISIBLE_MS } from '../game/timing';
 import { EMOTES } from '../game/emotes';
+import { botBanter } from '../game/banter';
 
 // ───────────────────────── piezas básicas ─────────────────────────
 
@@ -702,6 +703,23 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     window.setTimeout(() => setEmotes((v) => v.filter((x) => x.k !== k)), 2800);
   };
   useEffect(() => (net ? net.onEmote(showEmote) : undefined), [net]);
+  // Las máquinas, de vez en cuando, reaccionan con un emoticono a lo que pasa (como mucho uno cada pocos segundos).
+  const banterPrev = useRef(s);
+  const banterAt = useRef<{ all: number; by: Record<number, number> }>({ all: 0, by: {} });
+  useEffect(() => {
+    const prev = banterPrev.current;
+    banterPrev.current = s;
+    if (cfg.tutorial || prev === s || prev.seq >= s.seq) return;
+    const now = Date.now();
+    const cd = banterAt.current;
+    if (now - cd.all < 10000) return;
+    const b = botBanter(prev, s).find((x) => now - (cd.by[x.p] ?? 0) > 25000);
+    if (!b) return;
+    cd.all = now;
+    cd.by[b.p] = now;
+    // Un poco después, cuando la carta ya ha llegado a la Pila (no se cancela si entretanto cambia la jugada).
+    window.setTimeout(() => showEmote(b.p, b.e), 900);
+  }, [s]); // eslint-disable-line react-hooks/exhaustive-deps
   const sendEmote = (e: string) => {
     if (Date.now() - lastEmote.current < 1000) return;
     lastEmote.current = Date.now();
@@ -938,7 +956,10 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
   // ── selección local (se reinicia al cambiar de situación)
   const [sel, setSel] = useState<string[]>([]);
-  const [reflecting, setReflecting] = useState(false);
+  const [reflectingSel, setReflecting] = useState(false);
+  // En Tinieblas, tras acertar un Reflejo a ciegas, el motor espera a que elija contra quién va.
+  const aiming = ph.t === 'react' && ph.aim === ME;
+  const reflecting = reflectingSel || aiming;
   const [assign, setAssign] = useState<Assign>({});
   const [trayPick, setTrayPick] = useState<string | null>(null);
   const [order, setOrder] = useState<string[]>([]);
@@ -1105,6 +1126,15 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     return () => clearInterval(i);
   }, [peekUntil]);
   const peeking = blind && peekUntil > Date.now();
+  // Alguien prueba suerte a ciegas fuera de su turno y falla: el aviso de Tinieblas se realza un momento.
+  const [blindMiss, setBlindMiss] = useState(0);
+  const turnRef = useRef(s.turn);
+  useEffect(() => {
+    const prev = turnRef.current;
+    turnRef.current = s.turn;
+    if (!blind) setBlindMiss(0);
+    else if (s.fx.some((f) => f.bounce && f.from !== prev)) setBlindMiss(s.seq);
+  }, [s.seq]); // eslint-disable-line react-hooks/exhaustive-deps
   const peekShown = peeking && Date.now() >= peekUntil - PEEK_VISIBLE_MS;
   const peekTimer = useMemo(() => (peekShown ? { until: peekUntil, total: PEEK_VISIBLE_MS } : null), [peekShown, peekUntil]);
   /** Cuando se acaba el tiempo de memorizar, las cartas se dan la vuelta (primero se cierran de cara, luego se abren de espaldas). */
@@ -1184,8 +1214,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     if (givingCod) return { run: () => send({ type: 'give', player: ME, cardId: c.id }) };
     if (escarcha) return { run: () => setEscGive(escGive?.cardId === c.id ? null : { cardId: c.id, to: null }), label: escGive?.cardId === c.id ? (escGive.to === null ? 'Elige a quién' : `→ ${name(escGive.to)}`) : undefined };
     if (rafaga) return rafaga.own ? { run: () => setTrayPick(trayPick === c.id ? null : c.id), label: trayPick === c.id ? 'Elige a quién' : undefined } : null;
-    // Tinieblas recién caídas: mientras dura la cuenta atrás (memorizar), aún no se puede jugar ni usar ninguna carta.
-    if (peeking) return null;
+    // Tinieblas recién caídas: mientras dura la cuenta atrás (memorizar), aún no se puede jugar ni usar ninguna carta,
+    // salvo duplicar la Tinieblas (otra igual la desactiva).
+    if (peeking) return c.kind === 'tinieblas' && canDup(s, ME, c, true) ? { run: () => send({ type: 'dup', player: ME, cardId: c.id }), label: 'Duplicar' } : null;
     // Imán o Codicia aún sin resolver: se pueden parar con una carta de defensa (o Antitodo).
     if (lateOpts.length && !blind) {
       if (c.kind === 'antitodo' && lateOpts.includes('antitodo')) return { run: () => react({ r: 'antitodo' }), label: 'Anular' };
@@ -1322,7 +1353,10 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     B('Ninguna', () => send({ type: 'gemas', player: ME, ids: [] }));
   } else if (reacting) {
     alert = true;
-    if (reflecting) {
+    if (aiming) {
+      text = '¡Era un Reflejo! Pulsa al jugador al que se lo devuelves.';
+      B('Al que lo lanzó', () => react({ r: 'pass' }));
+    } else if (reflecting) {
       text = 'Reflejo: pulsa al jugador al que se lo devuelves.';
       B('Atrás', () => setReflecting(false));
     } else {
@@ -1672,7 +1706,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
 
       {/* Mini historial: las últimas jugadas, encima de mi nombre. */}
-      {!dealing && s.log.length > 1 && (
+      {!dealing && s.log.length > 1 && !emoteOpen && (
         <ol className="mini-log" aria-label="Últimas jugadas">
           {s.log.slice(-5).map((l, i, a) => <li key={s.log.length - a.length + i}>{rich(l.text, names, colors)}</li>)}
         </ol>
@@ -1812,7 +1846,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {/* Barra del borde inferior: el tiempo para memorizar en Tinieblas o, si no, mi reloj de decisión. */}
       <div className={`edge ${peekTimer ? 'peek' : ''}`}><Countdown timer={peekTimer ?? timer} /></div>
       {blind && !peeking && !dealing && ph.t !== 'over' && (
-        <div className="blind-hint" role="note"><Icon kind="tinieblas" size={16} /> Tinieblas: puedes usar una carta en cualquier momento; si fallas, robas 1.</div>
+        <div key={blindMiss} className={`blind-hint ${blindMiss ? 'miss' : ''}`} role="note"><Icon kind="tinieblas" size={16} /> Tinieblas: puedes usar una carta en cualquier momento; si fallas, robas 1.</div>
       )}
 
       {net && remote.status !== 'open' && <div className="net-banner" role="status">Reconectando…</div>}
