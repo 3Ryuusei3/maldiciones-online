@@ -4,7 +4,7 @@
 // (ventanas de reacción, Aplastar) los marca quien aloja la partida con 'timeout'.
 // Esto permite que más adelante un anfitrión lo ejecute y lo sincronice por Supabase.
 
-import { Card, Color, COLORS, COLOR_NAME, KINDS, RITUALS, buildDeck, cardName, isCursed, isGem, isPlainGem, rankOf } from './cards';
+import { Card, Color, COLORS, COLOR_NAME, DeckCounts, KINDS, handSize, RITUALS, buildDeck, cardName, isCursed, isGem, isPlainGem, rankOf } from './cards';
 
 export interface Player {
   id: number;
@@ -106,6 +106,8 @@ export interface GameState {
   /** Pila de juego; la última es la carta superior. */
   pile: Card[];
   color: Color;
+  /** Color único (partida personalizada): siempre manda este color y no se elige color. */
+  mono?: Color;
   /** Quién jugó la última carta incolora y elegirá color cuando acabe la acción en curso. */
   tinte: number | null;
   /** Movimientos de cartas producidos por la última acción (solo para animar). */
@@ -170,6 +172,12 @@ export interface GameOptions {
   condena?: boolean;
   /** Añadir las cartas beta de V7 (Escarcha, Ráfaga, Trastada y los 3 Rituales). */
   beta?: boolean;
+  /** Color único: todas las cartas de color son de este color, manda siempre y nunca se elige color. */
+  mono?: Color | null;
+  /** Mazo personalizado: cuántas hay de cada carta (las que falten, como en el Mazo normal). */
+  counts?: DeckCounts | null;
+  /** Cartas iniciales de cada jugador, además de su Maldición (normal: 6). */
+  hand?: number;
 }
 
 // ───────────────────────── utilidades ─────────────────────────
@@ -252,8 +260,13 @@ function putOnPile(s: GameState, p: number, c: Card) {
   s.pile.push(c);
   s.stats.played[p]++;
   fx(s, p, 'pile', 1, c);
-  if (c.color) {
-    s.color = c.color;
+  paint(s, p, c);
+}
+
+/** La carta que cae en la Pila fija el color; si es incolora, quien la echa lo elegirá (salvo con color único). */
+function paint(s: GameState, p: number, c: Card) {
+  if (c.color || s.mono) {
+    s.color = c.color ?? s.mono!;
     s.tinte = null;
   } else s.tinte = p;
 }
@@ -475,7 +488,9 @@ function randomIds(s: GameState, ids: string[], n: number): string[] {
 // ───────────────────────── creación de partida ─────────────────────────
 
 export function newGame(o: GameOptions): GameState {
-  const { deck, curses } = buildDeck(!!o.beta);
+  const mono = o.mono && COLORS.includes(o.mono) ? o.mono : null;
+  const hand = handSize(o.hand);
+  const { deck, curses } = buildDeck({ beta: !!o.beta, mono, counts: o.counts, hand });
   const s: GameState = {
     seed: o.seed | 0,
     seq: 0,
@@ -483,7 +498,8 @@ export function newGame(o: GameOptions): GameState {
     players: o.players.map((p, i) => ({ id: i, name: p.name, bot: p.bot, hand: [], egida: null, held: false })),
     deck: [],
     pile: [],
-    color: 'a',
+    color: mono ?? 'a',
+    ...(mono ? { mono } : {}),
     tinte: null,
     fx: [],
     undo: null,
@@ -492,7 +508,7 @@ export function newGame(o: GameOptions): GameState {
     env: { mutis: false, inutilizar: false, tinieblas: null },
     phase: { t: 'turn', drawn: null },
     rafaga: null,
-    stats: { played: o.players.map(() => 0), drawn: o.players.map(() => 0), turns: 0, maxCurses: o.players.map(() => 1), maxHand: o.players.map(() => 7), minHand: o.players.map(() => 7) },
+    stats: { played: o.players.map(() => 0), drawn: o.players.map(() => 0), turns: 0, maxCurses: o.players.map(() => 1), maxHand: o.players.map(() => hand + 1), minHand: o.players.map(() => hand + 1) },
     after: null,
     totalCurses: o.extraCurses ? 6 : o.players.length,
     winner: null,
@@ -502,7 +518,7 @@ export function newGame(o: GameOptions): GameState {
   for (const p of s.players) p.hand.push(curses.pop()!);
   if (o.extraCurses) deck.push(...curses);
   s.deck = shuffle(s, o.condena === false ? deck.filter((c) => c.kind !== 'condena') : deck);
-  for (let i = 0; i < 6; i++) for (const p of s.players) p.hand.push(s.deck.pop()!);
+  for (let i = 0; i < hand; i++) for (const p of s.players) p.hand.push(s.deck.pop()!);
   // Primera carta de la Pila: una carta de color (no tiene efecto).
   const idx = [...s.deck.keys()].reverse().find((i) => s.deck[i].color !== null)!;
   const first = s.deck.splice(idx, 1)[0];
@@ -1065,7 +1081,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
         log(s, `${nm(s, p)} se protege con Égida.`);
       }
       announce(s, p, '¡Égida!');
-      s.tinte = p;
+      if (!s.mono) s.tinte = p;
       ph.exempt.push(p);
       protectedDone();
       return true;
@@ -1617,10 +1633,7 @@ function step(s: GameState, a: Action): boolean {
       s.pile.push(c);
       s.stats.played[L]++;
       fx(s, fromHand ? L : 'deck', 'pile', 1, c);
-      if (c.color) {
-        s.color = c.color;
-        s.tinte = null;
-      } else s.tinte = L;
+      paint(s, L, c);
       announce(s, L, `¡${KINDS[c.kind].name}!`, c.kind === 'mutis');
       if (c.kind === 'antitodo') {
         resetEnv(s);

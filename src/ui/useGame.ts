@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { botDecide, botDup, Level } from '../game/bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from '../game/engine';
 import { newTutorial, tutorBot } from '../game/tutorial';
+import type { Color, DeckCounts } from '../game/cards';
 import { Recording, buildRecord, recordAction, startRecording } from '../game/record';
 import { playerId, saveLocalGame } from '../net/client';
 import type { TutorGate } from './Tutorial';
@@ -19,6 +20,10 @@ export interface GameConfig {
   condena: boolean;
   /** Cartas beta de V7 (Escarcha, Ráfaga, Trastada y Rituales). */
   beta?: boolean;
+  /** Partida personalizada: color único y cuántas hay de cada carta. */
+  mono?: Color | null;
+  counts?: DeckCounts | null;
+  hand?: number;
   /** Tiempo máximo de 15 s para cada decisión (por defecto, sí). */
   timer?: boolean;
   /** Flechas de quién actúa sobre quién (por defecto, sí). */
@@ -55,6 +60,9 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
       extraCurses: cfg.extraCurses,
       condena: cfg.condena,
       beta: cfg.beta,
+      mono: cfg.mono,
+      counts: cfg.counts,
+      hand: cfg.hand,
     });
     for (const kind of cfg.debugHand ?? []) {
       const j = g.players[ME].hand.findIndex((c) => c.kind !== 'maldicion' && !cfg.debugHand!.includes(c.kind));
@@ -91,7 +99,7 @@ export function useGame(cfg: GameConfig, ready = true, paused = false, enabled =
     r.saved = true;
     saveLocalGame(buildRecord(r, s, {
       mode: 'local', now: Date.now(),
-      options: { size: cfg.players, level: cfg.level, extraCurses: cfg.extraCurses, condena: cfg.condena, beta: !!cfg.beta, timer: cfg.timer !== false },
+      options: { size: cfg.players, level: cfg.level, extraCurses: cfg.extraCurses, condena: cfg.condena, beta: !!cfg.beta, timer: cfg.timer !== false, mono: cfg.mono ?? null, counts: cfg.counts ?? null, hand: cfg.hand ?? 6 },
       seats: s.players.map((p, i) => ({ playerId: i === ME ? playerId() : null, color: i === ME ? cfg.color ?? 0 : null, botLevel: p.bot ? cfg.level : null })),
     }));
   }, [cfg]);

@@ -474,7 +474,7 @@ function LocalSetup({ onStart, onBack, onAccount }: { onStart: (c: GameConfig) =
   const [color, setColor] = useState(() => prof?.color ?? (() => { try { const c = Number(localStorage.getItem('maldiciones:color')); return c >= 0 && c < PCOL.length ? c : 0; } catch { return 0; } })());
   const start = () => {
     try { localStorage.setItem('maldiciones:nombre', name.trim()); localStorage.setItem('maldiciones:color', String(color)); } catch { /* sin almacenamiento: no se recuerda */ }
-    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta, timer: opts.timer !== false, arrows: opts.arrows !== false, color, icon: prof?.icon });
+    onStart({ name: name.trim() || 'Tú', players: opts.size, level: opts.level, extraCurses: opts.extraCurses, condena: opts.condena, beta: opts.beta, mono: opts.mono, counts: opts.counts, hand: opts.hand, timer: opts.timer !== false, arrows: opts.arrows !== false, color, icon: prof?.icon });
   };
   return (
     <>
@@ -861,7 +861,7 @@ function Game({ cfg, onExit, onRematch, net, tv = false, pad = false }: { cfg: G
     return () => ro.disconnect();
   }, [s.players.length]);
 
-  // Reparto inicial: todos tienen ya su Maldición boca arriba; llegan 6 cartas boca abajo en sentido antihorario,
+  // Reparto inicial: todos tienen ya su Maldición boca arriba; llegan las cartas iniciales (6, o las elegidas) boca abajo en sentido antihorario,
   // se giran las manos y por último se descubre la primera carta de la Pila.
   const endDeal = useRef<() => void>(() => {});
   const skipDeal = useRef(intro === null);
@@ -901,7 +901,8 @@ function Game({ cfg, onExit, onRematch, net, tv = false, pad = false }: { cfg: G
     // 4) Reparto.
     const GAP = 110, MS = 640, START = S1 + 1300;
     let k = 0;
-    for (let round = 1; round < 7; round++)
+    const most = Math.max(...s.players.map((x) => x.hand.length));
+    for (let round = 1; round < most; round++)
       for (const p of order) {
         if (round >= s.players[p].hand.length) continue;
         at(START + k++ * GAP, () => {
@@ -1317,7 +1318,7 @@ function Game({ cfg, onExit, onRematch, net, tv = false, pad = false }: { cfg: G
     btns.push(<button key={label} className={primary ? 'primary' : ''} disabled={disabled} onClick={run}>{label}</button>);
   if (ph.t === 'over') text = '';
   else if (dealing) {
-    text = intro === 'count' ? '¡Empieza la partida!' : intro === 'setup' ? 'Cada jugador recibe su Maldición. Se coloca la mesa…' : 'Repartiendo 6 cartas más a cada jugador…';
+    text = intro === 'count' ? '¡Empieza la partida!' : intro === 'setup' ? 'Cada jugador recibe su Maldición. Se coloca la mesa…' : `Repartiendo ${Math.max(...s.players.map((x) => x.hand.length)) - 1} cartas más a cada jugador…`;
     B('Saltar', () => endDeal.current());
   } else if (tinte) {
     alert = true;

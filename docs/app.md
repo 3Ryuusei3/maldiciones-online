@@ -37,7 +37,7 @@ Navegador (React + Vite, src/)                Cloudflare (server/, plan gratuito
 | `src/ui/useGame.ts` | «Anfitrión» local: aplica acciones, mueve a las máquinas, lleva los relojes y guarda la partida |
 | `src/ui/Online.tsx` | Cabecera del panel (`Shell`), crear/unirse a sala, sala de espera |
 | `src/ui/QrScan.tsx` | Lector del QR de la sala con la cámara |
-| `src/ui/Setup.tsx` | Opciones de partida (y modal «Más opciones») |
+| `src/ui/Setup.tsx` | Opciones de partida (y modal «Más opciones», con la partida personalizada: color único, cartas iniciales y cartas del Mazo, `CustomDeck`; en escritorio, una columna por atributo) |
 | `src/ui/Account.tsx` | Entrada (iniciar sesión / crear cuenta / Google / invitado), perfil, avatar hexagonal, selector de icono y color |
 | `src/ui/Compendium.tsx` | Compendio (Cómo jugar · Mecánicas · Cartas · Jerarquía), mini partidas, ayuda rápida de la partida |
 | `src/ui/Tutorial.tsx` | Pasos del tutorial y su caja |

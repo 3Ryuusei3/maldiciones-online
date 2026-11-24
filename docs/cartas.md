@@ -8,10 +8,19 @@ cada carta y **dónde está en el código**. Si cambias una regla, actualiza tam
 ## 1. La partida
 
 - **Jugadores:** de 3 a 6 (tú + máquinas, o online con amigos y máquinas para completar).
-- **Reparto:** cada jugador empieza con **1 Maldición + 6 cartas**. La primera carta de la Pila es siempre una carta de
+- **Reparto:** cada jugador empieza con **1 Maldición + 6 cartas** (se puede cambiar en la partida personalizada). La primera carta de la Pila es siempre una carta de
   color (sin efecto). Se sortea quién empieza y en qué sentido se juega (`newGame` en `engine.ts`).
 - **Mazo:** 103 cartas en total. Las 6 Maldiciones se reparten aparte; las que sobran solo entran en el Mazo con la opción
   «Maldiciones extra». La Condena solo entra con la opción «Carta Condena». Las Arcanas (beta) solo con «Cartas beta».
+- **Partida personalizada** (en «Más opciones»):
+  - **Color único:** todas las cartas de color (también el cristal de Cristalizar) son del color elegido. Ese color manda
+    siempre y nunca se elige color: las incoloras no piden Tinte (`s.mono`, `paint` en `engine.ts`).
+  - **Cartas del Mazo:** cuántas hay de cada carta (de 0 a 15; `DECK_BASE`, `buildDeck` y `counts` en `cards.ts`). Las de
+    color se reparten entre los 3 colores; la Travesura incolora va aparte. Las Maldiciones no se configuran, y la
+    Condena y las beta siguen con sus casillas. Con menos de 45 cartas (o de 6 × cartas iniciales + 9; `deckMin`), o sin
+    ninguna de color, se completa con Gemas I. Sin ninguna carta para deshacerse de la Maldición (`CURSE_OUT`), entran los
+    3 Antitodos. El botón «Aleatorio» pone de cada carta entre 0 y el doble de las normales (`randomCounts`).
+  - **Cartas iniciales:** de 3 a 10 además de la Maldición (normal 6; `hand` en las opciones, `handSize`).
 - **Si se acaba el Mazo:** se baraja la Pila (menos la carta de arriba) y pasa a ser el Mazo.
 - **Objetivo:** quedarte sin cartas. Quien echa su última carta **gana en ese momento**, sin que se aplique su efecto
   (`lastCard` / `tryWin`). Excepción: en **Entorno maldito** (2 o más Entornos activos) nadie gana: roba 1 y sigue.

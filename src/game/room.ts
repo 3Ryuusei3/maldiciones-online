@@ -9,6 +9,7 @@ import { Level, botDecide, botDup } from './bot';
 import { Action, GameState, apply, canDup, newGame, pendingPlayers, topCard } from './engine';
 import { BOT_WINDOW_MS, DECIDE_MS, TINIEBLAS_PEEK_MS, WINDOW_MS, botDelay, dupDelay, pickNames, tinieblasJustFell } from './timing';
 import { viewFor } from './view';
+import { COLORS, cleanCounts, handSize, type Color, type DeckCounts } from './cards';
 
 export interface RoomOpts {
   /** Jugadores en total (los huecos se rellenan con máquinas). */
@@ -23,6 +24,12 @@ export interface RoomOpts {
   arrows?: boolean;
   /** Nivel de cada máquina (por hueco libre, en orden); si falta, `level`. */
   botLevels?: Level[];
+  /** Partida personalizada: color único (todas las cartas de color de este color; no se elige color). */
+  mono?: Color | null;
+  /** Partida personalizada: cuántas hay de cada carta (solo las distintas del Mazo normal). */
+  counts?: DeckCounts | null;
+  /** Cartas iniciales (además de la Maldición). Normal: 6. */
+  hand?: number;
 }
 
 export interface Seat {
@@ -298,6 +305,9 @@ export function setOpts(r: RoomData, token: string, o: Partial<RoomOpts>, online
   if (typeof o.beta === 'boolean') n.beta = o.beta;
   if (typeof o.timer === 'boolean') n.timer = o.timer;
   if (typeof o.arrows === 'boolean') n.arrows = o.arrows;
+  if (o.mono !== undefined) n.mono = o.mono && COLORS.includes(o.mono) ? o.mono : null;
+  if (o.counts !== undefined) n.counts = cleanCounts(o.counts);
+  if (o.hand !== undefined) n.hand = handSize(o.hand);
   return ok;
 }
 
@@ -321,6 +331,9 @@ export function start(r: RoomData, token: string, now: number, online: Set<strin
     extraCurses: r.opts.extraCurses,
     condena: r.opts.condena,
     beta: r.opts.beta,
+    mono: r.opts.mono,
+    counts: r.opts.counts,
+    hand: r.opts.hand,
   });
   r.game.startedAt = now;
   r.round++;
