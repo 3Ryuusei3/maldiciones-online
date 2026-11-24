@@ -571,7 +571,16 @@ const SEATS: Record<number, [string, number][]> = {
   3: [['left', 0], ['top', 50], ['right', 0]],
   4: [['left', 0], ['top', 33], ['top', 67], ['right', 0]],
   5: [['left', 0], ['top', 25], ['top', 50], ['top', 75], ['right', 0]],
+  // Solo en la pantalla de la mesa (allí todos los jugadores son «rivales»).
+  6: [['left', 0], ['top', 20], ['top', 40], ['top', 60], ['top', 80], ['right', 0]],
 };
+
+/**
+ * Pantalla de mesa (modo «en el sofá»): no juega, así que se le añade al final un asiento vacío y fuera de la
+ * partida que hace de «yo». Así todos los jugadores de verdad se sientan alrededor de la mesa y la interfaz no
+ * necesita otro caso; la mano de ese asiento no se pinta.
+ */
+const withTableSeat = (g: GameState): GameState => ({ ...g, players: [...g.players, { id: g.players.length, name: 'Mesa', bot: false, hand: [], egida: null, held: false, out: true }] });
 
 /** Fases de la entrada: reparto boca abajo, giro de las cartas (ocultar / mostrar) y primera carta de la Pila. */
 /** Fases de la entrada: cuenta atrás, se coloca la mesa (Maldiciones, Mazo, trifuerza), reparto, giro y primera carta. */
@@ -636,7 +645,11 @@ type Assign = Record<string, 'keep' | 'discard' | number>;
 type Fate = 'back' | 'keep' | 'discard';
 const FATE_LABEL: Record<Fate, string> = { back: 'Al Mazo', keep: 'A la mano', discard: 'Descartar' };
 
-function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => void; onRematch?: () => void; net?: NetClient }) {
+/**
+ * `tv`: pantalla de la mesa (modo «en el sofá»), solo mira. `pad`: móvil de un jugador en ese modo: hace de mando
+ * (mi mano grande, la mesa en pequeño arriba y las elecciones en recuadros; los rivales no se pintan, se ven en la mesa).
+ */
+function Game({ cfg, onExit, onRematch, net, tv = false, pad = false }: { cfg: GameConfig; onExit: () => void; onRematch?: () => void; net?: NetClient; tv?: boolean; pad?: boolean }) {
   // El tutorial va más despacio (es para aprender); la partida normal, un 10 % más pausada que la base.
   setAnimSpeed(cfg.tutorial ? 1.4 : 1.1);
   /** Entrada de la partida: cada jugador tiene su Maldición boca arriba y recibe 6 cartas boca abajo; luego se giran. */
@@ -664,7 +677,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const local = useGame(useMemo(() => ({ ...cfg, timer: localTimer }), [cfg, localTimer]), intro === null && spinPhase === 'off', pause !== null || comp, !net, cfg.tutorial ? tgate : undefined);
   const remote = useNet(net ?? null);
   const rv = remote.view;
-  const s = net && rv?.game ? rv.game : local.state;
+  /** La partida tal cual (en la pantalla de la mesa, sin su asiento vacío). */
+  const s0 = net && rv?.game ? rv.game : local.state;
+  const s = useMemo(() => (tv ? withTableSeat(s0) : s0), [tv, s0]);
   const dispatch = net ? (a: Action) => net.act(a) : local.dispatch;
   const timer = useMemo<Timer | null>(() => {
     if (!net) return local.timer;
@@ -840,6 +855,9 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     place();
     const ro = new ResizeObserver(place);
     ro.observe(el);
+    // En el mando la mesa cambia de alto (al final se centra): el centro se mueve con ella.
+    const tb = el.querySelector('.table');
+    if (tb) ro.observe(tb);
     return () => ro.disconnect();
   }, [s.players.length]);
 
@@ -860,7 +878,8 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
     setIntro('setup');
     setDealt(Array(n).fill(0));
     setStage({ deck: false, tri: false });
-    const order = Array.from({ length: n }, (_, i) => (n - i) % n); // antihorario, empezando por mí
+    // antihorario, empezando por mí (la pantalla de la mesa no recibe cartas)
+    const order = Array.from({ length: n }, (_, i) => (n - i) % n).filter((p) => !(tv && p === ME));
     // 1) Aparecen en el centro las Maldiciones que se van a repartir, una sobre otra.
     setCurseStack(n);
     const S0 = 700 + n * 90;
@@ -1550,9 +1569,22 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
   const deckN = facedown ? s.deck.length + s.players.reduce((a, p) => a + p.hand.length - shown(p.id), 0) + 1 : s.deck.length;
 
   const seats = (tall ? SEATS_ROW : SEATS)[rivals.length];
+  /**
+   * Mando (modo «en el sofá»): las bandejas de elegir (Imán, Adivinar, Recuperar) salen en un recuadro con su texto y
+   * sus botones. Escarcha y Ráfaga no, porque también se elige una carta de la mano, que el recuadro taparía.
+   */
+  /** Mando: la carta de la que se trata al elegir jugador (se ve en el recuadro). */
+  const pickCard: Card | undefined = !pad ? undefined
+    : choosing?.need === 'target' ? choosing.pp.companion ?? choosing.pp.card
+    : iman && trayPick ? iman.pool.find((c) => c.id === trayPick)
+    : recuperar && trayPick ? s.pile.find((c) => c.id === trayPick)
+    : rafaga && trayPick ? [...rafaga.pool, ...me.hand].find((c) => c.id === trayPick)
+    : escarcha && escGive ? me.hand.find((c) => c.id === escGive.cardId)
+    : undefined;
+  const trayModal = pad && !!tray && !escarcha && !rafaga && !pickPlayers.length && !dealing;
   const trayCount = iman ? iman.pool.length : recuperar ? recuperar.options.length : rafaga ? rafaga.pool.length : 0;
   return (
-    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${cfg.tutorial ? 'tutorial' : ''} ${dealing ? 'dealing' : ''} ${spinPhase === 'run' ? 'spinning' : ''} ${spin?.done ? 'spin-dir-on' : ''} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
+    <div ref={root} data-finale={finale || undefined} style={{ '--pc': ph.t === 'over' ? '#888' : colors[s.turn], '--me': colors[ME], '--me-ink': ink(colors[ME]) } as React.CSSProperties} className={`game col-${shownColor ?? 'n'} ${tv ? 'tv' : ''} ${pad ? 'pad' : ''} ${(pad && pickPlayers.length && !dealing) || trayModal || (pad && tinte && pickReady && !envFx) ? 'picking' : ''} ${cfg.tutorial ? 'tutorial' : ''} ${dealing ? 'dealing' : ''} ${spinPhase === 'run' ? 'spinning' : ''} ${spin?.done ? 'spin-dir-on' : ''} ${slapping ? 'slapping' : ''} ${s.dir === 1 ? '' : 'rev'} ${underAttack ? 'under-attack' : ''} ${cursed ? 'cursed' : ''} ${s.env.tinieblas ? 'dark' : ''} ${ph.t === 'aplastar' ? 'quake' : ''}`}>
       <div className="rays" />
       <div className="shade" />
       <div className="flights" ref={flights} />
@@ -1570,7 +1602,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
       {emotes.map((m) => <span key={m.k} className="emote-bubble" style={{ left: m.x, top: m.y }} aria-label={`${m.p === ME ? 'Tú' : s.players[m.p]?.name}: ${m.e}`}>{m.e}</span>)}
       <div className={`table k${rivals.length}`}>
-        {rivals.map((p, i) => (
+        {!pad && rivals.map((p, i) => (
           <Seat
             key={p.id}
             s={s}
@@ -1579,7 +1611,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             x={seats[i][1]}
             selectable={pickPlayers.includes(p.id)}
             onPick={() => onPlayer(p.id)}
-            onFoul={isHost ? () => send({ type: 'penalize', target: p.id }) : undefined}
+            onFoul={isHost && !tv ? () => send({ type: 'penalize', target: p.id }) : undefined}
             state={seatState(p.id)}
             onKick={net && isHost && seatState(p.id) === 'auto' ? () => net.send({ t: 'drop', p: p.id, how: 'kick' }) : undefined}
             egidaAir={egidaAir}
@@ -1648,7 +1680,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
               return <img key={k} style={spin} className={`t-${k} ${on ? 'on' : ''}`} src={asset(`ui/${k}-${on ? 'on' : 'off'}.webp`)} alt={`${label}: ${on ? 'activo' : 'inactivo'}`} title={`${label}: ${on ? 'activo' : 'inactivo'}`} />;
             })}
             {/* Elegir color: gemas pequeñas debajo de la trifuerza, cuando ya ha terminado la animación de la carta. */}
-            {tinte && !envFx && pickReady && !phone && (
+            {tinte && !envFx && pickReady && !phone && !pad && (
               <div className="gem-under">
                 <GemPicker size={40} onPick={(c) => send({ type: 'color', player: ME, color: c })} />
                 <span className="gem-hint">Elige color</span>
@@ -1670,7 +1702,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         </div>
       </aside>
 
-      {tray && <div className={`tray ${trayCount > 7 ? 'many' : ''} ${escarcha ? 'esc' : ''} ${iman ? 'late' : ''} ${adivinar ? 'adiv-tray' : ''}`}>{tray}</div>}
+      {tray && !(pad && !escarcha && !rafaga) && <div className={`tray ${trayCount > 7 ? 'many' : ''} ${escarcha ? 'esc' : ''} ${iman ? 'late' : ''} ${adivinar ? 'adiv-tray' : ''}`}>{tray}</div>}
 
       {/* Zona de mensajes de alto fijo: lo que ocurre (arriba) y lo que se me pide (abajo). Nunca empuja la mesa ni la mano. */}
       <div className="msgzone">
@@ -1708,7 +1740,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
       {/* Mini historial: las últimas jugadas, encima de mi nombre. */}
       {!dealing && s.log.length > 1 && !emoteOpen && (
         <ol className="mini-log" aria-label="Últimas jugadas">
-          {s.log.slice(-5).map((l, i, a) => <li key={s.log.length - a.length + i}>{rich(l.text, names, colors)}</li>)}
+          {s.log.slice(tv ? -8 : -5).map((l, i, a) => <li key={s.log.length - a.length + i}>{rich(l.text, names, colors)}</li>)}
         </ol>
       )}
       <div className={`hand ${s.turn === ME && !dealing ? 'turn' : ''}`}>
@@ -1734,7 +1766,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             <small>Égida · 1 uso</small>
           </div>
         )}
-        <div className="cards-row" data-anchor={`p${ME}`}>
+        <div className="cards-row" data-anchor={`p${ME}`} data-many={pad && sortedHand.length > 7 ? '' : undefined}>
           {sortedHand.map((c, i) => {
             // Carta que aún viene de camino: ya ocupa su hueco en la mano, pero no se ve hasta que aterriza.
             // En el reparto: la Maldición (a la derecha) llega primero; las demás, de izquierda a derecha.
@@ -1769,7 +1801,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
 
       {/* Es el mismo componente durante la ronda y al acabar (misma clave): los brazos se quedan donde estaban
           (el que pierde, a medio camino) y se desvanecen juntos. */}
-      {slapSpot && ph.t === 'aplastar'
+      {pad ? null : slapSpot && ph.t === 'aplastar'
         ? <SlapArms key={`slap${ph.win}`} live seed={ph.win} spot={slapSpot} slapping={slapping} slapped={ph.slapped} players={ph.players} colors={colors} />
         : slapLinger && <SlapArms key={`slap${slapLinger.win}`} live ending seed={slapLinger.win} spot={slapLinger.spot} slapping={false} slapped={slapLinger.slapped} players={slapLinger.players} colors={colors} />}
       {/* Al acabar la ronda, los brazos se quedan un momento sobre la ficha. */}
@@ -1789,19 +1821,45 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
           <img src={asset('icons/aplastar.webp')} alt="" draggable={false} />
         </button>
       )}
-      {ph.t === 'adivinar' && ph.player !== ME && <AdivinarFx key={`adiv${ph.player}`} actor={ph.player} name={name(ph.player)} n={ph.cards.length} />}
+      {ph.t === 'adivinar' && ph.player !== ME && !pad && <AdivinarFx key={`adiv${ph.player}`} actor={ph.player} name={name(ph.player)} n={ph.cards.length} />}
       {countText && <div key={countText} className="count-big" aria-live="assertive">{countText}</div>}
       {/* Móvil: elegir color en un recuadro centrado sobre la mesa (bajo la trifuerza no cabe). */}
-      {tinte && !envFx && pickReady && phone && (
+      {tinte && !envFx && pickReady && (phone || pad) && (
         <div className="gem-under gem-modal" role="dialog" aria-label="Elige color">
           <span className="gem-hint">Elige color</span>
           <GemPicker size={40} onPick={(c) => send({ type: 'color', player: ME, color: c })} />
         </div>
       )}
       {/* Elegir color: flecha de los tres colores desde mi mano hasta las gemas, como un efecto dirigido. */}
-      {tinte && !envFx && pickReady && !phone && <PickArrow />}
+      {tinte && !envFx && pickReady && !phone && !pad && <PickArrow />}
+      {trayModal && (
+        <div className="gem-under gem-modal tray-modal" role="dialog" aria-label="Elige">
+          <span className="gem-hint">{rich(text, names, colors, true)}</span>
+          <div className={`tray ${iman ? 'late' : ''} ${adivinar ? 'adiv-tray' : ''}`}>{tray}</div>
+          {btns.length > 0 && <div className="pick-btns">{btns}</div>}
+        </div>
+      )}
+      {/* Mando (modo «en el sofá»): elegir jugador en un recuadro, como el color (los asientos se ven en la mesa). */}
+      {pad && pickPlayers.length > 0 && !dealing && (
+        <div className="gem-under gem-modal pick-modal" role="dialog" aria-label="Elige jugador">
+          <span className="gem-hint">{rich(text, names, colors, true)}</span>
+          {pickCard && <CardView card={pickCard} back={blind} className="small pick-card" />}
+          <div className="pick-list">
+            {pickPlayers.map((p) => (
+              <button key={p} style={{ '--pc2': colors[p] } as React.CSSProperties} onClick={() => onPlayer(p)}>
+                <HexIcon icon={icons[p]} color={colors[p]} size={34} />
+                <b>{name(p)}</b>
+                <i>{s.players[p].hand.length}</i>
+              </button>
+            ))}
+            {condena && !condena.absolved && onDeck && <button className="place" onClick={onDeck}>En el Mazo</button>}
+            {condena && !condena.absolved && onPile && <button className="place" onClick={onPile}>En la Pila</button>}
+          </div>
+          {btns.length > 0 && <div className="pick-btns">{btns}</div>}
+        </div>
+      )}
       {/* Quién actúa sobre quién: flechas desde que empieza el efecto hasta que acaba (una por cada lanzador). */}
-      {!dealing && !finale && arrowsOn && !phone && (() => {
+      {!dealing && !finale && arrowsOn && !phone && !pad && (() => {
         let pairs: [number, number][] = [];
         const to = (from: number, ts: number[]) => ts.forEach((t) => pairs.push([from, t]));
         if (ph.t === 'react' || ph.t === 'give') {
@@ -1822,7 +1880,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         return <ActionArrows pairs={pairs} colors={colors} />;
       })()}
       {/* Turno de otro jugador: se ilumina el borde de la pantalla por su lado. */}
-      {!dealing && ph.t !== 'over' && s.turn !== ME && (() => {
+      {!dealing && !pad && ph.t !== 'over' && s.turn !== ME && (() => {
         const i = rivals.findIndex((p) => p.id === s.turn);
         if (i < 0 || !seats[i]) return null;
         const [side, x] = seats[i];
@@ -1867,7 +1925,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
         </div>
       )}
       {finale && s.winner !== null && <Finale name={s.winner === ME ? '¡Has ganado!' : `¡Gana ${name(s.winner)}!`} why={s.log.some((l) => l.text.includes('3 Rituales')) ? 'Reúne los 3 Rituales' : s.log.some((l) => l.text.includes('único que queda')) ? 'Es el único que queda' : 'Última carta'} color={colors[s.winner]} />}
-      {ph.t === 'over' && !finale && !cfg.tutorial && <GameOver s={s} colors={colors} startedAt={s.startedAt ?? startedAt.current} endedAt={endedAt.current ?? Date.now()} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
+      {ph.t === 'over' && !finale && !cfg.tutorial && <GameOver s={s0} colors={colors} startedAt={s.startedAt ?? startedAt.current} endedAt={endedAt.current ?? Date.now()} onExit={onExit} onRematch={net ? undefined : onRematch} onLobby={net ? () => net.send({ t: 'lobby' }) : undefined} />}
       {tutor.view && !finale && <TutorOverlay view={tutor.view} finished={ph.t === 'over'} onExit={onExit} />}
       {pause && ph.t !== 'over' && (
         <div className="pause" role="dialog" aria-label="Partida en pausa">
@@ -1877,7 +1935,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
                 <h2>Pausa</h2>
                 {/* En el móvil el reloj de la partida no está en pantalla: se ve aquí. */}
                 <div className="pause-clock"><GameClock from={s.startedAt ?? startedAt.current} to={endedAt.current} /></div>
-                <p>{net ? 'Es una partida online: aunque tengas este menú abierto, la partida sigue.' : 'La partida está detenida: nadie juega y los tiempos no corren.'}</p>
+                <p>{tv ? 'Esta pantalla es la mesa: aunque tengas este menú abierto, la partida sigue.' : net ? 'Es una partida online: aunque tengas este menú abierto, la partida sigue.' : 'La partida está detenida: nadie juega y los tiempos no corren.'}</p>
                 <button className="primary" onClick={() => setPause(null)}>Continuar</button>
                 <button className="fs-only" onClick={toggleFullscreen}>Pantalla completa</button>
                 <button onClick={() => { setPause(null); setComp(true); }}>Compendio</button>
@@ -1908,7 +1966,7 @@ function Game({ cfg, onExit, onRematch, net }: { cfg: GameConfig; onExit: () => 
             ) : (
               <>
                 <h2>¿Salir de la partida?</h2>
-                <p>{net ? 'Una máquina jugará por ti el resto de la partida.' : 'Se perderá la partida en curso.'}</p>
+                <p>{tv ? 'Esta pantalla deja de ser la mesa; los jugadores siguen la partida desde sus móviles.' : net ? 'Una máquina jugará por ti el resto de la partida.' : 'Se perderá la partida en curso.'}</p>
                 <button className="danger" onClick={() => { if (!net) local.abandon(); onExit(); }}>Sí, salir</button>
                 <button onClick={() => setPause(null)}>Seguir jugando</button>
               </>
@@ -2710,12 +2768,14 @@ function GameOver({ s, colors, startedAt, endedAt, onExit, onRematch, onLobby }:
 function OnlineRoom({ client, onExit }: { client: NetClient; onExit: (error?: string) => void }) {
   const { view: v, fatal, error } = useNet(client);
   useEffect(() => { if (fatal) onExit(error ?? undefined); }, [fatal, error, onExit]);
-  if (!v?.game || v.you < 0) return <><Shell><Lobby client={client} onExit={() => onExit()} /></Shell><NetToasts client={client} /></>;
-  setMe(v.you);
+  if (!v?.game || (v.you < 0 && !v.screen)) return <><Shell><Lobby client={client} onExit={() => onExit()} /></Shell><NetToasts client={client} /></>;
   const g = v.game;
-  const cfg: GameConfig = { name: g.players[v.you].name, players: g.players.length, level: v.opts.level, extraCurses: v.opts.extraCurses, condena: v.opts.condena, beta: v.opts.beta, timer: v.opts.timer !== false, arrows: v.opts.arrows !== false };
+  // La pantalla de la mesa es el asiento vacío que se le añade al final (ver `withTableSeat`).
+  const tv = v.you < 0;
+  setMe(tv ? g.players.length : v.you);
+  const cfg: GameConfig = { name: tv ? 'Mesa' : g.players[v.you].name, players: g.players.length + (tv ? 1 : 0), level: v.opts.level, extraCurses: v.opts.extraCurses, condena: v.opts.condena, beta: v.opts.beta, timer: v.opts.timer !== false, arrows: v.opts.arrows !== false };
   // Los avisos van en la misma posición en la sala y en la mesa, así no se pierden al cambiar de una a otra.
-  return <><Game key={`${v.code}:${v.round}`} cfg={cfg} net={client} onExit={() => { client.leave(); onExit(); }} /><NetToasts client={client} /></>;
+  return <><Game key={`${v.code}:${v.round}`} cfg={cfg} net={client} tv={tv} pad={v.couch && !tv} onExit={() => { client.leave(); onExit(); }} /><NetToasts client={client} /></>;
 }
 
 /** Partida del tutorial: 4 jugadores, sin tiempo máximo, con mi nombre y mi color guardados. */
@@ -2725,6 +2785,13 @@ const tutorialCfg = (): GameConfig => {
   return { name: name || 'Tú', players: 4, level: 1, extraCurses: false, condena: false, beta: false, timer: false, color, icon, tutorial: true };
 };
 
+/** La pantalla de mesa recuerda su sala (en esta pestaña): si se recarga, vuelve a ella sola. */
+const MESA_KEY = 'maldiciones:mesa';
+const savedMesa = () => { try { const c = sessionStorage.getItem(MESA_KEY); return c && /^[A-Z]{4}$/.test(c) ? c : null; } catch { return null; } };
+const setSavedMesa = (c: string | null) => { try { if (c) sessionStorage.setItem(MESA_KEY, c); else sessionStorage.removeItem(MESA_KEY); } catch { /* sin almacenamiento */ } };
+
+let resumedMesa: NetClient | null = null;
+
 type Screen = { k: 'account' } | { k: 'home' } | { k: 'setup' } | { k: 'local'; cfg: GameConfig; n: number } | { k: 'entry'; code?: string; error?: string | null } | { k: 'room'; client: NetClient };
 
 export default function App() {
@@ -2733,6 +2800,9 @@ export default function App() {
     // ?sala=ABCD abre directamente la entrada online con el código puesto (enlace de invitación).
     const sala = q.get('sala')?.toUpperCase();
     if (sala && /^[A-Z]{4}$/.test(sala)) return { k: 'entry', code: sala };
+    const mesa = savedMesa();
+    // (Una sola conexión aunque React llame dos veces a este inicializador en desarrollo.)
+    if (mesa) return { k: 'room', client: (resumedMesa ??= new NetClient(mesa, 'Mesa', true)) };
     // ?demo=5 arranca directamente una partida de 5 jugadores (útil para probar).
     const demo = Number(q.get('demo'));
     if (q.has('tutorial')) return { k: 'local', n: 0, cfg: tutorialCfg() };
@@ -2744,7 +2814,7 @@ export default function App() {
     if (location.search) history.replaceState(null, '', location.pathname);
     setScreen({ k: 'home' });
   }, []);
-  const leaveRoom = useCallback((error?: string) => setScreen({ k: 'entry', error }), []);
+  const leaveRoom = useCallback((error?: string) => { setSavedMesa(null); setScreen({ k: 'entry', error }); }, []);
   const acc = useAccount();
   useEffect(() => { void initAccount(); }, []);
   // Antes de los menús: comprobar la sesión; sin sesión ni invitado, la pantalla de entrada; con cuenta nueva, el perfil.
@@ -2766,7 +2836,7 @@ export default function App() {
     case 'setup':
       return <Shell onAccount={() => setScreen({ k: 'account' })}><LocalSetup onBack={home} onStart={(cfg) => setScreen({ k: 'local', cfg, n: 0 })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
     case 'entry':
-      return <Shell onAccount={() => setScreen({ k: 'account' })}><OnlineEntry initialCode={screen.code} initialError={screen.error} onBack={home} onJoin={(code, name) => setScreen({ k: 'room', client: new NetClient(code, name) })} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
+      return <Shell onAccount={() => setScreen({ k: 'account' })}><OnlineEntry initialCode={screen.code} initialError={screen.error} onBack={home} onJoin={(code, name) => setScreen({ k: 'room', client: new NetClient(code, name) })} onScreen={(code) => { setSavedMesa(code); setScreen({ k: 'room', client: new NetClient(code, 'Mesa', true) }); }} onAccount={() => setScreen({ k: 'account' })} /></Shell>;
     case 'room':
       return <OnlineRoom client={screen.client} onExit={leaveRoom} />;
     case 'local':

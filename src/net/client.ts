@@ -105,7 +105,8 @@ export class NetClient {
   private ping = 0;
   snap: NetSnap = { status: 'connecting', view: null, recvAt: 0, error: null, fatal: false };
 
-  constructor(readonly code: string, readonly name: string) {
+  /** `screen`: pantalla de mesa (modo «en el sofá»): enseña la partida sin manos y no ocupa asiento. */
+  constructor(readonly code: string, readonly name: string, readonly screen = false) {
     this.connect();
   }
 
@@ -122,6 +123,9 @@ export class NetClient {
     ws.onopen = () => {
       this.retry = 0;
       this.set({ status: 'open' });
+      if (this.screen) {
+        ws.send(JSON.stringify({ t: 'screen', token: this.token } satisfies ClientMsg));
+      } else
       // Con sesión iniciada se manda el token de la cuenta (la sala lo comprueba) y el color preferido.
       void authToken().then((jwt) => {
         if (ws.readyState !== WebSocket.OPEN) return;

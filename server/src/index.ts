@@ -11,7 +11,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   ABANDON_MS, ClientMsg, Result, RoomData, ServerMsg,
-  act, decideDrop, hello, setColor, leave, newRoom, nextWake, ready, roomBug, roomRecord, roomView, setOpts, start, tick, toLobby,
+  act, decideDrop, hello, screenHello, setColor, leave, newRoom, nextWake, ready, roomBug, roomRecord, roomView, setOpts, start, tick, toLobby,
 } from '../../src/game/room';
 import { BugReport } from '../../src/game/record';
 import { NICK_RE, cleanNick, getProfile, nickFree, saveBug, saveGame, saveProfile, validRecord } from './db';
@@ -239,6 +239,12 @@ export class Sala extends DurableObject<Env> {
       // Con sesión iniciada, el asiento queda enlazado con la cuenta (comprobando su token).
       const uid = await verifyUser(m.jwt, this.env.NEON_AUTH_JWKS_URL);
       res = hello(r, m.token, m.name, this.online(ws), m.pid, uid, m.color, m.icon);
+      if (res.ok) {
+        token = m.token;
+        ws.serializeAttachment({ token } satisfies Att);
+      }
+    } else if (m.t === 'screen') {
+      res = screenHello(r, m.token);
       if (res.ok) {
         token = m.token;
         ws.serializeAttachment({ token } satisfies Att);

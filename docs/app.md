@@ -36,6 +36,7 @@ Navegador (React + Vite, src/)                Cloudflare (server/, plan gratuito
 | `src/ui/App.tsx` | Todo lo de la partida (mesa, animaciones `launch`/`useFlights`, avisos, bandejas, flechas, pantalla final) y el enrutado de pantallas |
 | `src/ui/useGame.ts` | «Anfitrión» local: aplica acciones, mueve a las máquinas, lleva los relojes y guarda la partida |
 | `src/ui/Online.tsx` | Cabecera del panel (`Shell`), crear/unirse a sala, sala de espera |
+| `src/ui/QrScan.tsx` | Lector del QR de la sala con la cámara |
 | `src/ui/Setup.tsx` | Opciones de partida (y modal «Más opciones») |
 | `src/ui/Account.tsx` | Entrada (iniciar sesión / crear cuenta / Google / invitado), perfil, avatar hexagonal, selector de icono y color |
 | `src/ui/Compendium.tsx` | Compendio (Cómo jugar · Mecánicas · Cartas · Jerarquía), mini partidas, ayuda rápida de la partida |
@@ -67,13 +68,33 @@ URLs de depuración: `?demo=N` (partida directa con N jugadores), `&mano=carta,c
 - **Servidor autoritativo:** cada sala (código de 4 letras) es un Durable Object `Sala` que ejecuta `apply`, lleva los relojes y
   mueve a las máquinas (`room.ts`). Usa WebSockets con hibernación: sin nadie jugando no consume.
 - Cada jugador recibe solo su vista (`viewFor`). El cliente nunca tiene el estado completo.
-- **Mensajes** (`ClientMsg` / `ServerMsg` en `room.ts`): `hello`, `opts`, `start`, `act`, `color`, `drop`, `lobby`, `leave`,
+- **Mensajes** (`ClientMsg` / `ServerMsg` en `room.ts`): `hello`, `screen`, `opts`, `start`, `act`, `color`, `drop`, `lobby`, `leave`,
   `bug`, `emote`.
 - Huecos libres = máquinas (con nivel por máquina). Quien entra con la partida empezada ocupa el sitio de una máquina.
 - Decisiones con tiempo máximo de 15 s (opción). Si alguien se cae, se le espera; el anfitrión decide si juega una máquina por
   él o se le quita.
 - El anfitrión puede cambiar en partida el tiempo máximo y las flechas.
 - Las partidas online las guarda la propia sala al terminar (o al abandonarse).
+- **En el sofá (pantalla de mesa):** «Online → Crear mesa». Esa pantalla (tele, portátil) entra en la sala como
+  pantalla (`{t: 'screen'}`, `screenHello` en `room.ts`; `r.screens`): no se sienta, ve la partida sin ninguna mano
+  (`viewFor(s, -1)`) y, mientras está conectada, es el anfitrión (opciones, empezar, caídas, volver a la sala). Su sala de
+  espera (`TableLobby` en `Online.tsx`) enseña el código y un QR con el enlace `?sala=`. En móviles y tabletas, junto al código de sala hay un botón de cámara
+  (`QrScanner` en `src/ui/QrScan.tsx`: `BarcodeDetector` o, si no hay, jsQR) que lee ese QR sin salir de la web; en la
+  app instalada es la forma de entrar, porque la cámara del sistema abriría el enlace en el navegador. Si la pestaña de la mesa se
+  recarga, vuelve sola a su sala (`maldiciones:mesa` en `sessionStorage`). Cada jugador entra desde su móvil como en
+  cualquier sala online; con `RoomView.couch`, su partida es un **mando** (`Game` con `pad`, clase `.game.pad`): no se
+  pintan los rivales; arriba, en pequeño, el Mazo, la carta de arriba (y su color) y la Trifuerza; debajo el aviso y mi
+  mano en rejilla, grande. Las elecciones salen en recuadros: el color, el jugador (`pick-modal`: a quién dirigir, reflejar,
+  dar, buscar con Condena…, con la carta de la que se trata) y las bandejas de Imán, Adivinar y Recuperar (`tray-modal`);
+  Escarcha y Ráfaga siguen con su bandeja porque también se elige carta de la mano. Aplastar: la diana, grande en el centro.
+  El anuncio de la carta jugada, las flechas y el mini historial solo salen en la mesa (el mini historial, abajo a la
+  izquierda y con 8 jugadas, si la pantalla mide 1000 px o más). Al acabar la partida, en el mando la mano baja y sale, la
+  mesa crece hasta ocupar la pantalla con la Pila en el centro y ahí se hace el final (`.game.pad[data-finale]`).
+  En horizontal: mi ficha arriba a la izquierda, junto a la mesa; la mano en una fila (con más de 7 cartas, más pequeñas,
+  `data-many`) y en el recuadro de elegir jugador los jugadores van en fila.
+  En la mesa, `Game` recibe `tv`: se añade al final un asiento vacío y fuera de la partida que hace de «yo»
+  (`withTableSeat` en `App.tsx`), así todos los jugadores se sientan alrededor; la clase `.game.tv` oculta la mano y los
+  avisos personales. El reparto espera también a las pantallas (`ready`).
 
 ## 5. Cuentas
 

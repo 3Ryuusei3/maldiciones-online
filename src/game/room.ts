@@ -78,6 +78,11 @@ export interface RoomData {
   pausedAt?: number | null;
   /** Registro de la partida en curso (estado inicial y acciones) para guardarla al acabar. */
   rec?: Recording | null;
+  /**
+   * Pantallas de mesa (modo «en el sofá»): enseñan la partida a todos, sin ninguna mano, y no ocupan asiento.
+   * Los jugadores juegan desde su móvil. Mientras hay una conectada, hace de anfitrión.
+   */
+  screens?: string[];
 }
 
 export interface Drop { mode: 'wait' | 'auto' | 'kick'; until: number }
@@ -128,6 +133,8 @@ export const seatOf = (r: RoomData, token: string) => r.seats.findIndex((x) => x
 
 export type ClientMsg =
   | { t: 'hello'; name: string; token: string; pid?: string; jwt?: string | null; color?: number; icon?: string }
+  /** Entra una pantalla de mesa (modo «en el sofá»): ve la partida sin manos y no se sienta. */
+  | { t: 'screen'; token: string }
   | { t: 'opts'; opts: Partial<RoomOpts> }
   | { t: 'start' }
   | { t: 'ready' }
@@ -152,6 +159,10 @@ export interface RoomView {
   code: string;
   /** Mi asiento (-1 si no estoy sentado). */
   you: number;
+  /** Soy una pantalla de mesa. */
+  screen: boolean;
+  /** La sala tiene pantalla de mesa: los jugadores miran la partida en ella y juegan desde el móvil. */
+  couch: boolean;
   host: boolean;
   opts: RoomOpts;
   seats: SeatInfo[];
@@ -179,6 +190,8 @@ const cleanName = (n: unknown) => (typeof n === 'string' ? n.replace(/\s+/g, ' '
 /** Un jugador entra (o vuelve) a la sala. */
 export function hello(r: RoomData, token: string, name: string, online: Set<string> = new Set(), pid?: string, uid?: string | null, color?: number, icon?: string): Result {
   if (typeof token !== 'string' || token.length < 16) return fail('Identificador no válido.', true);
+  // Una pestaña que era pantalla de mesa y ahora entra como jugador deja de ser pantalla.
+  if (isScreen(r, token)) r.screens = r.screens!.filter((t) => t !== token);
   const res = helloSeat(r, token, name, online, color);
   const i = seatOf(r, token);
   if (res.ok && i >= 0) {
@@ -187,6 +200,22 @@ export function hello(r: RoomData, token: string, name: string, online: Set<stri
     if (isIcon(icon)) r.seats[i].icon = icon;
   }
   return res;
+}
+
+/** Máximo de pantallas de mesa por sala. */
+const MAX_SCREENS = 3;
+export const isScreen = (r: RoomData, token: string | null) => !!token && !!r.screens?.includes(token);
+
+/** Entra (o vuelve) una pantalla de mesa. */
+export function screenHello(r: RoomData, token: string): Result {
+  if (typeof token !== 'string' || token.length < 16) return fail('Identificador no válido.', true);
+  if (seatOf(r, token) >= 0) return fail('Este navegador ya juega en la sala.', true);
+  const list = (r.screens ??= []);
+  if (!list.includes(token)) {
+    if (list.length >= MAX_SCREENS) list.shift();
+    list.push(token);
+  }
+  return ok;
 }
 
 /** El color preferido del jugador si nadie más de la sala lo tiene; si no, el primero libre (quien llegó antes lo conserva). */
@@ -239,6 +268,9 @@ function helloSeat(r: RoomData, token: string, name: string, online: Set<string>
  * (cuando vuelve, recupera el papel).
  */
 export function hostOf(r: RoomData, online: Set<string>): string | null {
+  // Con pantalla de mesa, la partida se maneja desde ella.
+  const scr = r.screens?.find((t) => online.has(t));
+  if (scr) return scr;
   const here = (t: string | null) => !!t && online.has(t) && r.seats.some((x) => x.token === t && !x.left);
   if (here(r.host)) return r.host;
   return r.seats.find((x) => x.token && !x.left && online.has(x.token))?.token ?? r.host;
@@ -303,7 +335,7 @@ export function start(r: RoomData, token: string, now: number, online: Set<strin
 export function toLobby(r: RoomData, token: string): Result {
   // Con la partida terminada, cualquiera de la sala puede volver a la sala de espera (vuelven todos).
   const i = seatOf(r, token);
-  if (i < 0 || r.seats[i].left) return fail('No estás en la sala.');
+  if (!isScreen(r, token) && (i < 0 || r.seats[i].left)) return fail('No estás en la sala.');
   if (r.game && r.game.phase.t !== 'over') return fail('La partida sigue en curso.');
   r.game = null;
   r.seats = r.seats.filter((x) => x.token && !x.left);
@@ -337,6 +369,10 @@ export function decideDrop(r: RoomData, token: string, p: number, how: Drop['mod
 
 /** El jugador se va: en la sala de espera pierde su asiento; en partida juega la máquina por él. */
 export function leave(r: RoomData, token: string): Result {
+  if (isScreen(r, token)) {
+    r.screens = r.screens!.filter((t) => t !== token);
+    return ok;
+  }
   const i = seatOf(r, token);
   if (i < 0) return ok;
   if (r.game) r.seats[i].left = true;
@@ -349,7 +385,9 @@ export function leave(r: RoomData, token: string): Result {
 export function ready(r: RoomData, token: string, online: Set<string>, now: number) {
   if (!r.game || r.sched.ready.includes(token)) return;
   r.sched.ready.push(token);
-  const waiting = r.seats.some((x) => x.token && !x.left && online.has(x.token) && !r.sched.ready.includes(x.token));
+  // También se espera a las pantallas de mesa (son las que enseñan el reparto a todos).
+  const waiting = r.seats.some((x) => x.token && !x.left && online.has(x.token) && !r.sched.ready.includes(x.token))
+    || !!r.screens?.some((t) => online.has(t) && !r.sched.ready.includes(t));
   if (!waiting) r.sched.startAt = Math.min(r.sched.startAt, now);
 }
 
@@ -556,6 +594,8 @@ export function roomView(r: RoomData, token: string | null, online: Set<string>,
     t: 'room',
     code: r.code,
     you,
+    screen: isScreen(r, token),
+    couch: !!r.screens?.length,
     host: !!token && token === hostOf(r, online),
     opts: r.opts,
     seats: r.seats.map((x, p) => ({

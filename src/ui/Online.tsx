@@ -8,6 +8,24 @@ import { COLOR_ORDER, PCOL, asset, toggleFullscreen } from './shared';
 import { LEVELS, SetupFields } from './Setup';
 import type { Level } from '../game/bot';
 import { CompendioButton } from './Compendium';
+import qrcode from 'qrcode-generator';
+import { QrScanner, canScan } from './QrScan';
+
+/** Código QR (SVG) de un texto: para entrar en la sala desde el móvil apuntando a la pantalla. */
+export function QR({ text, size = 200 }: { text: string; size?: number }) {
+  const q = qrcode(0, 'M');
+  q.addData(text);
+  q.make();
+  const n = q.getModuleCount();
+  let d = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c + 2} ${r + 2}h1v1h-1z`;
+  return (
+    <svg className="qr" width={size} height={size} viewBox={`0 0 ${n + 4} ${n + 4}`} role="img" aria-label="Código QR para unirse" shapeRendering="crispEdges">
+      <rect width={n + 4} height={n + 4} fill="#fff" />
+      <path d={d} fill="#000" />
+    </svg>
+  );
+}
 
 
 /**
@@ -87,13 +105,16 @@ function HomeBg() {
 }
 
 /** Pantalla de entrada: crear una sala nueva o unirse con un código. */
-export function OnlineEntry({ initialCode, initialError, onJoin, onBack, onAccount }: { initialCode?: string; initialError?: string | null; onJoin: (code: string, name: string) => void; onBack: () => void; onAccount?: () => void }) {
+export function OnlineEntry({ initialCode, initialError, onJoin, onScreen, onBack, onAccount }: { initialCode?: string; initialError?: string | null; onJoin: (code: string, name: string) => void; onScreen?: (code: string) => void; onBack: () => void; onAccount?: () => void }) {
   const acc = useAccount();
   const prof = myProfile(acc);
   const [name, setName] = useState(() => prof?.nickname ?? (() => { try { return localStorage.getItem('maldiciones:nombre') ?? ''; } catch { return ''; } })());
   const [code, setCode] = useState(initialCode ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(initialError ?? null);
+  // Cámara para leer el QR de la mesa o de la sala sin salir de la web (sobre todo en la app instalada).
+  const [scan, setScan] = useState(false);
+  const [scanOk] = useState(canScan);
   const remember = () => { try { localStorage.setItem('maldiciones:nombre', name.trim()); } catch { /* sin almacenamiento */ } };
   const nm = name.trim() || 'Jugador';
 
@@ -109,8 +130,20 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack, onAccou
       setBusy(false);
     }
   };
-  const join = async () => {
-    const c = code.trim().toUpperCase();
+  /** Modo «en el sofá»: esta pantalla es la mesa (no juega) y cada jugador entra desde su móvil. */
+  const createTable = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      onScreen?.(await createRoom());
+    } catch (e) {
+      setError(e instanceof Error && e.message !== 'Failed to fetch' ? e.message : 'No se puede conectar con el servidor.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const join = async (raw = code) => {
+    const c = raw.trim().toUpperCase();
     if (!/^[A-Z]{4}$/.test(c)) return setError('El código tiene 4 letras.');
     setBusy(true);
     setError(null);
@@ -142,12 +175,31 @@ export function OnlineEntry({ initialCode, initialError, onJoin, onBack, onAccou
       <div className="play-row">
         <button className="play" disabled={busy} onClick={create}>Crear sala</button>
       </div>
+      {onScreen && (
+        <>
+          <p className="or-sep">o jugad juntos en el sofá</p>
+          <button className="play couch-btn" disabled={busy} onClick={createTable}>Crear mesa</button>
+          <small className="couch-note">Esta pantalla enseña la partida y cada jugador juega con su móvil.</small>
+        </>
+      )}
       <p className="or-sep">o únete a la de un amigo</p>
       <label>
         Código de sala
-        <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4))} onKeyDown={(e) => e.key === 'Enter' && join()} placeholder="ABCD" className="code-input" />
+        <span className="code-row">
+          <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4))} onKeyDown={(e) => e.key === 'Enter' && join()} placeholder="ABCD" className="code-input" />
+          {scanOk && (
+            <button type="button" className="scan-btn" onClick={() => setScan(true)} aria-label="Escanear el QR con la cámara" title="Escanear el QR">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" strokeLinecap="round" />
+                <path d="M8.5 9.5h1.4l.9-1.5h2.4l.9 1.5h1.4v5.5h-7z" />
+                <circle cx="12" cy="12.3" r="1.5" />
+              </svg>
+            </button>
+          )}
+        </span>
       </label>
-      <button className="play" disabled={busy || code.length !== 4} onClick={join}>Unirse a la sala</button>
+      <button className="play" disabled={busy || code.length !== 4} onClick={() => join()}>Unirse a la sala</button>
+      {scan && <QrScanner onClose={() => setScan(false)} onCode={(c) => { setScan(false); setCode(c); void join(c); }} />}
       {error && <p className="net-error" role="alert">{error}</p>}
       <div className="home-links">
         <button onClick={onBack}>Volver</button>
@@ -174,6 +226,7 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
     } catch { /* cancelado o sin permiso */ }
   };
   const bots = Math.max(0, o.size - v.seats.length);
+  if (v.screen) return <TableLobby client={client} onExit={onExit} link={link} bots={bots} />;
   return (
     <>
       {/* Título y, a su derecha, el código: pulsándolo se copia el enlace de invitación. */}
@@ -212,6 +265,7 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
           })}
         </ul>
       </div>
+      {v.couch && <p className="lobby-note couch-tip">Esta sala se juega en la pantalla de la mesa: allí se ve la partida y desde aquí juegas tus cartas.</p>}
       {v.you >= 0 && (
         <div className="field">
           Tu color
@@ -232,14 +286,71 @@ export function Lobby({ client, onExit }: { client: NetClient; onExit: () => voi
         </>
       ) : (
         <>
-          <p className="lobby-note">Solo el anfitrión puede cambiar las opciones de la partida.</p>
+          <p className="lobby-note">{v.couch ? 'Las opciones se cambian en la pantalla de la mesa.' : 'Solo el anfitrión puede cambiar las opciones de la partida.'}</p>
           <div className="readonly"><SetupFields opts={o} set={() => {}} readOnly hideLevel /></div>
-          <p className="lobby-wait">Esperando a que el anfitrión empiece la partida…</p>
+          <p className="lobby-wait">{v.couch ? 'La partida se empieza desde la pantalla de la mesa…' : 'Esperando a que el anfitrión empiece la partida…'}</p>
         </>
       )}
       {(status !== 'open' || error) && <p className="net-error" role="alert">{status !== 'open' ? 'Reconectando…' : error}</p>}
       <div className="home-links">
         <button onClick={() => { client.leave(); onExit(); }}>Salir de la sala</button>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Sala de espera en la pantalla de la mesa (modo «en el sofá»): código y QR bien grandes para entrar desde el móvil,
+ * quién ha entrado y las opciones. La pantalla hace de anfitrión: desde aquí se empieza.
+ */
+function TableLobby({ client, onExit, link, bots }: { client: NetClient; onExit: () => void; link: string; bots: number }) {
+  const { view: v, status, error } = useNet(client);
+  if (!v) return null;
+  const o = v.opts;
+  const humans = v.seats.filter((x) => !x.bot);
+  return (
+    <>
+      <div className="room-head">
+        <h1>Mesa</h1>
+        <span className="room-code-btn" aria-label={`Sala ${v.code}`}>{v.code}</span>
+      </div>
+      <div className="couch-join">
+        <QR text={link} size={180} />
+        <p>Escanea el código con el móvil o entra en <b>{location.host}</b> con la sala <b>{v.code}</b>.</p>
+      </div>
+      <div className="field">
+        Jugadores ({v.seats.length}/{o.size})
+        <ul className="lobby-seats">
+          {v.seats.map((x, i) => (
+            <li key={i} className={x.online ? '' : 'off'}>
+              <HexIcon icon={x.icon ?? 'maldicion'} color={PCOL[x.color] ?? PCOL[i % PCOL.length]} size={34} />
+              {x.name}
+              {!x.online && <small>desconectado</small>}
+            </li>
+          ))}
+          {Array.from({ length: bots }, (_, i) => {
+            const lv = o.botLevels?.[i] ?? o.level;
+            const next = () => {
+              const all = Array.from({ length: bots }, (_, j) => o.botLevels?.[j] ?? o.level);
+              all[i] = ((lv + 1) % 3) as Level;
+              client.opts({ botLevels: all });
+            };
+            return (
+              <li key={`b${i}`} className="bot">
+                <span className="hex-wrap"><span className="hex-icon bot-hex" style={{ width: 34 * 0.87, height: 34 }}><span className="hex-in" /></span></span>
+                Máquina
+                <button className={`lvl lvl-${lv}`} onClick={next} title="Cambiar el nivel de esta máquina">{LEVELS[lv]}</button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+      <SetupFields opts={o} set={(x) => client.opts(x)} min={Math.max(3, v.seats.length)} hideLevel />
+      <button className="play" disabled={!humans.some((x) => x.online)} onClick={() => client.send({ t: 'start' })}>Empezar</button>
+      {!humans.length && <p className="lobby-wait">Esperando a que entre el primer jugador…</p>}
+      {(status !== 'open' || error) && <p className="net-error" role="alert">{status !== 'open' ? 'Reconectando…' : error}</p>}
+      <div className="home-links">
+        <button onClick={() => { client.leave(); onExit(); }}>Cerrar la mesa</button>
       </div>
     </>
   );
