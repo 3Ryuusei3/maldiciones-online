@@ -276,7 +276,8 @@ export function botDecide(s: GameState, p: number, lvl: Level, r: Rnd = Math.ran
     case 'give': {
       if (!ph.waiting.includes(p)) return null;
       const n = ph.need[p];
-      const ids = lvl === 0 ? [...hand].sort(() => r() - 0.5).slice(0, n).map((c) => c.id) : worstN(hand, n);
+      // En Tinieblas no ve sus cartas: da al azar.
+      const ids = lvl === 0 || isBlind(s) ? [...hand].sort(() => r() - 0.5).slice(0, n).map((c) => c.id) : worstN(hand, n);
       return { type: 'give', player: p, cardId: ids[0], ids };
     }
     case 'escarcha': {
@@ -317,7 +318,7 @@ export function botDecide(s: GameState, p: number, lvl: Level, r: Rnd = Math.ran
     }
     case 'codicia': {
       if (!ph.waiting.includes(p)) return null;
-      if (ph.launcher === p) return { type: 'give', player: p, cardId: (lvl === 0 ? pick(hand, r) : worstToGive(hand)).id };
+      if (ph.launcher === p) return { type: 'give', player: p, cardId: (lvl === 0 || isBlind(s) ? pick(hand, r) : worstToGive(hand)).id };
       return { type: 'pick', player: p, ids: pickTied(hand, ph.options, 1, lvl, r) };
     }
     case 'imanPick':

@@ -140,9 +140,10 @@ export type Action =
   | { type: 'keep'; player: number }
   | { type: 'choose'; player: number; value: string | number | null }
   | { type: 'dup'; player: number; cardId: string; with?: string[] }
-  | { type: 'antitodo'; player: number }
+  | { type: 'antitodo'; player: number; with?: string[] }
   | { type: 'color'; player: number; color: Color }
-  | { type: 'react'; player: number; r: ReactKind; cardId?: string; ids?: string[]; color?: Color; target?: number }
+  /** `with` (Antitodo): otros Antitodos que se echan a la vez. */
+  | { type: 'react'; player: number; r: ReactKind; cardId?: string; ids?: string[]; color?: Color; target?: number; with?: string[] }
   | { type: 'slap'; player: number }
   | { type: 'give'; player: number; cardId: string; ids?: string[] }
   | { type: 'escarcha'; player: number; hands: Record<number, string[]>; give: { cardId: string; to: number } | null }
@@ -825,10 +826,8 @@ function resolve(s: GameState, eff: Effect, exempt: number[]) {
       const waiting: number[] = [];
       for (const g of Object.keys(need).map(Number)) {
         need[g] = Math.min(need[g], s.players[g].hand.length);
-        if (!need[g]) continue;
-        if (isBlind(s)) {
-          for (const id of randomIds(s, s.players[g].hand.map((c) => c.id), need[g])) eff.given.push({ from: g, card: takeFromHand(s, g, id)! });
-        } else waiting.push(g);
+        // También en Tinieblas: se elige qué carta (boca abajo) se da.
+        if (need[g]) waiting.push(g);
       }
       if (!waiting.length) return deliverTrav(s, eff, t);
       s.phase = { t: 'give', eff, waiting, need, target: t };
@@ -856,8 +855,12 @@ function resolve(s: GameState, eff: Effect, exempt: number[]) {
       const sp = tieSplit(s.players[t].hand, 1, true);
       const lh = s.players[L].hand;
       if (isBlind(s)) {
+        // En Tinieblas, si hay empate en la mejor carta, sale una al azar (nadie ve su mano); la que da el lanzador
+        // la elige él, boca abajo.
         const best = sp.fixed[0] ?? randomIds(s, sp.options, 1)[0] ?? null;
-        return doCodicia(s, L, t, lh.length ? lh[Math.floor(rnd(s) * lh.length)].id : null, best);
+        if (!lh.length) return doCodicia(s, L, t, null, best);
+        s.phase = { t: 'codicia', launcher: L, target: t, options: [], give: null, best, waiting: [L], eff: { ...eff, targets: [t] } };
+        return;
       }
       const waiting: number[] = [];
       if (sp.count > 0) waiting.push(t);
@@ -1090,6 +1093,7 @@ function handleReact(s: GameState, a: Extract<Action, { type: 'react' }>, guesse
       const c = pl.hand.find((x) => x.kind === 'antitodo')!;
       takeFromHand(s, p, c.id);
       putOnPile(s, p, c);
+      putJoined(s, p, c, a.with);
       // Antitodo lo anula todo: el efecto no alcanza a nadie y lo gastado en defenderse vuelve a su dueño.
       const u = s.undo;
       if (u) {
@@ -1274,7 +1278,8 @@ export function apply(prev: GameState, a: Action): GameState {
  */
 function joinable(s: GameState, p: number, first: Card, ids?: string[]): Card[] {
   const attr = KINDS[first.kind].attr;
-  if (attr === 'defensa' || attr === 'sagrada' || attr === 'maldita' || KINDS[first.kind].rank >= 4) return [];
+  // Los Antitodos sí se pueden echar juntos, en cualquier momento (el efecto, una vez).
+  if (first.kind !== 'antitodo' && (attr === 'defensa' || attr === 'sagrada' || attr === 'maldita' || KINDS[first.kind].rank >= 4)) return [];
   if (first.kind === 'predestinar' || first.kind === 'cristalizar') return [];
   const out: Card[] = [];
   for (const id of new Set(ids ?? [])) {
@@ -1282,6 +1287,13 @@ function joinable(s: GameState, p: number, first: Card, ids?: string[]): Card[] 
     if (c && c.id !== first.id && c.kind === first.kind && c.color === first.color) out.push(c);
   }
   return out;
+}
+
+/** Copias que se echan junto a una carta ya puesta en la Pila (Antitodos juntos al reaccionar o fuera de turno). */
+function putJoined(s: GameState, p: number, first: Card, ids?: string[]) {
+  const extra = joinable(s, p, first, ids);
+  for (const x of extra) { takeFromHand(s, p, x.id); putOnPile(s, p, x); }
+  if (extra.length) log(s, `${nm(s, p)} echa ${extra.length + 1} ${KINDS[first.kind].name} juntos.`);
 }
 
 /** Ataques echados juntos: Travesura acumula (otra carta tuya y +2 por copia) y Aplastar suma rondas completas. */
@@ -1418,6 +1430,7 @@ function step(s: GameState, a: Action): boolean {
       const c = s.players[a.player].hand.find((x) => x.kind === 'antitodo')!;
       takeFromHand(s, a.player, c.id);
       putOnPile(s, a.player, c);
+      putJoined(s, a.player, c, a.with);
       resetEnv(s);
       dropFaceUpEgidas(s);
       log(s, `${nm(s, a.player)} juega Antitodo fuera de turno: se reinician los Entornos.`);

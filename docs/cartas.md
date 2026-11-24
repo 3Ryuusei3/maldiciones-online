@@ -50,7 +50,9 @@ Al terminar, el turno pasa al siguiente en el sentido de juego (`finish` → `be
 - **Apoyo:** al encadenar una carta de Apoyo puedes descartar 1 Gema de tu mano (fase `choose` con `need: 'gem'`).
 - **Ataque duplicado:** su efecto se multiplica (Travesura acumula; un Aplastar duplicado es otra ronda completa).
 - **Jugar juntas:** se pueden echar a la vez varias copias idénticas. Van todas a la Pila juntas y el efecto se hace **una
-  vez**; si son Ataques, se multiplica (`joinable` + `multiplyJoined`). También Antitodo + Maldición juntos.
+  vez**; si son Ataques, se multiplica (`joinable` + `multiplyJoined`). También Antitodo + Maldición juntos, y varios
+  Antitodos a la vez en cualquier momento: al encadenar, al reaccionar a un efecto o fuera de turno (`with` en las
+  acciones `antitodo` y `react`; `putJoined`).
 - **Defenderse no altera el turno.**
 - **Entornos (Mutis, Inutilizar, Tinieblas):** reglas temporales para todos, marcadas en la Trifuerza. No se pueden defender.
   Con 2 o más activos hay **Entorno maldito**: nadie puede ganar y quien se quede sin cartas roba 1 (`isCursedEnv`).
@@ -126,7 +128,7 @@ Con **Inutilizar** activo, la Codicia de color no tiene efecto: quien la juega d
 | --- | --- | --- | --- |
 | **Mutis** | 2 por color · I | Silencio: no se anuncian las cartas (quien hable roba 3). | Con Inutilizar no se puede activar ni desactivar (se pregunta; si dice que sí, roba 3). |
 | **Inutilizar** | 3 · II | Las cartas de color se pueden jugar pero no tienen efecto (fase `inutil`). | Pone a prueba la atención: Aplastar de color saca la mano igual; Travesura, Codicia, Adivinar o Mutis de color preguntan si se empieza o se recibe el efecto (quien diga que sí roba 3). |
-| **Tinieblas** | 3 · III | Todos juegan con las cartas boca abajo hasta que el turno vuelve 3 veces al lanzador. | Al caer hay una cuenta atrás para memorizar la mano (durante ella no se puede jugar ni usar cartas, salvo duplicar la Tinieblas, que la desactiva). En tu turno juegas a ciegas o robas 3. Si la carta no encadena, vuelve a tu mano, robas 1 y pierdes el turno. Fuera de tu turno puedes probar una carta (duplicar, Antitodo, defenderte…); si no sirve, robas 1. Lo que se entrega viaja boca abajo; el historial dice «una carta (???)» y se cuenta al disiparse (`logSecret` / `revealSecrets`). Estado en `s.env.tinieblas`. |
+| **Tinieblas** | 3 · III | Todos juegan con las cartas boca abajo hasta que el turno vuelve 3 veces al lanzador. | Al caer hay una cuenta atrás para memorizar la mano (durante ella no se puede jugar ni usar cartas, salvo duplicar la Tinieblas, que la desactiva). En tu turno juegas a ciegas o robas 3. Si la carta no encadena, vuelve a tu mano, robas 1 y pierdes el turno. Fuera de tu turno puedes probar una carta (duplicar, Antitodo, defenderte…); si no sirve, robas 1. Lo que das con Travesura o Codicia lo eliges tú, boca abajo (si hay empate en la mejor carta de quien sufre la Codicia, sale una al azar). Lo que se entrega viaja boca abajo; el historial dice «una carta (???)» y se cuenta al disiparse (`logSecret` / `revealSecrets`). Estado en `s.env.tinieblas`. |
 
 ### Sagrada y Malditas (míticas, Jerarquía ◆)
 

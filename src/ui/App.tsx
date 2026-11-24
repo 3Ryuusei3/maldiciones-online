@@ -1340,7 +1340,7 @@ function Game({ cfg, onExit, onRematch, net, tv = false, pad = false }: { cfg: G
   } else if (givingTrav && ph.t === 'give') {
     alert = true;
     const what = ph.eff.last === 'trastada' ? 'Trastada' : 'Travesura';
-    text = giveNeed > 1 ? `${what}: elige ${giveNeed} cartas de tu mano para dárselas a ${name(ph.target)}.` : `${what}: elige de tu mano la carta que le das a ${name(ph.target)}.`;
+    text = giveNeed > 1 ? `${what}: elige ${giveNeed} cartas de tu mano${blind ? ', a ciegas,' : ''} para dárselas a ${name(ph.target)}.` : `${what}: elige de tu mano${blind ? ', a ciegas,' : ''} la carta que le das a ${name(ph.target)}.`;
     if (giveNeed > 1) B(`Dar ${sel.length}/${giveNeed}`, () => send({ type: 'give', player: ME, cardId: sel[0], ids: sel }), true, sel.length !== giveNeed);
   } else if (escarcha) {
     alert = true;
@@ -1359,7 +1359,7 @@ function Game({ cfg, onExit, onRematch, net, tv = false, pad = false }: { cfg: G
     if (!card) B(rafaga.pool.length ? 'Descartar las demás' : 'Terminar', () => send({ type: 'rafaga', player: ME, cardId: null }));
   } else if (givingCod && ph.t === 'codicia') {
     alert = true;
-    text = `Codicia: elige de tu mano la carta que le das a ${name(ph.target)}.`;
+    text = `Codicia: elige de tu mano${blind ? ', a ciegas,' : ''} la carta que le das a ${name(ph.target)}.`;
   } else if (tie) {
     alert = true;
     text = `${tie.what} de ${name(tie.from)}: tienes varias cartas de la misma Jerarquía. Elige ${tie.count === 1 ? 'cuál entregas' : `${tie.count} para entregar`}.`;
@@ -1554,6 +1554,9 @@ function Game({ cfg, onExit, onRematch, net, tv = false, pad = false }: { cfg: G
       if (ids.length > 1 && !ids.some((id) => hidden.includes(id))) {
         if (myTurn && canPlay(s, ME, c)) joinGroups.push({ ids, run: () => send({ type: 'play', player: ME, cardId: ids[0], with: ids.slice(1) }) });
         else if (canDup(s, ME, c)) joinGroups.push({ ids, run: () => send({ type: 'dup', player: ME, cardId: ids[0], with: ids.slice(1) }) });
+        // Antitodos: juntos también al reaccionar (o con Imán/Codicia sin resolver) y fuera de turno.
+        else if (c.kind === 'antitodo' && ((reacting && opts.includes('antitodo')) || lateOpts.includes('antitodo'))) joinGroups.push({ ids, run: () => react({ r: 'antitodo', with: ids.slice(1) }) });
+        else if (c.kind === 'antitodo' && canFreeAntitodo(s, ME)) joinGroups.push({ ids, run: () => send({ type: 'antitodo', player: ME, with: ids.slice(1) }) });
       }
       const nx = sortedHand[j];
       if (c.kind === 'antitodo' && nx?.kind === 'maldicion' && myTurn && canPlay(s, ME, c)) joinGroups.push({ ids: [c.id, nx.id], run: () => send({ type: 'play', player: ME, cardId: c.id, with: [nx.id] }) });
