@@ -3,8 +3,8 @@
 import { Level } from './bot';
 import { GameState } from './engine';
 
-/** Multiplicador de las pausas de las máquinas: ritmo único y pausado, para que dé tiempo a ver cada jugada. */
-export const PACE = 1.1;
+/** Multiplicador de las pausas de las máquinas: ritmo único y pausado, para que dé tiempo a ver cada jugada (1,1 × 1,15). */
+export const PACE = 1.265;
 
 const BOT_NAMES = ['Lilith', 'Grimm', 'Morgana', 'Corvus', 'Nyx', 'Hécate', 'Salem', 'Circe', 'Merlín', 'Baba Yaga', 'Fausto', 'Medea', 'Belial', 'Ágata', 'Mordred', 'Sibila', 'Rasputín', 'Carmilla', 'Astaroth', 'Nimue', 'Erebo', 'Brujilda', 'Lázaro', 'Úrsula', 'Vlad', 'Pandora', 'Azrael', 'Melusina', 'Caronte', 'Lucero'];
 

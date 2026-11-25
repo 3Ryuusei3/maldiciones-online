@@ -118,8 +118,8 @@ let SHOW_MS = 510;
 let SETTLE_MS = 290;
 let CALLOUT_MS = 3000;
 /**
- * Velocidad de las animaciones de cartas y carteles: 1 = la base. La partida normal va un 10 % más pausada y el
- * tutorial, más todavía (es para aprender).
+ * Velocidad de las animaciones de cartas y carteles: 1 = la base. La partida normal va algo más pausada (1,1 × 1,15)
+ * y el tutorial, más todavía (es para aprender).
  */
 function setAnimSpeed(f: number) {
   // Algo más ágil que al principio: robar, duplicar y la carta en grande no se hacen esperar.
@@ -128,7 +128,9 @@ function setAnimSpeed(f: number) {
   SETTLE_MS = 290 * f;
   CALLOUT_MS = 3000 * f;
 }
-setAnimSpeed(1.1);
+setAnimSpeed(1.265);
+/** Lo que se ve en grande sobre la Pila una carta probada a ciegas que no servía (antes de volver a la mano). */
+const BOUNCE_SHOW_MS = 1000;
 /** Lo que tarda una mano en abrir hueco antes de que salga la carta que va a ocuparlo. */
 const ROOM_MS = 300;
 
@@ -356,11 +358,12 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
             rotB: rot ?? (id && !under && f.card && s.pile[s.pile.length - 1]?.id === f.card.id ? topRot(f.card.id) : 0),
             delay,
             flipFrom,
-            // Robar del Mazo va más rápido (son cartas boca abajo, no hay nada que leer).
-            ms: slow ? FLY_MS * 2.6 : fromDeck && !isStar ? FLY_MS * 0.7 : undefined,
-            showMs: slow ? SHOW_MS * 2.6 : undefined,
+            // Robar del Mazo va más rápido (son cartas boca abajo, no hay nada que leer). La carta probada a ciegas que no
+            // sirve va más despacio y se queda 1 s en grande sobre la Pila, para que se vea cuál era.
+            ms: slow ? FLY_MS * 2.6 : f.bounce ? FLY_MS * 1.3 : fromDeck && !isStar ? FLY_MS * 0.7 : undefined,
+            showMs: slow ? SHOW_MS * 2.6 : f.bounce ? BOUNCE_SHOW_MS : undefined,
             solid: !!mine,
-            show: isStar ? (B.width * (stars.length > 1 ? 1.2 : slow ? 1.7 : 1.36)) / w : undefined,
+            show: isStar || f.bounce ? (B.width * (stars.length > 1 && isStar ? 1.2 : slow ? 1.7 : 1.36)) / w : undefined,
             showDx: dx - side,
             onStart: from !== null ? () => bump(from, -1) : undefined,
             onLand: () => {
@@ -368,7 +371,7 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
                 // No servía: vuelve a la mano de quien la probó y se da la vuelta otra vez.
                 const back = f.from === ME ? document.querySelector<HTMLElement>('.cards-row')?.getBoundingClientRect() : anchorRect(f.from);
                 const mineBack = f.from === ME && f.card ? f.card.id : null;
-                if (back) launch(host, { src: BACK, flipFrom: src, A: B, B: back, sA: scaleAt('pile', B, w), sB: scaleAt(f.from, back, w), ms: 700, solid: true, onLand: () => { if (id) setFlying((v) => v.filter((x) => x !== id)); if (mineBack) setHidden((v) => v.filter((x) => x !== mineBack)); } });
+                if (back) launch(host, { src: BACK, flipFrom: src, A: B, B: back, sA: scaleAt('pile', B, w), sB: scaleAt(f.from, back, w), ms: 910, solid: true, onLand: () => { if (id) setFlying((v) => v.filter((x) => x !== id)); if (mineBack) setHidden((v) => v.filter((x) => x !== mineBack)); } });
                 else if (mineBack) setHidden((v) => v.filter((x) => x !== mineBack));
                 return;
               }
@@ -413,7 +416,7 @@ function useFlights(s: GameState, origins: React.MutableRefObject<Record<string,
           }, k * gap + extra + ROOM_MS);
         } else go(B, scaleAt(f.to, B, w), k * gap + extra + (to !== null ? ROOM_MS : 0));
         // Tras una carta que vuelve a la mano, lo siguiente (la carta que roba) espera a que termine.
-        if (f.bounce) extra += FLY_MS + (isStar ? SHOW_MS + SETTLE_MS : 0) + 900;
+        if (f.bounce) extra += FLY_MS * 1.3 + BOUNCE_SHOW_MS + SETTLE_MS + 1100;
       }
     }
     if (added.length) setFlying((v) => [...v, ...added]);
@@ -651,7 +654,7 @@ const FATE_LABEL: Record<Fate, string> = { back: 'Al Mazo', keep: 'A la mano', d
  */
 function Game({ cfg, onExit, onRematch, net, tv = false, pad = false }: { cfg: GameConfig; onExit: () => void; onRematch?: () => void; net?: NetClient; tv?: boolean; pad?: boolean }) {
   // El tutorial va más despacio (es para aprender); la partida normal, un 10 % más pausada que la base.
-  setAnimSpeed(cfg.tutorial ? 1.4 : 1.1);
+  setAnimSpeed(cfg.tutorial ? 1.61 : 1.265);
   /** Entrada de la partida: cada jugador tiene su Maldición boca arriba y recibe 6 cartas boca abajo; luego se giran. */
   // Quien entra o vuelve a una partida online ya repartida no ve el reparto otra vez.
   const [intro, setIntro] = useState<Intro>(() => (net?.getSnap().view?.dealt ? null : 'deal'));

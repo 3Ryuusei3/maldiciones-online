@@ -59,7 +59,7 @@ Navegador (React + Vite, src/)                Cloudflare (server/, plan gratuito
 envía a `/api/partidas`.
 
 El motor deja en `state.fx` los movimientos de cartas de la última acción; la interfaz los anima (`launch`: cartas que vuelan,
-se ven en grande sobre la Pila y se asientan). Velocidad en `setAnimSpeed` (App.tsx): 1.1 en partida, 1.4 en el tutorial.
+se ven en grande sobre la Pila y se asientan). Velocidad en `setAnimSpeed` (App.tsx): 1.265 en partida, 1.61 en el tutorial (las pausas de las máquinas, `PACE` en `timing.ts`, también 1.265). Una carta probada a ciegas que no sirve va más despacio y se ve 1 s en grande sobre la Pila (`BOUNCE_SHOW_MS`).
 
 URLs de depuración: `?demo=N` (partida directa con N jugadores), `&mano=carta,carta` (te reparte esas cartas).
 
