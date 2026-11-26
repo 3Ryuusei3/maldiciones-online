@@ -112,7 +112,7 @@ URLs de depuración: `?demo=N` (partida directa con N jugadores), `&mano=carta,c
 
 ## 6. App instalable (PWA) y móvil
 
-- `public/manifest.webmanifest` + iconos en `public/pwa/` (emblema del dorso: calavera, estrella y rayos).
+- `public/manifest.webmanifest` + iconos en `public/pwa/`: la app usa la calavera del dorso (Parte Trasera v7.0.1) en doble hexágono (`icon.svg`, de ahí los PNG 192/512, maskable al 86 % y apple-touch 180); el favicon es la calavera sola (`favicon.svg` y `favicon-48.png`).
 - **Service worker** (`scripts/gen-sw.mjs` lo genera en `dist/sw.js` al compilar):
   - al instalarse descarga toda la web;
   - imágenes y código salen de la caché;
